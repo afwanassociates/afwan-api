@@ -15,7 +15,24 @@ use Tests\TestCase;
 */
 
 pest()->extend(TestCase::class)
- // ->use(RefreshDatabase::class)
+    ->use(RefreshDatabase::class)
+    ->beforeAll(function () {
+        /*
+        | Safety check: RefreshDatabase wipes the database, so refuse to run unless the
+        | tests point at a database whose name ends with "_test". This runs before
+        | setUp(), so before any migration. A cached config would make Laravel
+        | ignore the phpunit.xml values, so refuse that as well.
+        */
+        $database = (string) ($_ENV['DB_DATABASE'] ?? getenv('DB_DATABASE'));
+
+        if (! str_ends_with($database, '_test')) {
+            throw new RuntimeException("Refusing to run tests: DB_DATABASE \"{$database}\" does not end with \"_test\".");
+        }
+
+        if (file_exists(dirname(__DIR__).'/bootstrap/cache/config.php')) {
+            throw new RuntimeException('Refusing to run tests: configuration is cached. Run "php artisan config:clear" first.');
+        }
+    })
     ->in('Feature');
 
 /*
