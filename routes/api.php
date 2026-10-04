@@ -2,6 +2,9 @@
 
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\DataEntry\CompanyController;
+use App\Http\Controllers\DataEntry\PassportEntryController;
+use App\Http\Controllers\DataEntry\ReferenceController;
 use App\Http\Controllers\RoleController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -50,6 +53,12 @@ Route::middleware('auth:sanctum')->group(function () {
             'area' => 'data-entry',
             'message' => "Welcome, {$request->user()->name}.",
         ]))->name('dashboard');
+
+        // Passport records. Who may edit or delete is decided by the policies.
+        Route::apiResource('passports', PassportEntryController::class)
+            ->parameters(['passports' => 'passport']);
+        Route::apiResource('references', ReferenceController::class)->except('show');
+        Route::apiResource('companies', CompanyController::class)->except('show');
     });
 
     Route::prefix('accounts')->name('accounts.')->middleware('role:accounts')->group(function () {

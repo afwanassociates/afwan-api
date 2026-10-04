@@ -1,0 +1,47 @@
+<?php
+
+namespace App\Http\Resources;
+
+use App\Models\PassportEntry;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+/**
+ * @mixin PassportEntry
+ */
+class PassportEntryResource extends JsonResource
+{
+    /**
+     * Transform the resource into an array.
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->id,
+            'passport_name' => $this->passport_name,
+            'passport_number' => $this->passport_number,
+            'passport_received_date' => $this->passport_received_date->toDateString(),
+            'reference' => [
+                'id' => $this->reference->id,
+                'type' => $this->reference->type->value,
+                'type_label' => $this->reference->type->label(),
+                'name' => $this->reference->name,
+            ],
+            'company' => [
+                'id' => $this->company->id,
+                'name' => $this->company->name,
+            ],
+            'created_by' => $this->created_by,
+            'updated_by' => $this->updated_by,
+            'created_at' => $this->created_at,
+            'updated_at' => $this->updated_at,
+            // What the current user may do with this entry, for the SPA's buttons.
+            'can' => [
+                'update' => $request->user()?->can('update', $this->resource) ?? false,
+                'delete' => $request->user()?->can('delete', $this->resource) ?? false,
+            ],
+        ];
+    }
+}
