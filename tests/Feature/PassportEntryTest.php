@@ -19,9 +19,12 @@ function passportPayload(array $overrides = []): array
     return [
         'passport_name' => 'Md Karim Ali',
         'passport_number' => 'AB1234567',
+        'country_code' => 'BD',
+        'date_of_birth' => '1995-04-12',
         'reference_id' => $overrides['reference_id'] ?? Reference::factory()->create()->id,
         'company_id' => $overrides['company_id'] ?? Company::factory()->create()->id,
         'passport_received_date' => now()->subDay()->toDateString(),
+        'passport_expiry_date' => now()->addYears(5)->toDateString(),
         ...$overrides,
     ];
 }
@@ -288,13 +291,13 @@ describe('list', function () {
         'received_to before received_from' => [['received_from' => '2026-03-01', 'received_to' => '2026-01-01'], 'received_to'],
     ]);
 
-    it('runs a fixed number of queries however many rows it returns', function () {
-        PassportEntry::factory()->count(12)->create();
+    it('runs a fixed number of queries however many rows it returns', function (int $perPage) {
+        PassportEntry::factory()->count(12)->create(['country_code' => 'MY']);
 
         DB::enableQueryLog();
-        $this->getJson('/api/data-entry/passports?per_page=15')->assertOk()->assertJsonCount(15, 'data');
+        $this->getJson("/api/data-entry/passports?per_page={$perPage}&company_country_code=my")->assertOk()->assertJsonCount($perPage, 'data');
 
-        // count + page + references + companies
-        expect(DB::getQueryLog())->toHaveCount(4);
-    });
+        // count + page + passport countries + references + companies + company countries
+        expect(DB::getQueryLog())->toHaveCount(6);
+    })->with([2, 15]);
 });

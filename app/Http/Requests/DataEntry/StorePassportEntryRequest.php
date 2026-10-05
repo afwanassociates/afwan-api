@@ -3,6 +3,7 @@
 namespace App\Http\Requests\DataEntry;
 
 use App\Models\PassportEntry;
+use App\Rules\ActiveCountry;
 use App\Support\Normalize;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Database\Query\Builder;
@@ -19,7 +20,7 @@ class StorePassportEntryRequest extends FormRequest
      */
     protected function prepareForValidation(): void
     {
-        foreach (['passport_number' => 'passportNumber', 'passport_name' => 'passportName'] as $field => $normalizer) {
+        foreach (['passport_number' => 'passportNumber', 'passport_name' => 'passportName', 'country_code' => 'countryCode'] as $field => $normalizer) {
             if (is_string($this->input($field))) {
                 $this->merge([$field => Normalize::$normalizer($this->input($field))]);
             }
@@ -36,9 +37,12 @@ class StorePassportEntryRequest extends FormRequest
         return [
             'passport_name' => ['required', 'string', 'max:150'],
             'passport_number' => ['required', 'string', 'regex:/^[A-Z0-9]{6,20}$/', $this->uniquePassportNumber()],
+            'country_code' => ['nullable', 'string', 'size:2', new ActiveCountry($this->entry()?->country_code)],
+            'date_of_birth' => ['required', 'date_format:Y-m-d', 'before:today'],
             'reference_id' => ['required', 'integer', $this->selectable('references', $this->entry()?->reference_id)],
             'company_id' => ['required', 'integer', $this->selectable('companies', $this->entry()?->company_id)],
             'passport_received_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
+            'passport_expiry_date' => ['required', 'date_format:Y-m-d', $this->afterReceivedDate()],
         ];
     }
 
@@ -55,7 +59,22 @@ class StorePassportEntryRequest extends FormRequest
             'reference_id.exists' => 'The selected reference does not exist or is inactive.',
             'company_id.exists' => 'The selected company does not exist or is inactive.',
             'passport_received_date.before_or_equal' => 'The passport received date cannot be in the future.',
+            'date_of_birth.before' => 'The date of birth must be in the past.',
+            'passport_expiry_date.after' => 'The passport expiry date must be after the passport received date.',
         ];
+    }
+
+    /**
+     * Compare with the received date being sent, or (when editing without
+     * sending it) the entry's current one.
+     */
+    protected function afterReceivedDate(): string
+    {
+        $received = $this->input('passport_received_date', $this->entry()?->passport_received_date?->toDateString());
+
+        return is_string($received) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $received)
+            ? "after:{$received}"
+            : 'after:passport_received_date';
     }
 
     /**

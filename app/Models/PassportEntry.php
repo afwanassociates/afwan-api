@@ -12,10 +12,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * A received passport. created_by and updated_by are deliberately not
- * fillable: they are set in code from the logged-in user.
+ * A received passport. created_by, updated_by and deleted_by are deliberately
+ * not fillable: they are set in code from the logged-in user.
  */
-#[Fillable(['passport_name', 'passport_number', 'reference_id', 'company_id', 'passport_received_date'])]
+#[Fillable([
+    'passport_name', 'passport_number', 'country_code', 'date_of_birth', 'reference_id', 'company_id',
+    'passport_received_date', 'passport_expiry_date',
+])]
 class PassportEntry extends Model
 {
     /** @use HasFactory<PassportEntryFactory> */
@@ -29,7 +32,9 @@ class PassportEntry extends Model
     protected function casts(): array
     {
         return [
+            'date_of_birth' => 'date',
             'passport_received_date' => 'date',
+            'passport_expiry_date' => 'date',
         ];
     }
 
@@ -47,6 +52,16 @@ class PassportEntry extends Model
     protected function passportName(): Attribute
     {
         return Attribute::make(set: fn (?string $value) => Normalize::passportName($value));
+    }
+
+    /**
+     * The passport's issuing country (nullable on old entries).
+     *
+     * @return BelongsTo<Country, $this>
+     */
+    public function country(): BelongsTo
+    {
+        return $this->belongsTo(Country::class, 'country_code');
     }
 
     /**
@@ -83,5 +98,13 @@ class PassportEntry extends Model
     public function updater(): BelongsTo
     {
         return $this->belongsTo(User::class, 'updated_by');
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function deleter(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'deleted_by');
     }
 }

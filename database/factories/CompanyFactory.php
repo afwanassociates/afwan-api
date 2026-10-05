@@ -19,6 +19,7 @@ class CompanyFactory extends Factory
     {
         return [
             'name' => fake()->unique()->company(),
+            'country_code' => 'MY',
             'is_active' => true,
         ];
     }

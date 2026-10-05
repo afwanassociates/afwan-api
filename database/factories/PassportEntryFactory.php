@@ -23,9 +23,12 @@ class PassportEntryFactory extends Factory
         return [
             'passport_name' => fake()->name(),
             'passport_number' => fake()->unique()->bothify('??#######'),
+            'country_code' => 'BD',
+            'date_of_birth' => fake()->dateTimeBetween('-50 years', '-18 years'),
             'reference_id' => Reference::factory(),
             'company_id' => Company::factory(),
             'passport_received_date' => fake()->dateTimeBetween('-1 year', 'now'),
+            'passport_expiry_date' => fake()->dateTimeBetween('+1 year', '+10 years'),
         ];
     }
 

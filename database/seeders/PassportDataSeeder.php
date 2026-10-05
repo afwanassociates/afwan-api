@@ -8,6 +8,7 @@ use App\Models\Company;
 use App\Models\PassportEntry;
 use App\Models\Reference;
 use App\Models\User;
+use App\Support\Settings;
 use Illuminate\Database\Seeder;
 
 class PassportDataSeeder extends Seeder
@@ -63,6 +64,7 @@ class PassportDataSeeder extends Seeder
         $companies = collect($this->companies)->map(function (string $name) use ($creator) {
             $company = Company::withTrashed()->firstOrNew(['name' => $name]);
             $company->is_active = true;
+            $company->country_code ??= app(Settings::class)->get(Settings::DEFAULT_COMPANY_COUNTRY, 'MY');
             $company->created_by ??= $creator?->id;
             $company->save();
 

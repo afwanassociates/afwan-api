@@ -15,10 +15,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * A company passports are entered for. is_active and created_by are
+ * A company (employer) passports are entered for; its country is where the
+ * employer is, not the passport's country. is_active and created_by are
  * deliberately not fillable: assign them explicitly.
  */
-#[Fillable(['name'])]
+#[Fillable(['name', 'country_code'])]
 class Company extends Model
 {
     /** @use HasFactory<CompanyFactory> */
@@ -53,6 +54,16 @@ class Company extends Model
     protected function active(Builder $query): void
     {
         $query->where('is_active', true);
+    }
+
+    /**
+     * Where the employer is. Countries are only ever deactivated, so this always resolves.
+     *
+     * @return BelongsTo<Country, $this>
+     */
+    public function country(): BelongsTo
+    {
+        return $this->belongsTo(Country::class, 'country_code');
     }
 
     /**

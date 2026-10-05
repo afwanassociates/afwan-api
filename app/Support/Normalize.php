@@ -27,6 +27,14 @@ class Normalize
     }
 
     /**
+     * Trim and uppercase: " my " becomes "MY".
+     */
+    public static function countryCode(?string $value): ?string
+    {
+        return $value === null ? null : Str::upper(trim($value));
+    }
+
+    /**
      * Trim and collapse repeated spaces, keeping the case as typed.
      */
     public static function name(?string $value): ?string

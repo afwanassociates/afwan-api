@@ -33,6 +33,7 @@ class CompanyController extends Controller
         $search = trim((string) $request->validated('q'));
 
         $companies = Company::query()
+            ->with('country')
             ->unless($all, fn (Builder $query) => $query->where('is_active', true))
             ->when($search !== '', fn (Builder $query) => $query->where('name', 'like', Like::contains($search)))
             ->orderBy('name');
@@ -54,7 +55,7 @@ class CompanyController extends Controller
         $company->created_by = $request->user()->id;
         $company->save();
 
-        return new CompanyResource($company);
+        return new CompanyResource($company->load('country'));
     }
 
     /**
@@ -72,7 +73,7 @@ class CompanyController extends Controller
 
         $company->save();
 
-        return new CompanyResource($company);
+        return new CompanyResource($company->load('country'));
     }
 
     /**

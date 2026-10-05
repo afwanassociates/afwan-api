@@ -1,8 +1,12 @@
 <?php
 
+use App\Http\Controllers\Admin\CountryController;
+use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\DataEntry\CompanyController;
+use App\Http\Controllers\DataEntry\CountryLookupController;
+use App\Http\Controllers\DataEntry\DefaultsController;
 use App\Http\Controllers\DataEntry\PassportEntryController;
 use App\Http\Controllers\DataEntry\ReferenceController;
 use App\Http\Controllers\RoleController;
@@ -46,6 +50,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/users', [UserController::class, 'store'])->name('users.store');
         Route::patch('/users/{user}', [UserController::class, 'update'])->name('users.update');
         Route::post('/users/{user}/reset-password', [UserController::class, 'resetPassword'])->name('users.reset-password');
+
+        // Countries are only ever added or deactivated, never deleted.
+        Route::apiResource('countries', CountryController::class)->only(['index', 'store', 'update']);
+        Route::get('/settings', [SettingsController::class, 'show'])->name('settings.show');
+        Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
     });
 
     Route::prefix('data-entry')->name('data-entry.')->middleware('role:data_entry')->group(function () {
@@ -59,6 +68,8 @@ Route::middleware('auth:sanctum')->group(function () {
             ->parameters(['passports' => 'passport']);
         Route::apiResource('references', ReferenceController::class)->except('show');
         Route::apiResource('companies', CompanyController::class)->except('show');
+        Route::get('/countries', CountryLookupController::class)->name('countries.index');
+        Route::get('/defaults', DefaultsController::class)->name('defaults');
     });
 
     Route::prefix('accounts')->name('accounts.')->middleware('role:accounts')->group(function () {

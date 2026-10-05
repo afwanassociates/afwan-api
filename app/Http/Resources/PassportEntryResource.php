@@ -12,6 +12,13 @@ use Illuminate\Http\Resources\Json\JsonResource;
 class PassportEntryResource extends JsonResource
 {
     /**
+     * Relations to eager load before returning entries.
+     *
+     * @var list<string>
+     */
+    public const RELATIONS = ['country', 'reference', 'company.country'];
+
+    /**
      * Transform the resource into an array.
      *
      * @return array<string, mixed>
@@ -22,7 +29,14 @@ class PassportEntryResource extends JsonResource
             'id' => $this->id,
             'passport_name' => $this->passport_name,
             'passport_number' => $this->passport_number,
+            // Inactive countries still resolve, so old entries keep their names.
+            'country' => $this->country ? [
+                'code' => $this->country->code,
+                'name' => $this->country->name,
+            ] : null,
+            'date_of_birth' => $this->date_of_birth?->toDateString(),
             'passport_received_date' => $this->passport_received_date->toDateString(),
+            'passport_expiry_date' => $this->passport_expiry_date?->toDateString(),
             'reference' => [
                 'id' => $this->reference->id,
                 'type' => $this->reference->type->value,
@@ -32,6 +46,10 @@ class PassportEntryResource extends JsonResource
             'company' => [
                 'id' => $this->company->id,
                 'name' => $this->company->name,
+                'country' => [
+                    'code' => $this->company->country->code,
+                    'name' => $this->company->country->name,
+                ],
             ],
             'created_by' => $this->created_by,
             'updated_by' => $this->updated_by,

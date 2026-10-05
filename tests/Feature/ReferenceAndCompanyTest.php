@@ -113,12 +113,12 @@ describe('companies', function () {
         $clerk = User::factory()->dataEntry()->create();
         Sanctum::actingAs($clerk);
 
-        $this->postJson('/api/data-entry/companies', ['name' => '  Gulf   Star Catering '])
+        $this->postJson('/api/data-entry/companies', ['name' => '  Gulf   Star Catering ', 'country_code' => 'MY'])
             ->assertCreated()
             ->assertJsonPath('data.name', 'Gulf Star Catering');
         expect(Company::sole()->created_by)->toBe($clerk->id);
 
-        $this->postJson('/api/data-entry/companies', ['name' => 'gulf star catering'])
+        $this->postJson('/api/data-entry/companies', ['name' => 'gulf star catering', 'country_code' => 'MY'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['name' => 'A company with this name already exists.']);
     });

@@ -11,6 +11,7 @@ use App\Models\PassportEntry;
 use App\Support\Like;
 use App\Support\Normalize;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
@@ -29,7 +30,7 @@ class PassportEntryController extends Controller
         $direction = $request->validated('direction', 'desc');
 
         $entries = PassportEntry::query()
-            ->with(['reference', 'company'])
+            ->with(PassportEntryResource::RELATIONS)
             ->when($search !== '', fn (Builder $query) => $query->where(fn (Builder $query) => $query
                 ->where('passport_name', 'like', Like::contains($search))
                 ->orWhere('passport_number', 'like', Like::contains((string) Normalize::passportNumber($search)))
@@ -38,6 +39,7 @@ class PassportEntryController extends Controller
             ->when($request->has('reference_id'), fn (Builder $query) => $query->where('reference_id', $request->integer('reference_id')))
             ->when($request->has('reference_type'), fn (Builder $query) => $query->whereHas('reference', fn (Builder $query) => $query->where('type', $request->validated('reference_type'))))
             ->when($request->has('company_id'), fn (Builder $query) => $query->where('company_id', $request->integer('company_id')))
+            ->when($request->has('company_country_code'), fn (Builder $query) => $query->whereHas('company', fn (Builder $query) => $query->where('country_code', $request->validated('company_country_code'))))
             ->when($request->has('received_from'), fn (Builder $query) => $query->whereDate('passport_received_date', '>=', $request->validated('received_from')))
             ->when($request->has('received_to'), fn (Builder $query) => $query->whereDate('passport_received_date', '<=', $request->validated('received_to')))
             ->orderBy($sort, $direction)
@@ -60,7 +62,7 @@ class PassportEntryController extends Controller
         $entry->updated_by = $request->user()->id;
         $entry->save();
 
-        return new PassportEntryResource($entry->load(['reference', 'company']));
+        return new PassportEntryResource($entry->load(PassportEntryResource::RELATIONS));
     }
 
     /**
@@ -70,7 +72,7 @@ class PassportEntryController extends Controller
     {
         Gate::authorize('view', $passport);
 
-        return new PassportEntryResource($passport->load(['reference', 'company']));
+        return new PassportEntryResource($passport->load(PassportEntryResource::RELATIONS));
     }
 
     /**
@@ -84,16 +86,19 @@ class PassportEntryController extends Controller
         $passport->updated_by = $request->user()->id;
         $passport->save();
 
-        return new PassportEntryResource($passport->load(['reference', 'company']));
+        return new PassportEntryResource($passport->load(PassportEntryResource::RELATIONS));
     }
 
     /**
-     * Soft delete a passport entry. Its passport number stays taken.
+     * Soft delete a passport entry, recording who deleted it. Its passport
+     * number stays taken.
      */
-    public function destroy(PassportEntry $passport): Response
+    public function destroy(Request $request, PassportEntry $passport): Response
     {
         Gate::authorize('delete', $passport);
 
+        $passport->deleted_by = $request->user()->id;
+        $passport->save();
         $passport->delete();
 
         return response()->noContent();
