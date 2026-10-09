@@ -6,6 +6,7 @@ use App\Models\Company;
 use App\Models\PassportEntry;
 use App\Models\Reference;
 use App\Models\User;
+use App\Services\WorkflowService;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -30,6 +31,17 @@ class PassportEntryFactory extends Factory
             'passport_received_date' => fake()->dateTimeBetween('-1 year', 'now'),
             'passport_expiry_date' => fake()->dateTimeBetween('+1 year', '+10 years'),
         ];
+    }
+
+    /**
+     * Configure the model factory: like the app, set the stored workflow
+     * position (stage_status_date) after creating.
+     */
+    public function configure(): static
+    {
+        return $this->afterCreating(function (PassportEntry $entry) {
+            app(WorkflowService::class)->recompute($entry);
+        });
     }
 
     /**

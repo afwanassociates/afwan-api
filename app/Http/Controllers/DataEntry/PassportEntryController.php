@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers\DataEntry;
 
+use App\Enums\MedicalStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\DataEntry\ListPassportEntriesRequest;
 use App\Http\Requests\DataEntry\StorePassportEntryRequest;
 use App\Http\Requests\DataEntry\UpdatePassportEntryRequest;
 use App\Http\Resources\PassportEntryResource;
+use App\Http\Resources\PassportOverviewResource;
 use App\Models\PassportEntry;
+use App\Services\WorkflowService;
 use App\Support\Like;
 use App\Support\Normalize;
 use Illuminate\Database\Eloquent\Builder;
@@ -19,7 +22,8 @@ use Illuminate\Support\Facades\Gate;
 class PassportEntryController extends Controller
 {
     /**
-     * Paginated, searchable list of passport entries.
+     * Paginated, searchable list of passport entries. view=overview returns the
+     * lean All Passports overview instead of the full entries.
      */
     public function index(ListPassportEntriesRequest $request): AnonymousResourceCollection
     {
@@ -28,12 +32,32 @@ class PassportEntryController extends Controller
         $search = trim((string) $request->validated('q'));
         $sort = $request->validated('sort', 'created_at');
         $direction = $request->validated('direction', 'desc');
+        $medicalStatus = $request->validated('medical_status');
+        $overview = $request->validated('view') === ListPassportEntriesRequest::OVERVIEW;
+
+        // Columns are qualified: the current medical record is joined in.
+        $sortColumn = match ($sort) {
+            'medical_date', 'valid_until' => PassportEntry::CURRENT_MEDICAL.".{$sort}",
+            'status_date' => 'passport_entries.stage_status_date',
+            default => "passport_entries.{$sort}",
+        };
 
         $entries = PassportEntry::query()
-            ->with(PassportEntryResource::RELATIONS)
+            ->with($overview ? PassportOverviewResource::RELATIONS : PassportEntryResource::RELATIONS)
+            ->withCurrentMedical()
+            // Unfit passports have their own list (medical_status=unfit) and are
+            // left out by default; medical_status=all applies no medical filter.
+            ->when(
+                $medicalStatus === null,
+                fn (Builder $query) => $query->withoutUnfit(),
+                fn (Builder $query) => $query->when(
+                    $medicalStatus !== ListPassportEntriesRequest::ALL_MEDICAL_STATUSES,
+                    fn (Builder $query) => $query->whereMedicalStatus(MedicalStatus::from($medicalStatus)),
+                ),
+            )
             ->when($search !== '', fn (Builder $query) => $query->where(fn (Builder $query) => $query
-                ->where('passport_name', 'like', Like::contains($search))
-                ->orWhere('passport_number', 'like', Like::contains((string) Normalize::passportNumber($search)))
+                ->where('passport_entries.passport_name', 'like', Like::contains($search))
+                ->orWhere('passport_entries.passport_number', 'like', Like::contains((string) Normalize::passportNumber($search)))
                 ->orWhereHas('reference', fn (Builder $query) => $query->where('name', 'like', Like::contains($search)))
                 ->orWhereHas('company', fn (Builder $query) => $query->where('name', 'like', Like::contains($search)))))
             ->when($request->has('reference_id'), fn (Builder $query) => $query->where('reference_id', $request->integer('reference_id')))
@@ -42,18 +66,20 @@ class PassportEntryController extends Controller
             ->when($request->has('company_country_code'), fn (Builder $query) => $query->whereHas('company', fn (Builder $query) => $query->where('country_code', $request->validated('company_country_code'))))
             ->when($request->has('received_from'), fn (Builder $query) => $query->whereDate('passport_received_date', '>=', $request->validated('received_from')))
             ->when($request->has('received_to'), fn (Builder $query) => $query->whereDate('passport_received_date', '<=', $request->validated('received_to')))
-            ->orderBy($sort, $direction)
-            ->orderBy('id', $direction)
+            ->orderBy($sortColumn, $direction)
+            ->orderBy('passport_entries.id', $direction)
             ->paginate($request->integer('per_page', 15))
             ->withQueryString();
 
-        return PassportEntryResource::collection($entries);
+        return $overview
+            ? PassportOverviewResource::collection($entries)
+            : PassportEntryResource::collection($entries);
     }
 
     /**
      * Record a received passport.
      */
-    public function store(StorePassportEntryRequest $request): PassportEntryResource
+    public function store(StorePassportEntryRequest $request, WorkflowService $workflow): PassportEntryResource
     {
         Gate::authorize('create', PassportEntry::class);
 
@@ -61,6 +87,7 @@ class PassportEntryController extends Controller
         $entry->created_by = $request->user()->id;
         $entry->updated_by = $request->user()->id;
         $entry->save();
+        $workflow->recompute($entry);
 
         return new PassportEntryResource($entry->load(PassportEntryResource::RELATIONS));
     }
@@ -78,13 +105,18 @@ class PassportEntryController extends Controller
     /**
      * Edit a passport entry.
      */
-    public function update(UpdatePassportEntryRequest $request, PassportEntry $passport): PassportEntryResource
+    public function update(UpdatePassportEntryRequest $request, PassportEntry $passport, WorkflowService $workflow): PassportEntryResource
     {
         Gate::authorize('update', $passport);
 
         $passport->fill($request->validated());
         $passport->updated_by = $request->user()->id;
         $passport->save();
+
+        // A pending passport's status date is its received date.
+        if ($passport->wasChanged('passport_received_date')) {
+            $workflow->recompute($passport);
+        }
 
         return new PassportEntryResource($passport->load(PassportEntryResource::RELATIONS));
     }

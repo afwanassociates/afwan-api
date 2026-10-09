@@ -2,7 +2,9 @@
 
 namespace App\Http\Resources;
 
+use App\Models\MedicalRecord;
 use App\Models\PassportEntry;
+use App\Support\Workflow;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -16,7 +18,7 @@ class PassportEntryResource extends JsonResource
      *
      * @var list<string>
      */
-    public const RELATIONS = ['country', 'reference', 'company.country'];
+    public const RELATIONS = ['country', 'reference', 'company.country', 'currentMedical.creator'];
 
     /**
      * Transform the resource into an array.
@@ -25,6 +27,8 @@ class PassportEntryResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $medicalStatus = $this->medicalStatus();
+
         return [
             'id' => $this->id,
             'passport_name' => $this->passport_name,
@@ -51,6 +55,10 @@ class PassportEntryResource extends JsonResource
                     'name' => $this->company->country->name,
                 ],
             ],
+            'medical_status' => $medicalStatus->value,
+            'medical_status_label' => $medicalStatus->label(),
+            'current_medical' => $this->currentMedical ? MedicalRecordResource::summary($this->currentMedical) : null,
+            'workflow' => app(Workflow::class)->forPassport($this->resource, $medicalStatus),
             'created_by' => $this->created_by,
             'updated_by' => $this->updated_by,
             'created_at' => $this->created_at,
@@ -59,6 +67,7 @@ class PassportEntryResource extends JsonResource
             'can' => [
                 'update' => $request->user()?->can('update', $this->resource) ?? false,
                 'delete' => $request->user()?->can('delete', $this->resource) ?? false,
+                'record_medical' => $request->user()?->can('create', [MedicalRecord::class, $this->resource]) ?? false,
             ],
         ];
     }

@@ -7,8 +7,11 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\DataEntry\CompanyController;
 use App\Http\Controllers\DataEntry\CountryLookupController;
 use App\Http\Controllers\DataEntry\DefaultsController;
+use App\Http\Controllers\DataEntry\MedicalQueueController;
+use App\Http\Controllers\DataEntry\MedicalRecordController;
 use App\Http\Controllers\DataEntry\PassportEntryController;
 use App\Http\Controllers\DataEntry\ReferenceController;
+use App\Http\Controllers\DataEntry\WorkflowSummaryController;
 use App\Http\Controllers\RoleController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -66,6 +69,15 @@ Route::middleware('auth:sanctum')->group(function () {
         // Passport records. Who may edit or delete is decided by the policies.
         Route::apiResource('passports', PassportEntryController::class)
             ->parameters(['passports' => 'passport']);
+
+        // Step 2: medical results. Every write goes through App\Services\MedicalService.
+        Route::get('/passports/{passport}/medicals', [MedicalRecordController::class, 'index'])->name('passports.medicals.index');
+        Route::post('/passports/{passport}/medicals', [MedicalRecordController::class, 'store'])->name('passports.medicals.store');
+        Route::patch('/medicals/{medical}', [MedicalRecordController::class, 'update'])->name('medicals.update');
+        Route::delete('/medicals/{medical}', [MedicalRecordController::class, 'destroy'])->name('medicals.destroy');
+        Route::get('/medical/queue', MedicalQueueController::class)->name('medical.queue');
+        Route::get('/workflow/summary', WorkflowSummaryController::class)->name('workflow.summary');
+
         Route::apiResource('references', ReferenceController::class)->except('show');
         Route::apiResource('companies', CompanyController::class)->except('show');
         Route::get('/countries', CountryLookupController::class)->name('countries.index');

@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\DataEntry;
 
+use App\Enums\MedicalStatus;
 use App\Models\PassportEntry;
 use App\Rules\ActiveCountry;
 use App\Support\Normalize;
@@ -54,7 +55,7 @@ class StorePassportEntryRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'passport_number.unique' => 'This passport number is already entered.',
+            'passport_number.unique' => $this->duplicatePassportNumberMessage(),
             'passport_number.regex' => 'The passport number must be 6 to 20 letters and digits.',
             'reference_id.exists' => 'The selected reference does not exist or is inactive.',
             'company_id.exists' => 'The selected company does not exist or is inactive.',
@@ -62,6 +63,33 @@ class StorePassportEntryRequest extends FormRequest
             'date_of_birth.before' => 'The date of birth must be in the past.',
             'passport_expiry_date.after' => 'The passport expiry date must be after the passport received date.',
         ];
+    }
+
+    /**
+     * Say where the existing entry is, so staff can find it, without revealing
+     * anything else about it.
+     */
+    protected function duplicatePassportNumberMessage(): string
+    {
+        $number = $this->input('passport_number');
+        $existing = is_string($number) && $number !== ''
+            ? PassportEntry::withTrashed()
+                ->with('currentMedical')
+                ->where('passport_number', $number)
+                ->when($this->entry(), fn ($query, PassportEntry $entry) => $query->whereKeyNot($entry->id))
+                ->first(['id', 'current_medical_id', 'deleted_at'])
+            : null;
+
+        $location = match (true) {
+            $existing === null => null,
+            $existing->trashed() => 'it is in the deleted records',
+            $existing->medicalStatus() === MedicalStatus::Unfit => 'it is in the Unfit list',
+            default => 'it is in the Passport list',
+        };
+
+        return $location === null
+            ? 'This passport number is already entered.'
+            : "This passport number is already entered ({$location}).";
     }
 
     /**
