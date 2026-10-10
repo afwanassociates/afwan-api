@@ -10,7 +10,8 @@ use App\Models\User;
 
 /**
  * data_entry views and records medicals and edits its own records. Re-testing
- * an unfit passport, editing others' records and deleting are for admin and
+ * an unfit passport, editing others' records, deleting, and any medical
+ * change once a later step (calling onwards) has records are for admin and
  * super_admin only.
  */
 class MedicalRecordPolicy
@@ -25,20 +26,30 @@ class MedicalRecordPolicy
      */
     public function create(User $user, PassportEntry $passport): bool
     {
-        if ($passport->currentMedical?->result === MedicalResult::Unfit) {
-            return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin);
+        if ($passport->currentMedical?->result === MedicalResult::Unfit || $passport->hasStepRecords()) {
+            return $this->isAdmin($user);
         }
 
         return $this->viewAny($user);
     }
 
+    /**
+     * Load passportEntry to avoid a query.
+     */
     public function update(User $user, MedicalRecord $record): bool
     {
-        return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin)
-            || ($user->hasRole(UserRole::DataEntry) && $record->created_by === $user->id);
+        return $this->isAdmin($user)
+            || ($user->hasRole(UserRole::DataEntry)
+                && $record->created_by === $user->id
+                && ! $record->passportEntry?->hasStepRecords());
     }
 
     public function delete(User $user, MedicalRecord $record): bool
+    {
+        return $this->isAdmin($user);
+    }
+
+    protected function isAdmin(User $user): bool
     {
         return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin);
     }

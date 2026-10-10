@@ -5,6 +5,7 @@ namespace App\Http\Requests\DataEntry;
 use App\Enums\MedicalStatus;
 use App\Enums\ReferenceType;
 use App\Support\Normalize;
+use App\Support\Workflow;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -58,6 +59,9 @@ class ListPassportEntriesRequest extends FormRequest
             // Without it, unfit passports are left out; "unfit" lists only them and
             // "all" lists every status (the All Passports screen).
             'medical_status' => ['sometimes', Rule::in([...array_column(MedicalStatus::cases(), 'value'), self::ALL_MEDICAL_STATUSES])],
+            // Where the passport is in the workflow (stored by WorkflowService).
+            'stage' => ['sometimes', Rule::in(app(Workflow::class)->stages())],
+            'stage_status' => ['sometimes', Rule::in(Workflow::STAGE_STATUSES)],
             'received_to' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:received_from'],
             'sort' => ['sometimes', Rule::in(self::SORTABLE)],
             'direction' => ['sometimes', Rule::in(['asc', 'desc'])],

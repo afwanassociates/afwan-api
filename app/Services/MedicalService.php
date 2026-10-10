@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\MedicalResult;
+use App\Exceptions\WorkflowException;
 use App\Models\MedicalRecord;
 use App\Models\PassportEntry;
 use App\Models\User;
@@ -13,8 +14,9 @@ use Illuminate\Support\Facades\DB;
 /**
  * The only place that creates, changes or deletes medical records. Every
  * write runs in a transaction that locks the passport row, derives
- * valid_until, records who acted, and then has WorkflowService recompute the
- * passport's current medical and status date.
+ * valid_until, records who acted, then has WorkflowService check that later
+ * steps still have the fit medical they need (otherwise the change is rolled
+ * back with a 422) and recompute the passport's stage.
  */
 class MedicalService
 {
@@ -23,7 +25,10 @@ class MedicalService
     /**
      * Record a new medical result. Old records are kept as history.
      *
+     *
      * @param  array{medical_date: string, result: string|MedicalResult, remarks?: string|null}  $data
+     *
+     * @throws WorkflowException when later steps would lose their fit medical
      */
     public function record(PassportEntry $passport, array $data, User $actor): MedicalRecord
     {
@@ -37,6 +42,7 @@ class MedicalService
             $record->updated_by = $actor->id;
             $record->save();
 
+            $this->workflow->ensureInOrder($locked);
             $this->workflow->recompute($passport);
 
             return $record;
@@ -64,6 +70,7 @@ class MedicalService
             $record->updated_by = $actor->id;
             $record->save();
 
+            $this->workflow->ensureInOrder($passport);
             $this->workflow->recompute($passport);
 
             return $record;
@@ -82,6 +89,8 @@ class MedicalService
             $record->deleted_by = $actor->id;
             $record->save();
             $record->delete();
+
+            $this->workflow->ensureInOrder($passport);
 
             return $this->workflow->recompute($passport);
         });

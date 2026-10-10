@@ -71,15 +71,15 @@ describe('latest status', function () {
             'text' => 'Medical: Unfit', 'tone' => 'red', 'date' => '2026-04-20',
         ]],
         'fit, waiting for the next step' => ['fit', [
-            'stage' => 'step3', 'stage_label' => 'Step 3', 'status' => 'waiting', 'status_label' => 'Waiting',
-            'text' => 'Step 3: Waiting', 'tone' => 'amber', 'date' => '2026-03-30',
+            'stage' => 'calling', 'stage_label' => 'Calling / Work Permit', 'status' => 'waiting', 'status_label' => 'Waiting',
+            'text' => 'Calling / Work Permit: Waiting', 'tone' => 'amber', 'date' => '2026-03-30',
         ]],
         'fit and expiring soon, still waiting' => ['expiring_soon', [
-            'stage' => 'step3', 'stage_label' => 'Step 3', 'status' => 'waiting', 'status_label' => 'Waiting',
-            'text' => 'Step 3: Waiting', 'tone' => 'amber', 'date' => '2026-02-10',
+            'stage' => 'calling', 'stage_label' => 'Calling / Work Permit', 'status' => 'waiting', 'status_label' => 'Waiting',
+            'text' => 'Calling / Work Permit: Waiting', 'tone' => 'amber', 'date' => '2026-02-10',
         ]],
         'fit but expired (Dhaka date)' => ['expired', [
-            'stage' => 'step3', 'stage_label' => 'Step 3', 'status' => 'expired', 'status_label' => 'Expired',
+            'stage' => 'calling', 'stage_label' => 'Calling / Work Permit', 'status' => 'expired', 'status_label' => 'Expired',
             'text' => 'Medical: Expired', 'tone' => 'amber', 'date' => '2026-01-30',
         ]],
     ]);
@@ -104,7 +104,7 @@ describe('latest status', function () {
         $passport = overviewPassport('fit');
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        expect(overview()->json('data.0.latest_status'))->toMatchArray(['text' => 'Step 3: Waiting', 'date' => '2026-03-30']);
+        expect(overview()->json('data.0.latest_status'))->toMatchArray(['text' => 'Calling / Work Permit: Waiting', 'date' => '2026-03-30']);
 
         // valid_until is 2026-06-30: 00:30 on 1 July in Dhaka is still 30 June in UTC.
         Carbon::setTestNow(Carbon::parse('2026-07-01 00:30', 'Asia/Dhaka')->utc());

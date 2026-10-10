@@ -19,7 +19,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * employer is, not the passport's country. is_active and created_by are
  * deliberately not fillable: assign them explicitly.
  */
-#[Fillable(['name', 'country_code'])]
+#[Fillable(['name', 'country_code', 'agent_name', 'agent_phone', 'agent_email', 'bd_agency_name', 'quota'])]
 class Company extends Model
 {
     /** @use HasFactory<CompanyFactory> */
@@ -34,6 +34,7 @@ class Company extends Model
     {
         return [
             'is_active' => 'boolean',
+            'quota' => 'integer',
         ];
     }
 

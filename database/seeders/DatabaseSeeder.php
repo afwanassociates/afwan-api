@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             StaffUserSeeder::class,
             PassportDataSeeder::class,
             MedicalDataSeeder::class,
+            WorkflowDataSeeder::class,
         ]);
     }
 }

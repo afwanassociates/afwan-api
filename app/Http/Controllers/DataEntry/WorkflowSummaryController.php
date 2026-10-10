@@ -11,14 +11,14 @@ use Illuminate\Support\Facades\Gate;
 class WorkflowSummaryController extends Controller
 {
     /**
-     * Counts for the step bar, computed live from one aggregate query.
+     * Counts for the step bar, computed live from two aggregate queries.
      */
     public function __invoke(Workflow $workflow): JsonResponse
     {
         Gate::authorize('viewAny', PassportEntry::class);
 
         return response()->json(['data' => [
-            'steps' => $workflow->steps(),
+            'steps' => $workflow->stepList(),
             ...$workflow->summary(),
         ]]);
     }

@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * only through App\Services\MedicalService: it sets valid_until and the
  * tracking columns, and keeps the passport's current_medical_id in step.
  */
-#[Fillable(['medical_date', 'result', 'remarks'])]
+#[Fillable(['medical_date', 'result', 'remarks', 'medical_center_id', 'slip_no', 'slip_date'])]
 class MedicalRecord extends Model
 {
     /** @use HasFactory<MedicalRecordFactory> */
@@ -32,6 +32,7 @@ class MedicalRecord extends Model
             'medical_date' => 'date',
             'result' => MedicalResult::class,
             'valid_until' => 'date',
+            'slip_date' => 'date',
         ];
     }
 
@@ -41,6 +42,16 @@ class MedicalRecord extends Model
     public function passportEntry(): BelongsTo
     {
         return $this->belongsTo(PassportEntry::class);
+    }
+
+    /**
+     * Includes soft-deleted centres, so old medicals still show theirs.
+     *
+     * @return BelongsTo<MedicalCenter, $this>
+     */
+    public function medicalCenter(): BelongsTo
+    {
+        return $this->belongsTo(MedicalCenter::class)->withTrashed();
     }
 
     /**

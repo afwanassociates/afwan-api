@@ -194,7 +194,7 @@ describe('passport list', function () {
 
         // count + page + country + reference + company + company country
         // + current medical + its creator.
-        expect($countQueries())->toBe($few)->toBe(8);
+        expect($countQueries())->toBe($few)->toBe(9);
     });
 });
 
@@ -207,14 +207,15 @@ describe('workflow', function () {
 
         expect($response->json('data.workflow.steps.*.state'))->toBe($expected)
             ->and($response->json('data.workflow.current_step'))->toBe($currentStep)
-            ->and($response->json('data.workflow.steps.*.key'))->toBe(['passport', 'medical', 'step3'])
-            ->and($response->json('data.workflow.steps.2'))->toMatchArray(['label' => 'Step 3', 'enabled' => false]);
+            ->and($response->json('data.workflow.steps.*.key'))->toBe(['passport', 'medical', 'calling', 'visa', 'bmet', 'flight'])
+            ->and($response->json('data.workflow.steps.2'))->toMatchArray(['label' => 'Calling / Work Permit', 'enabled' => true, 'record' => null]);
     })->with([
-        'pending' => ['pending', ['done', 'pending', 'locked'], 'medical'],
-        'fit' => ['fit', ['done', 'passed', 'locked'], null],
-        'expiring soon' => ['expiring_soon', ['done', 'passed', 'locked'], null],
-        'expired' => ['expired', ['done', 'expired', 'locked'], 'medical'],
-        'unfit' => ['unfit', ['done', 'failed', 'locked'], 'medical'],
+        'pending' => ['pending', ['done', 'pending', 'locked', 'locked', 'locked', 'locked'], 'medical'],
+        'fit' => ['fit', ['done', 'passed', 'waiting', 'locked', 'locked', 'locked'], 'calling'],
+        'expiring soon' => ['expiring_soon', ['done', 'passed', 'waiting', 'locked', 'locked', 'locked'], 'calling'],
+        // A fit medical whose validity ended still lets the workflow move on.
+        'expired' => ['expired', ['done', 'expired', 'waiting', 'locked', 'locked', 'locked'], 'calling'],
+        'unfit' => ['unfit', ['done', 'failed', 'locked', 'locked', 'locked', 'locked'], 'medical'],
     ]);
 
     it('flags an incomplete passport as needing attention', function () {
@@ -224,20 +225,6 @@ describe('workflow', function () {
         $this->getJson("/api/data-entry/passports/{$passport->id}")
             ->assertJsonPath('data.workflow.steps.0.state', 'needs_attention')
             ->assertJsonPath('data.workflow.current_step', 'passport');
-    });
-
-    it('makes step 3 ready once enabled and the medical is passed', function () {
-        config(['workflow.steps.2.enabled' => true, 'workflow.steps.2.label' => 'Visa']);
-        $fit = passportWithMedical('fit');
-        $pending = passportWithMedical('pending');
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
-
-        $this->getJson("/api/data-entry/passports/{$fit->id}")
-            ->assertJsonPath('data.workflow.steps.2', ['key' => 'step3', 'label' => 'Visa', 'enabled' => true, 'state' => 'ready'])
-            ->assertJsonPath('data.workflow.current_step', 'step3');
-        $this->getJson("/api/data-entry/passports/{$pending->id}")
-            ->assertJsonPath('data.workflow.steps.2.state', 'locked')
-            ->assertJsonPath('data.workflow.current_step', 'medical');
     });
 
     it('summarises the counts for the step bar', function () {
@@ -254,15 +241,13 @@ describe('workflow', function () {
         DB::enableQueryLog();
         $response = $this->getJson('/api/data-entry/workflow/summary')->assertOk();
 
-        expect(DB::getQueryLog())->toHaveCount(1);
+        expect(DB::getQueryLog())->toHaveCount(2);
         $response
             ->assertJsonPath('data.step1', ['total_all' => 7, 'total_active' => 5, 'incomplete' => 1])
             ->assertJsonPath('data.step2', ['pending' => 2, 'fit' => 2, 'expiring_soon' => 1, 'expired' => 1, 'unfit' => 2])
-            ->assertJsonPath('data.step3', ['enabled' => false, 'ready' => 0])
-            ->assertJsonPath('data.steps.*.key', ['passport', 'medical', 'step3']);
-
-        config(['workflow.steps.2.enabled' => true]);
-        $this->getJson('/api/data-entry/workflow/summary')->assertJsonPath('data.step3', ['enabled' => true, 'ready' => 2]);
+            // Fit, expiring soon and expired medicals all wait for calling.
+            ->assertJsonPath('data.step3', ['enabled' => true, 'ready' => 3])
+            ->assertJsonPath('data.steps.*.key', ['passport', 'medical', 'calling', 'visa', 'bmet', 'flight']);
     });
 
     it('returns zero counts when there are no passports', function () {
@@ -434,7 +419,7 @@ describe('all passports', function () {
             passportWithMedical($state);
         }
 
-        expect($countQueries())->toBe($few)->toBe(8);
+        expect($countQueries())->toBe($few)->toBe(9);
     });
 
     it('rejects an unknown medical status', function (string $value) {
@@ -462,7 +447,7 @@ describe('all passports', function () {
 
         DB::enableQueryLog();
         $response = $this->getJson('/api/data-entry/workflow/summary')->assertOk();
-        expect(DB::getQueryLog())->toHaveCount(1);
+        expect(DB::getQueryLog())->toHaveCount(2);
 
         $step2 = $response->json('data.step2');
         // fit already includes expiring_soon, so it is not added twice.

@@ -19,9 +19,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * A received passport. created_by, updated_by and deleted_by are deliberately
- * not fillable: they are set in code from the logged-in user. current_medical_id
- * and stage_status_date are not fillable either: only
- * App\Services\WorkflowService::recompute sets them.
+ * not fillable: they are set in code from the logged-in user. current_medical_id,
+ * current_stage, stage_status and stage_status_date are not fillable either:
+ * only App\Services\WorkflowService::recompute sets them.
  */
 #[Fillable([
     'passport_name', 'passport_number', 'country_code', 'date_of_birth', 'reference_id', 'company_id',
@@ -138,6 +138,27 @@ class PassportEntry extends Model
     public function medicalRecords(): HasMany
     {
         return $this->hasMany(MedicalRecord::class)->latest('medical_date')->latest('id');
+    }
+
+    /**
+     * Every record of the steps after medical (all steps), newest first.
+     *
+     * @return HasMany<PassportStepRecord, $this>
+     */
+    public function stepRecords(): HasMany
+    {
+        return $this->hasMany(PassportStepRecord::class)->latest('step_date')->latest('id');
+    }
+
+    /**
+     * Whether any step after medical has a record, read from the stored stage
+     * (calling records exist exactly when the passport is past "calling,
+     * waiting"), so no query is needed.
+     */
+    public function hasStepRecords(): bool
+    {
+        return ! in_array($this->current_stage, [null, 'medical'], true)
+            && ! ($this->current_stage === 'calling' && $this->stage_status === 'waiting');
     }
 
     /**

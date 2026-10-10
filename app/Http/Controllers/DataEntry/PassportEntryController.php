@@ -60,6 +60,8 @@ class PassportEntryController extends Controller
                 ->orWhere('passport_entries.passport_number', 'like', Like::contains((string) Normalize::passportNumber($search)))
                 ->orWhereHas('reference', fn (Builder $query) => $query->where('name', 'like', Like::contains($search)))
                 ->orWhereHas('company', fn (Builder $query) => $query->where('name', 'like', Like::contains($search)))))
+            ->when($request->has('stage'), fn (Builder $query) => $query->where('passport_entries.current_stage', $request->validated('stage')))
+            ->when($request->has('stage_status'), fn (Builder $query) => $query->where('passport_entries.stage_status', $request->validated('stage_status')))
             ->when($request->has('reference_id'), fn (Builder $query) => $query->where('reference_id', $request->integer('reference_id')))
             ->when($request->has('reference_type'), fn (Builder $query) => $query->whereHas('reference', fn (Builder $query) => $query->where('type', $request->validated('reference_type'))))
             ->when($request->has('company_id'), fn (Builder $query) => $query->where('company_id', $request->integer('company_id')))

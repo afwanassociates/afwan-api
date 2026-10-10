@@ -17,7 +17,7 @@ class MedicalRecordResource extends JsonResource
      *
      * @var list<string>
      */
-    public const RELATIONS = ['creator'];
+    public const RELATIONS = ['creator', 'medicalCenter'];
 
     /**
      * Transform the resource into an array.
@@ -42,7 +42,7 @@ class MedicalRecordResource extends JsonResource
 
     /**
      * The fields shown wherever a medical record appears, including as a
-     * passport's current_medical (load creator first).
+     * passport's current_medical (load creator and medicalCenter first).
      *
      * @return array<string, mixed>
      */
@@ -55,6 +55,12 @@ class MedicalRecordResource extends JsonResource
             'valid_until' => $record->valid_until?->toDateString(),
             'days_left' => self::daysLeft($record),
             'remarks' => $record->remarks,
+            'medical_center' => $record->medicalCenter ? [
+                'id' => $record->medicalCenter->id,
+                'name' => $record->medicalCenter->name,
+            ] : null,
+            'slip_no' => $record->slip_no,
+            'slip_date' => $record->slip_date?->toDateString(),
             'recorded_by' => $record->creator ? [
                 'id' => $record->creator->id,
                 'name' => $record->creator->name,

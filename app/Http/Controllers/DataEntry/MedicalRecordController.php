@@ -28,9 +28,12 @@ class MedicalRecordController extends Controller
     {
         Gate::authorize('viewAny', MedicalRecord::class);
 
-        return MedicalRecordResource::collection(
-            $passport->medicalRecords()->with(MedicalRecordResource::RELATIONS)->get(),
-        );
+        $records = $passport->medicalRecords()->with(MedicalRecordResource::RELATIONS)->get();
+
+        // The permission checks read the passport's stage: share the one instance.
+        $records->each->setRelation('passportEntry', $passport);
+
+        return MedicalRecordResource::collection($records);
     }
 
     /**
@@ -76,8 +79,8 @@ class MedicalRecordController extends Controller
      */
     protected function respond(MedicalRecord $record, PassportEntry $passport): JsonResponse
     {
-        $record->load(MedicalRecordResource::RELATIONS);
-        $passport->load('currentMedical');
+        $record->load(MedicalRecordResource::RELATIONS)->setRelation('passportEntry', $passport);
+        $passport->load(['currentMedical', 'stepRecords.creator']);
         $status = $passport->medicalStatus();
 
         return (new MedicalRecordResource($record))
@@ -87,6 +90,8 @@ class MedicalRecordController extends Controller
                     'medical_status' => $status->value,
                     'medical_status_label' => $status->label(),
                     'current_medical_id' => $passport->current_medical_id,
+                    'current_stage' => $passport->current_stage,
+                    'stage_status' => $passport->stage_status,
                     'workflow' => $this->workflow->forPassport($passport, $status),
                 ],
                 'warnings' => $this->warnings($record, $passport),

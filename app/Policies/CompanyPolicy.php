@@ -8,13 +8,22 @@ use App\Models\User;
 
 /**
  * data_entry, admin and super_admin search and create company records;
- * only admin and super_admin edit, deactivate or delete them.
+ * only admin and super_admin edit, deactivate or delete them. accounts may
+ * also read the company report.
  */
 class CompanyPolicy
 {
     public function viewAny(User $user): bool
     {
         return $user->hasRole(UserRole::DataEntry, UserRole::Admin, UserRole::SuperAdmin);
+    }
+
+    /**
+     * Read the company-wise report (accounts included, read only).
+     */
+    public function viewReport(User $user): bool
+    {
+        return $user->hasRole(UserRole::DataEntry, UserRole::Accounts, UserRole::Admin, UserRole::SuperAdmin);
     }
 
     public function create(User $user): bool

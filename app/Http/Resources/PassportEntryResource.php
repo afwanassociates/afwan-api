@@ -18,7 +18,7 @@ class PassportEntryResource extends JsonResource
      *
      * @var list<string>
      */
-    public const RELATIONS = ['country', 'reference', 'company.country', 'currentMedical.creator'];
+    public const RELATIONS = ['country', 'reference', 'company.country', 'currentMedical.creator', 'currentMedical.medicalCenter', 'stepRecords.creator'];
 
     /**
      * Transform the resource into an array.
@@ -28,6 +28,7 @@ class PassportEntryResource extends JsonResource
     public function toArray(Request $request): array
     {
         $medicalStatus = $this->medicalStatus();
+        $workflow = app(Workflow::class);
 
         return [
             'id' => $this->id,
@@ -58,7 +59,10 @@ class PassportEntryResource extends JsonResource
             'medical_status' => $medicalStatus->value,
             'medical_status_label' => $medicalStatus->label(),
             'current_medical' => $this->currentMedical ? MedicalRecordResource::summary($this->currentMedical) : null,
-            'workflow' => app(Workflow::class)->forPassport($this->resource, $medicalStatus),
+            'current_stage' => $this->current_stage,
+            'stage_status' => $this->stage_status,
+            'workflow' => $workflow->forPassport($this->resource, $medicalStatus),
+            'warnings' => $workflow->warnings($this->resource),
             'created_by' => $this->created_by,
             'updated_by' => $this->updated_by,
             'created_at' => $this->created_at,

@@ -1,6 +1,5 @@
 <?php
 
-use App\Services\WorkflowService;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -18,8 +17,8 @@ return new class extends Migration
             $table->date('stage_status_date')->nullable()->after('current_medical_id')->index();
         });
 
-        // Backfill existing rows, in chunks.
-        app(WorkflowService::class)->recomputeAll();
+        // Filled for existing rows by the stage migration that follows
+        // (2026_10_10_000002), once every column recompute writes exists.
     }
 
     /**
