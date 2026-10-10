@@ -7,7 +7,6 @@ use App\Models\PassportEntry;
 use App\Models\PassportStepRecord;
 use App\Models\User;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 
 /**
@@ -102,112 +101,6 @@ describe('medical centre search', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
 
         $this->getJson('/api/data-entry/medical-centers')->assertForbidden();
-    });
-});
-
-describe('medical slip and centre', function () {
-    it('saves the centre and slip and returns them with the record and the passport', function () {
-        $passport = PassportEntry::factory()->create(['passport_received_date' => '2026-01-15', 'passport_expiry_date' => '2035-01-01']);
-        $center = MedicalCenter::query()->where('name', 'Meem Medical Center')->sole();
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
-
-        // The slip date may be after the medical date: there is no ordering rule.
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medicals", [
-            'medical_date' => '2026-04-20',
-            'result' => 'fit',
-            'medical_center_id' => $center->id,
-            'slip_no' => 'MG-2026-0042',
-            'slip_date' => '2026-04-25',
-        ])
-            ->assertCreated()
-            ->assertJsonPath('data.medical_center', ['id' => $center->id, 'name' => 'Meem Medical Center'])
-            ->assertJsonPath('data.slip_no', 'MG-2026-0042')
-            ->assertJsonPath('data.slip_date', '2026-04-25')
-            ->assertJsonPath('data.valid_until', '2026-07-20');
-
-        expect(MedicalRecord::sole())
-            ->medical_center_id->toBe($center->id)
-            ->slip_no->toBe('MG-2026-0042');
-
-        $this->getJson("/api/data-entry/passports/{$passport->id}")
-            ->assertJsonPath('data.current_medical.medical_center.name', 'Meem Medical Center')
-            ->assertJsonPath('data.current_medical.slip_date', '2026-04-25');
-        $this->getJson("/api/data-entry/passports/{$passport->id}/medicals")
-            ->assertJsonPath('data.0.slip_no', 'MG-2026-0042');
-    });
-
-    it('keeps the centre and slip optional', function () {
-        $passport = PassportEntry::factory()->create();
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
-
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medicals", ['medical_date' => '2026-04-20', 'result' => 'unfit'])
-            ->assertCreated()
-            ->assertJsonPath('data.medical_center', null)
-            ->assertJsonPath('data.slip_no', null)
-            ->assertJsonPath('data.slip_date', null);
-    });
-
-    it('rejects an inactive or unknown centre and a bad slip', function (array $payload, string $field) {
-        MedicalCenter::query()->where('name', 'Zain Medical Center')->update(['is_active' => false]);
-        $passport = PassportEntry::factory()->create();
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
-
-        $payload = array_map(fn ($value) => $value === '__zain' ? MedicalCenter::where('name', 'Zain Medical Center')->value('id') : $value, $payload);
-
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medicals", ['medical_date' => '2026-04-20', 'result' => 'fit', ...$payload])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors($field);
-    })->with([
-        'inactive centre' => [['medical_center_id' => '__zain'], 'medical_center_id'],
-        'unknown centre' => [['medical_center_id' => 999999], 'medical_center_id'],
-        'slip number too long' => [['slip_no' => str_repeat('9', 51)], 'slip_no'],
-        'bad slip date' => [['slip_date' => '25-04-2026'], 'slip_date'],
-    ]);
-
-    it('still accepts a record\'s current centre after it is deactivated', function () {
-        $center = MedicalCenter::query()->where('name', 'SKN Health Services')->sole();
-        $passport = PassportEntry::factory()->create();
-        $record = MedicalRecord::factory()->for($passport)->on('2026-04-20')->create(['medical_center_id' => $center->id]);
-        $center->is_active = false;
-        $center->save();
-        Sanctum::actingAs(User::factory()->admin()->create());
-
-        $this->patchJson("/api/data-entry/medicals/{$record->id}", ['medical_center_id' => $center->id, 'slip_no' => 'MG-1'])
-            ->assertOk()
-            ->assertJsonPath('data.medical_center.name', 'SKN Health Services')
-            ->assertJsonPath('data.slip_no', 'MG-1');
-    });
-
-    it('loads the centres of a passport list without extra queries per passport', function () {
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
-        $centers = MedicalCenter::query()->pluck('id');
-
-        $countQueries = function (): int {
-            DB::flushQueryLog();
-            DB::enableQueryLog();
-            $this->getJson('/api/data-entry/passports?medical_status=all&per_page=100')->assertOk();
-            DB::disableQueryLog();
-
-            return count(DB::getQueryLog());
-        };
-
-        $create = fn (int $i) => MedicalRecord::factory()
-            ->for(PassportEntry::factory())
-            ->on('2026-04-20')
-            ->create(['medical_center_id' => $centers[$i % $centers->count()]]);
-
-        foreach (range(1, 2) as $i) {
-            $create($i);
-        }
-        $few = $countQueries();
-
-        foreach (range(3, 9) as $i) {
-            $create($i);
-        }
-
-        // count + page + country + reference + company + company country
-        // + current medical + its creator + its centre + step records.
-        expect($countQueries())->toBe($few)->toBe(10);
     });
 });
 

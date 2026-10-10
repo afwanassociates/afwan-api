@@ -17,7 +17,8 @@ beforeEach(function () {
 });
 
 /**
- * A passport with a current medical in the given state ("pending" for none).
+ * A passport with a current medical in the given state ("pending" for none,
+ * slip date entered; "not_started" for none, no slip date).
  *
  * @param  array<string, mixed>  $attributes
  */
@@ -26,13 +27,15 @@ function passportWithMedical(string $state, array $attributes = []): PassportEnt
     $passport = PassportEntry::factory()->create([
         'passport_received_date' => '2026-01-01',
         'passport_expiry_date' => '2035-01-01',
+        // Slip date entered ("not_started" leaves it out).
+        'medical_slip_date' => $state === 'not_started' ? null : '2026-01-10',
         ...$attributes,
     ]);
 
     $factory = MedicalRecord::factory()->for($passport);
 
     match ($state) {
-        'pending' => null,
+        'not_started', 'pending' => null,
         'fit' => $factory->validUntil('2026-06-30')->create(),
         'expiring_soon' => $factory->validUntil('2026-05-10')->create(),
         'expired' => $factory->validUntil('2026-04-20')->create(),
@@ -81,13 +84,20 @@ describe('medical status', function () {
             ->and(listedPassportIds('medical_status=expired'))->toBe([]);
     });
 
-    it('shows pending, with no current medical, when there is no record', function () {
-        $passport = PassportEntry::factory()->create();
+    it('shows not_started without a slip date and pending with one, while there is no record', function () {
+        $new = PassportEntry::factory()->create();
+        $slipped = PassportEntry::factory()->withMedicalSlip()->create();
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        $this->getJson("/api/data-entry/passports/{$passport->id}")
+        $this->getJson("/api/data-entry/passports/{$new->id}")
+            ->assertJsonPath('data.medical_status', 'not_started')
+            ->assertJsonPath('data.current_medical', null)
+            ->assertJsonPath('data.current_stage', 'passport')
+            ->assertJsonPath('data.stage_status', 'not_started');
+        $this->getJson("/api/data-entry/passports/{$slipped->id}")
             ->assertJsonPath('data.medical_status', 'pending')
-            ->assertJsonPath('data.current_medical', null);
+            ->assertJsonPath('data.current_stage', 'medical')
+            ->assertJsonPath('data.stage_status', 'pending');
     });
 
     it('returns the current medical with who recorded it', function () {
@@ -210,6 +220,7 @@ describe('workflow', function () {
             ->and($response->json('data.workflow.steps.*.key'))->toBe(['passport', 'medical', 'calling', 'visa', 'bmet', 'flight'])
             ->and($response->json('data.workflow.steps.2'))->toMatchArray(['label' => 'Calling / Work Permit', 'enabled' => true, 'record' => null]);
     })->with([
+        'not started' => ['not_started', ['done', 'not_started', 'locked', 'locked', 'locked', 'locked'], 'passport'],
         'pending' => ['pending', ['done', 'pending', 'locked', 'locked', 'locked', 'locked'], 'medical'],
         'fit' => ['fit', ['done', 'passed', 'waiting', 'locked', 'locked', 'locked'], 'calling'],
         'expiring soon' => ['expiring_soon', ['done', 'passed', 'waiting', 'locked', 'locked', 'locked'], 'calling'],
@@ -244,7 +255,7 @@ describe('workflow', function () {
         expect(DB::getQueryLog())->toHaveCount(2);
         $response
             ->assertJsonPath('data.step1', ['total_all' => 7, 'total_active' => 5, 'incomplete' => 1])
-            ->assertJsonPath('data.step2', ['pending' => 2, 'fit' => 2, 'expiring_soon' => 1, 'expired' => 1, 'unfit' => 2])
+            ->assertJsonPath('data.step2', ['not_started' => 0, 'pending' => 2, 'fit' => 2, 'expiring_soon' => 1, 'expired' => 1, 'unfit' => 2])
             // Fit, expiring soon and expired medicals all wait for calling.
             ->assertJsonPath('data.step3', ['enabled' => true, 'ready' => 3])
             ->assertJsonPath('data.steps.*.key', ['passport', 'medical', 'calling', 'visa', 'bmet', 'flight']);
@@ -256,7 +267,7 @@ describe('workflow', function () {
         $this->getJson('/api/data-entry/workflow/summary')
             ->assertOk()
             ->assertJsonPath('data.step1', ['total_all' => 0, 'total_active' => 0, 'incomplete' => 0])
-            ->assertJsonPath('data.step2', ['pending' => 0, 'fit' => 0, 'expiring_soon' => 0, 'expired' => 0, 'unfit' => 0]);
+            ->assertJsonPath('data.step2', ['not_started' => 0, 'pending' => 0, 'fit' => 0, 'expiring_soon' => 0, 'expired' => 0, 'unfit' => 0]);
     });
 });
 
@@ -267,6 +278,8 @@ describe('medical queue', function () {
         passportWithMedical('fit');
         passportWithMedical('unfit');
         passportWithMedical('pending')->delete();
+        // No slip date yet: not in the medical queue, however old.
+        passportWithMedical('not_started', ['passport_received_date' => '2026-01-02']);
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $response = $this->getJson('/api/data-entry/medical/queue?per_page=1')->assertOk();
@@ -322,7 +335,7 @@ describe('development seeder', function () {
             ->map(fn (PassportEntry $passport) => $passport->medicalStatus()->value)
             ->unique()->sort()->values()->all();
 
-        expect($statuses)->toBe(['expired', 'expiring_soon', 'fit', 'pending', 'unfit'])
+        expect($statuses)->toBe(['expired', 'expiring_soon', 'fit', 'not_started', 'pending', 'unfit'])
             ->and(MedicalRecord::query()->whereNull('valid_until')->where('result', 'fit')->exists())->toBeFalse();
 
         // Running it again adds nothing.
@@ -455,6 +468,6 @@ describe('all passports', function () {
 
         expect($response->json('data.step1'))->toBe(['total_all' => 8, 'total_active' => 5, 'incomplete' => 0])
             ->and($everyStatus)->toBe(8)
-            ->and($step2)->toBe(['pending' => 2, 'fit' => 2, 'expiring_soon' => 1, 'expired' => 1, 'unfit' => 3]);
+            ->and($step2)->toBe(['not_started' => 0, 'pending' => 2, 'fit' => 2, 'expiring_soon' => 1, 'expired' => 1, 'unfit' => 3]);
     });
 });

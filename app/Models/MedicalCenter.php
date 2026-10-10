@@ -55,10 +55,12 @@ class MedicalCenter extends Model
     }
 
     /**
-     * @return HasMany<MedicalRecord, $this>
+     * Passports whose medical slip names this centre.
+     *
+     * @return HasMany<PassportEntry, $this>
      */
-    public function medicalRecords(): HasMany
+    public function passportEntries(): HasMany
     {
-        return $this->hasMany(MedicalRecord::class);
+        return $this->hasMany(PassportEntry::class);
     }
 }

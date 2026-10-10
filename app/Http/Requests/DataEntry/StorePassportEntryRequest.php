@@ -38,8 +38,10 @@ class StorePassportEntryRequest extends FormRequest
         return [
             'passport_name' => ['required', 'string', 'max:150'],
             'passport_number' => ['required', 'string', 'regex:/^[A-Z0-9]{6,20}$/', $this->uniquePassportNumber()],
-            'country_code' => ['nullable', 'string', 'size:2', new ActiveCountry($this->entry()?->country_code)],
+            'country_code' => ['required', 'string', 'size:2', new ActiveCountry($this->entry()?->country_code)],
             'date_of_birth' => ['required', 'date_format:Y-m-d', 'before:today'],
+            // Required (must exist and be active). Old entries saved without one
+            // still load; the full edit form asks for it on the next save.
             'reference_id' => ['required', 'integer', $this->selectable('references', $this->entry()?->reference_id)],
             'company_id' => ['required', 'integer', $this->selectable('companies', $this->entry()?->company_id)],
             'passport_received_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
@@ -57,6 +59,7 @@ class StorePassportEntryRequest extends FormRequest
         return [
             'passport_number.unique' => $this->duplicatePassportNumberMessage(),
             'passport_number.regex' => 'The passport number must be 6 to 20 letters and digits.',
+            'reference_id.required' => 'Please choose a reference.',
             'reference_id.exists' => 'The selected reference does not exist or is inactive.',
             'company_id.exists' => 'The selected company does not exist or is inactive.',
             'passport_received_date.before_or_equal' => 'The passport received date cannot be in the future.',

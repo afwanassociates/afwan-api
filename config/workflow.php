@@ -135,6 +135,7 @@ return [
     */
 
     'status_labels' => [
+        'not_started' => 'Not Started',
         'pending' => 'Pending',
         'waiting' => 'Waiting',
         'unfit' => 'Unfit',
@@ -147,6 +148,7 @@ return [
     ],
 
     'tones' => [
+        'not_started' => 'amber',
         'unfit' => 'red',
         'rejected' => 'red',
         'cancelled' => 'red',

@@ -20,9 +20,10 @@ describe('migration data', function () {
     });
 
     it('seeds the settings', function () {
+        // The passport default is filled with MY by 2026_10_15_000001.
         expect(AppSetting::pluck('value', 'key')->all())->toBe([
             'default_company_country_code' => 'MY',
-            'default_passport_country_code' => null,
+            'default_passport_country_code' => 'MY',
         ]);
     });
 
@@ -70,6 +71,8 @@ describe('data-entry lookups', function () {
         $this->getJson('/api/data-entry/defaults')
             ->assertOk()
             ->assertExactJson(['data' => [
+                'default_company_country' => ['code' => 'MY', 'name' => 'Malaysia'],
+                'default_passport_country' => ['code' => 'BD', 'name' => 'Bangladesh'],
                 'default_company_country_code' => 'MY',
                 'default_passport_country_code' => 'BD',
             ]]);
@@ -165,13 +168,12 @@ describe('passport entries', function () {
             ->assertJsonValidationErrors('country_code');
     });
 
-    it('accepts an entry without a passport country', function () {
+    it('requires a passport country on new entries', function () {
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson('/api/data-entry/passports', passportPayload(['country_code' => null]))
-            ->assertCreated()
-            ->assertJsonPath('data.country', null)
-            ->assertJsonPath('data.date_of_birth', '1995-04-12');
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('country_code');
     });
 
     it('validates the date of birth and expiry date', function (array $payload, string $field) {
@@ -325,7 +327,9 @@ describe('admin settings', function () {
     it('shows and updates the defaults, recording who changed them', function () {
         $this->getJson('/api/admin/settings')->assertOk()->assertExactJson(['data' => [
             'default_company_country_code' => 'MY',
-            'default_passport_country_code' => null,
+            'default_passport_country_code' => 'MY',
+            'default_company_country' => ['code' => 'MY', 'name' => 'Malaysia'],
+            'default_passport_country' => ['code' => 'MY', 'name' => 'Malaysia'],
         ]]);
 
         $this->putJson('/api/admin/settings', ['default_company_country_code' => 'sa', 'default_passport_country_code' => 'bd'])
@@ -333,13 +337,17 @@ describe('admin settings', function () {
             ->assertExactJson(['data' => [
                 'default_company_country_code' => 'SA',
                 'default_passport_country_code' => 'BD',
+                'default_company_country' => ['code' => 'SA', 'name' => 'Saudi Arabia'],
+                'default_passport_country' => ['code' => 'BD', 'name' => 'Bangladesh'],
             ]]);
 
         expect(AppSetting::where('key', Settings::DEFAULT_COMPANY_COUNTRY)->value('updated_by'))->toBe($this->admin->id);
 
         $this->putJson('/api/admin/settings', ['default_company_country_code' => 'SA', 'default_passport_country_code' => null])
             ->assertOk()
-            ->assertJsonPath('data.default_passport_country_code', null);
+            ->assertJsonPath('data.default_passport_country_code', null)
+            // The passport form still gets a country.
+            ->assertJsonPath('data.default_passport_country', ['code' => 'MY', 'name' => 'Malaysia']);
     });
 
     it('rejects inactive, unknown or missing countries', function (array $payload, string $field) {

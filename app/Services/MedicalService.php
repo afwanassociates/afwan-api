@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Support\LocalDate;
 use DateTimeInterface;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * The only place that creates, changes or deletes medical records. Every
@@ -28,12 +29,20 @@ class MedicalService
      *
      * @param  array{medical_date: string, result: string|MedicalResult, remarks?: string|null}  $data
      *
+     * @throws ValidationException when the medical slip date is not entered yet
      * @throws WorkflowException when later steps would lose their fit medical
      */
     public function record(PassportEntry $passport, array $data, User $actor): MedicalRecord
     {
         return DB::transaction(function () use ($passport, $data, $actor) {
             $locked = $this->lock($passport);
+
+            // A result follows the medical slip (MYGRAM): the slip date comes first.
+            if ($locked->medical_slip_date === null) {
+                throw ValidationException::withMessages([
+                    'medical_slip_date' => 'Enter the medical slip date before recording the medical result.',
+                ]);
+            }
 
             $record = new MedicalRecord($data);
             $record->passport_entry_id = $locked->id;
@@ -46,6 +55,41 @@ class MedicalService
             $this->workflow->recompute($passport);
 
             return $record;
+        });
+    }
+
+    /**
+     * Save the passport's medical slip (the client's "MYGRAM"): its date,
+     * number and medical centre. Entering the date moves the passport from
+     * not_started to pending. The date can be cleared only while no medical
+     * result is recorded. Nothing else on the passport changes.
+     *
+     * @param  array{medical_slip_date: string|null, medical_slip_no?: string|null, medical_center_id?: int|null}  $data
+     *
+     * @throws ValidationException when clearing the date after a result
+     */
+    public function updateSlip(PassportEntry $passport, array $data): PassportEntry
+    {
+        return DB::transaction(function () use ($passport, $data) {
+            $locked = $this->lock($passport);
+
+            if ($data['medical_slip_date'] === null
+                && MedicalRecord::query()->where('passport_entry_id', $locked->id)->exists()) {
+                throw ValidationException::withMessages([
+                    'medical_slip_date' => 'The medical slip date cannot be cleared once a medical result is recorded.',
+                ]);
+            }
+
+            $values = array_intersect_key($data, array_flip(['medical_slip_date', 'medical_slip_no', 'medical_center_id']));
+
+            // Query builder update: only the slip columns change, not updated_at or updated_by.
+            PassportEntry::withTrashed()->whereKey($locked->id)->toBase()->update($values);
+
+            foreach ($values as $column => $value) {
+                $passport->setAttribute($column, $value)->syncOriginalAttribute($column);
+            }
+
+            return $this->workflow->recompute($passport);
         });
     }
 

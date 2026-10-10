@@ -49,11 +49,11 @@ class PassportOverviewResource extends JsonResource
                     'name' => $this->company->country->name,
                 ],
             ],
-            'reference' => [
+            'reference' => $this->reference ? [
                 'id' => $this->reference->id,
                 'name' => $this->reference->name,
                 'type' => $this->reference->type->value,
-            ],
+            ] : null,
             'passport_received_date' => $this->passport_received_date->toDateString(),
             'entered_by' => $this->creator ? [
                 'id' => $this->creator->id,

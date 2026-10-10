@@ -17,9 +17,13 @@ class DefaultsController extends Controller
     {
         Gate::authorize('view', AppSetting::class);
 
+        $countries = $settings->defaultCountries();
+
         return response()->json(['data' => [
-            'default_company_country_code' => $settings->get(Settings::DEFAULT_COMPANY_COUNTRY),
-            'default_passport_country_code' => $settings->get(Settings::DEFAULT_PASSPORT_COUNTRY),
+            ...$countries,
+            // The bare codes, as before.
+            'default_company_country_code' => $countries['default_company_country']['code'] ?? null,
+            'default_passport_country_code' => $countries['default_passport_country']['code'] ?? null,
         ]]);
     }
 }

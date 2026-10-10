@@ -45,6 +45,17 @@ class PassportEntryFactory extends Factory
     }
 
     /**
+     * Indicate that the medical slip date (MYGRAM) is entered, so the medical
+     * is pending until a result is recorded.
+     */
+    public function withMedicalSlip(string $date = '2026-01-20'): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'medical_slip_date' => $date,
+        ]);
+    }
+
+    /**
      * Indicate that the entry was created (and last updated) by the given user.
      */
     public function createdBy(User $user): static

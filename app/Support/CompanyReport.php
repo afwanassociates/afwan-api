@@ -28,6 +28,7 @@ class CompanyReport
             'medical_fit',
             'medical_unfit',
             'medical_pending',
+            'not_started',
             ...array_map(fn (string $key) => "{$key}_done", $this->workflow->recordStepKeys()),
             'in_process',
         ];
@@ -116,7 +117,8 @@ class CompanyReport
     /**
      * Per-company passport counts (soft-deleted passports left out):
      * - medical_fit: past the medical step (a fit medical, even if it has
-     *   since expired); medical_unfit and medical_pending: still at medical;
+     *   since expired); medical_unfit and medical_pending: still at medical
+     *   (pending means the slip date is in); not_started: no slip date yet;
      * - <step>_done: the stage is past that step (completed counts for all);
      * - in_process: not departed and not unfit.
      */
@@ -125,9 +127,10 @@ class CompanyReport
         $steps = $this->workflow->recordStepKeys();
         $sums = [
             'count(*) as total',
-            "sum(current_stage <> 'medical') as medical_fit",
+            "sum(current_stage not in ('".Workflow::PASSPORT."', 'medical')) as medical_fit",
             "sum(current_stage = 'medical' and stage_status = 'unfit') as medical_unfit",
             "sum(current_stage = 'medical' and stage_status = 'pending') as medical_pending",
+            "sum(current_stage = '".Workflow::PASSPORT."') as not_started",
         ];
 
         foreach ($steps as $index => $key) {

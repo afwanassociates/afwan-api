@@ -33,6 +33,14 @@ class PassportEntryPolicy
             || ($user->hasRole(UserRole::DataEntry) && $entry->created_by === $user->id);
     }
 
+    /**
+     * Save the medical slip (date, number, centre) of any passport.
+     */
+    public function updateMedicalSlip(User $user, PassportEntry $entry): bool
+    {
+        return $this->viewAny($user);
+    }
+
     public function delete(User $user, PassportEntry $entry): bool
     {
         return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin);

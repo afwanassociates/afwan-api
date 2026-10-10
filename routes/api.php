@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\CompanyController as AdminCompanyController;
 use App\Http\Controllers\Admin\CountryController;
 use App\Http\Controllers\Admin\MedicalCenterController;
 use App\Http\Controllers\Admin\SettingsController;
@@ -11,6 +12,7 @@ use App\Http\Controllers\DataEntry\DefaultsController;
 use App\Http\Controllers\DataEntry\MedicalCenterLookupController;
 use App\Http\Controllers\DataEntry\MedicalQueueController;
 use App\Http\Controllers\DataEntry\MedicalRecordController;
+use App\Http\Controllers\DataEntry\MedicalSlipController;
 use App\Http\Controllers\DataEntry\PassportEntryController;
 use App\Http\Controllers\DataEntry\ReferenceController;
 use App\Http\Controllers\DataEntry\StepRecordController;
@@ -63,6 +65,8 @@ Route::middleware('auth:sanctum')->group(function () {
         // Countries are only ever added or deactivated, never deleted.
         Route::apiResource('countries', CountryController::class)->only(['index', 'store', 'update']);
         Route::apiResource('medical-centers', MedicalCenterController::class)->except('show');
+        // Full company management (admin and super_admin only).
+        Route::apiResource('companies', AdminCompanyController::class);
         Route::get('/settings', [SettingsController::class, 'show'])->name('settings.show');
         Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
     });
@@ -78,6 +82,7 @@ Route::middleware('auth:sanctum')->group(function () {
             ->parameters(['passports' => 'passport']);
 
         // Step 2: medical results. Every write goes through App\Services\MedicalService.
+        Route::patch('/passports/{passport}/medical-slip', MedicalSlipController::class)->name('passports.medical-slip');
         Route::get('/passports/{passport}/medicals', [MedicalRecordController::class, 'index'])->name('passports.medicals.index');
         Route::post('/passports/{passport}/medicals', [MedicalRecordController::class, 'store'])->name('passports.medicals.store');
         Route::patch('/medicals/{medical}', [MedicalRecordController::class, 'update'])->name('medicals.update');
@@ -97,7 +102,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/step-records/{stepRecord}', [StepRecordController::class, 'destroy'])->name('step-records.destroy');
 
         Route::apiResource('references', ReferenceController::class)->except('show');
-        Route::apiResource('companies', CompanyController::class)->except('show');
+        // Search dropdown and Quick Add for data entry; editing and deleting are
+        // admin-only and kept here for older clients (same as /admin/companies).
+        Route::apiResource('companies', CompanyController::class)->only(['index', 'store']);
+        Route::patch('/companies/{company}', [AdminCompanyController::class, 'update'])->name('companies.update');
+        Route::delete('/companies/{company}', [AdminCompanyController::class, 'destroy'])->name('companies.destroy');
         Route::get('/countries', CountryLookupController::class)->name('countries.index');
         Route::get('/defaults', DefaultsController::class)->name('defaults');
     });

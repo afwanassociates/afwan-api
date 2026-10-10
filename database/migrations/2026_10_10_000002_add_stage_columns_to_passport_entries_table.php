@@ -1,6 +1,5 @@
 <?php
 
-use App\Services\WorkflowService;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -21,8 +20,9 @@ return new class extends Migration
             $table->string('stage_status', 20)->nullable()->after('current_stage')->index();
         });
 
-        // Backfill existing rows (stage, status and stage_status_date), in chunks.
-        app(WorkflowService::class)->recomputeAll();
+        // Existing rows are backfilled by the latest migration that changes what
+        // recompute reads (2026_10_12_000001, which calls recomputeAll), so this
+        // migration never runs today's code against an older schema.
     }
 
     /**

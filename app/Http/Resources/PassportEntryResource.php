@@ -18,7 +18,7 @@ class PassportEntryResource extends JsonResource
      *
      * @var list<string>
      */
-    public const RELATIONS = ['country', 'reference', 'company.country', 'currentMedical.creator', 'currentMedical.medicalCenter', 'stepRecords.creator'];
+    public const RELATIONS = ['country', 'reference', 'company.country', 'medicalCenter', 'currentMedical.creator', 'stepRecords.creator'];
 
     /**
      * Transform the resource into an array.
@@ -42,12 +42,13 @@ class PassportEntryResource extends JsonResource
             'date_of_birth' => $this->date_of_birth?->toDateString(),
             'passport_received_date' => $this->passport_received_date->toDateString(),
             'passport_expiry_date' => $this->passport_expiry_date?->toDateString(),
-            'reference' => [
+            // Null only on old entries saved without a reference.
+            'reference' => $this->reference ? [
                 'id' => $this->reference->id,
                 'type' => $this->reference->type->value,
                 'type_label' => $this->reference->type->label(),
                 'name' => $this->reference->name,
-            ],
+            ] : null,
             'company' => [
                 'id' => $this->company->id,
                 'name' => $this->company->name,
@@ -55,6 +56,15 @@ class PassportEntryResource extends JsonResource
                     'code' => $this->company->country->code,
                     'name' => $this->company->country->name,
                 ],
+            ],
+            // The medical slip ("MYGRAM"); the medical result form pre-fills from it.
+            'medical_slip' => [
+                'date' => $this->medical_slip_date?->toDateString(),
+                'no' => $this->medical_slip_no,
+                'medical_center' => $this->medicalCenter ? [
+                    'id' => $this->medicalCenter->id,
+                    'name' => $this->medicalCenter->name,
+                ] : null,
             ],
             'medical_status' => $medicalStatus->value,
             'medical_status_label' => $medicalStatus->label(),

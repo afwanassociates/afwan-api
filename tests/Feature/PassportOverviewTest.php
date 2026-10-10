@@ -1,7 +1,10 @@
 <?php
 
+use App\Enums\ReferenceType;
+use App\Models\Company;
 use App\Models\MedicalRecord;
 use App\Models\PassportEntry;
+use App\Models\Reference;
 use App\Models\User;
 use App\Services\WorkflowService;
 use Illuminate\Support\Carbon;
@@ -27,13 +30,15 @@ function overviewPassport(string $state, string $received = '2026-01-15', array 
     $passport = PassportEntry::factory()->create([
         'passport_received_date' => $received,
         'passport_expiry_date' => '2035-01-01',
+        // Slip date entered on the day received ("not_started" leaves it out).
+        'medical_slip_date' => $state === 'not_started' ? null : $received,
         ...$attributes,
     ]);
 
     $factory = MedicalRecord::factory()->for($passport);
 
     match ($state) {
-        'pending' => null,
+        'not_started', 'pending' => null,
         // Medical 2026-03-30.
         'fit' => $factory->validUntil('2026-06-30')->create(),
         // Medical 2026-02-10.
@@ -62,6 +67,10 @@ describe('latest status', function () {
         expect(overview('medical_status=all')->json('data.0.id'))->toBe($passport->id)
             ->and(overview('medical_status=all')->json('data.0.latest_status'))->toBe($expected);
     })->with([
+        'medical not started' => ['not_started', [
+            'stage' => 'passport', 'stage_label' => 'Passport', 'status' => 'not_started', 'status_label' => 'Not Started',
+            'text' => 'Passport: Not Started', 'tone' => 'amber', 'date' => '2026-01-15',
+        ]],
         'medical pending' => ['pending', [
             'stage' => 'medical', 'stage_label' => 'Medical', 'status' => 'pending', 'status_label' => 'Pending',
             'text' => 'Medical: Pending', 'tone' => 'amber', 'date' => '2026-01-15',
@@ -147,9 +156,9 @@ describe('stage_status_date', function () {
         expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-02-01');
     });
 
-    it('is set when a passport is created and follows edits to its received date while pending', function () {
+    it('is set when a passport is created and follows edits to its received date while not started', function () {
         Sanctum::actingAs(User::factory()->admin()->create());
-        $passport = overviewPassport('pending', '2026-02-01');
+        $passport = overviewPassport('not_started', '2026-02-01');
 
         $this->patchJson("/api/data-entry/passports/{$passport->id}", ['passport_received_date' => '2026-02-05'])->assertOk();
 
@@ -248,23 +257,51 @@ describe('overview list', function () {
             ->and($ids('medical_status=all&received_from=2026-02-01&received_to=2026-02-28'))->toEqualCanonicalizing([$unfit->id, $fit->id]);
     });
 
-    it('sorts by status date and paginates', function () {
-        $unfit = overviewPassport('unfit');      // 2026-04-20
+    it('ignores sort in the overview, always newest first, and still paginates', function () {
+        $unfit = overviewPassport('unfit');      // status date 2026-04-20
         $fit = overviewPassport('fit');          // 2026-03-30
         $pending = overviewPassport('pending', '2026-02-01');
         $expired = overviewPassport('expired');  // 2026-01-30
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        expect(overview('medical_status=all&sort=status_date&direction=asc')->json('data.*.id'))
-            ->toBe([$expired->id, $pending->id, $fit->id, $unfit->id])
-            ->and(overview('medical_status=all&sort=-status_date')->json('data.*.id'))
-            ->toBe([$unfit->id, $fit->id, $pending->id, $expired->id]);
+        // Created in the same second: newest id first.
+        $newestFirst = [$expired->id, $pending->id, $fit->id, $unfit->id];
 
-        $this->getJson('/api/data-entry/passports?view=overview&medical_status=all&sort=-status_date&per_page=3&page=2')
+        expect(overview('medical_status=all')->json('data.*.id'))->toBe($newestFirst)
+            ->and(overview('medical_status=all&sort=status_date&direction=asc')->json('data.*.id'))->toBe($newestFirst)
+            ->and(overview('medical_status=all&sort=-status_date')->json('data.*.id'))->toBe($newestFirst)
+            // Not validated there either.
+            ->and(overview('medical_status=all&sort=bogus&direction=sideways')->json('data.*.id'))->toBe($newestFirst);
+
+        $this->getJson('/api/data-entry/passports?view=overview&medical_status=all&sort=passport_received_date&per_page=3&page=2')
             ->assertOk()
             ->assertJsonPath('meta.total', 4)
             ->assertJsonPath('meta.last_page', 2)
-            ->assertJsonPath('data.*.id', [$expired->id]);
+            ->assertJsonPath('data.*.id', [$unfit->id]);
+    });
+
+    it('keeps sorting in the other modes', function () {
+        $unfit = overviewPassport('unfit');      // status date 2026-04-20
+        $fit = overviewPassport('fit');          // 2026-03-30
+        $pending = overviewPassport('pending', '2026-02-01');
+        $expired = overviewPassport('expired');  // 2026-01-30
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        $ids = fn (string $query) => $this->getJson("/api/data-entry/passports?per_page=100&{$query}")->assertOk()->json('data.*.id');
+
+        expect($ids('medical_status=all&sort=status_date&direction=asc'))->toBe([$expired->id, $pending->id, $fit->id, $unfit->id])
+            ->and($ids('medical_status=all&sort=-status_date'))->toBe([$unfit->id, $fit->id, $pending->id, $expired->id]);
+
+        $this->getJson('/api/data-entry/passports?sort=bogus')->assertUnprocessable()->assertJsonValidationErrors('sort');
+    });
+
+    it('offers no completed stage in the overview, only in the other modes', function () {
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        $this->getJson('/api/data-entry/passports?view=overview&stage=completed')
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('stage');
+        $this->getJson('/api/data-entry/passports?view=overview&stage=calling')->assertOk();
+        $this->getJson('/api/data-entry/passports?stage=completed')->assertOk();
     });
 
     it('runs a fixed number of queries however many passports are listed', function () {
@@ -309,4 +346,140 @@ describe('overview list', function () {
 
         expect(overview('medical_status=all')->json('data.0.latest_status.text'))->toBe('Medical: Unfit');
     })->with(['dataEntry', 'admin', 'superAdmin']);
+});
+
+describe('reference filter', function () {
+    /**
+     * Passports referred by "Abdul Karim" (two) and "Sea Star Overseas" (one).
+     *
+     * @return array{karim1: PassportEntry, karim2: PassportEntry, agency: PassportEntry}
+     */
+    function referencedPassports(): array
+    {
+        $karim = Reference::factory()->create(['type' => ReferenceType::Person, 'name' => 'Abdul Karim']);
+        $agency = Reference::factory()->create(['type' => ReferenceType::Agency, 'name' => 'Sea Star Overseas']);
+
+        return [
+            'karim1' => overviewPassport('fit', attributes: ['reference_id' => $karim->id, 'passport_number' => 'KR1111111']),
+            'karim2' => overviewPassport('unfit', attributes: ['reference_id' => $karim->id, 'passport_number' => 'KR2222222']),
+            'agency' => overviewPassport('pending', attributes: ['reference_id' => $agency->id, 'passport_number' => 'SS3333333']),
+        ];
+    }
+
+    it('matches part of the reference name, in any case', function () {
+        ['karim1' => $karim1, 'karim2' => $karim2, 'agency' => $agency] = referencedPassports();
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        expect(overview('medical_status=all&reference=karim')->json('data.*.id'))->toEqualCanonicalizing([$karim1->id, $karim2->id])
+            ->and(overview('medical_status=all&reference=KARIM')->json('data.*.id'))->toEqualCanonicalizing([$karim1->id, $karim2->id])
+            ->and(overview('medical_status=all&reference=star over')->json('data.*.id'))->toBe([$agency->id])
+            ->and(overview('medical_status=all&reference=nobody')->json('data.*.id'))->toBe([])
+            // Empty means no filter.
+            ->and(overview('medical_status=all&reference=')->json('data.*.id'))->toHaveCount(3);
+    });
+
+    it('combines with the general search and the other filters', function () {
+        ['karim1' => $karim1, 'karim2' => $karim2] = referencedPassports();
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        expect(overview('medical_status=all&reference=karim&q=KR2222222')->json('data.*.id'))->toBe([$karim2->id])
+            ->and(overview('medical_status=all&reference=sea&q=KR2222222')->json('data.*.id'))->toBe([])
+            // The default (unfit left out) still applies.
+            ->and(overview('reference=karim')->json('data.*.id'))->toBe([$karim1->id])
+            ->and(overview("medical_status=all&reference=karim&company_id={$karim1->company_id}")->json('data.*.id'))->toBe([$karim1->id]);
+    });
+
+    it('works in the full list too', function () {
+        ['karim1' => $karim1, 'karim2' => $karim2] = referencedPassports();
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        $this->getJson('/api/data-entry/passports?medical_status=all&reference=Karim&sort=created_at&direction=asc')
+            ->assertOk()
+            ->assertJsonPath('data.*.id', [$karim1->id, $karim2->id])
+            ->assertJsonStructure(['data' => [['workflow', 'current_medical']]]);
+    });
+
+    it('rejects a reference longer than 100 characters', function () {
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        $this->getJson('/api/data-entry/passports?view=overview&reference='.str_repeat('a', 101))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('reference');
+    });
+});
+
+describe('company filter', function () {
+    /**
+     * Passports for "Desert Rose Construction" (two, referred by Abdul Karim
+     * and Sea Star Overseas) and "Gulf Star Catering" (one, Abdul Karim).
+     *
+     * @return array{rose1: PassportEntry, rose2: PassportEntry, gulf: PassportEntry}
+     */
+    function companyPassports(): array
+    {
+        $rose = Company::factory()->create(['name' => 'Desert Rose Construction']);
+        $gulf = Company::factory()->create(['name' => 'Gulf Star Catering']);
+        $karim = Reference::factory()->create(['type' => ReferenceType::Person, 'name' => 'Abdul Karim']);
+        $agency = Reference::factory()->create(['type' => ReferenceType::Agency, 'name' => 'Sea Star Overseas']);
+
+        return [
+            'rose1' => overviewPassport('fit', attributes: ['company_id' => $rose->id, 'reference_id' => $karim->id, 'passport_number' => 'DR1111111']),
+            'rose2' => overviewPassport('unfit', attributes: ['company_id' => $rose->id, 'reference_id' => $agency->id, 'passport_number' => 'DR2222222']),
+            'gulf' => overviewPassport('pending', attributes: ['company_id' => $gulf->id, 'reference_id' => $karim->id, 'passport_number' => 'GS3333333']),
+        ];
+    }
+
+    it('matches part of the company name, in any case', function () {
+        ['rose1' => $rose1, 'rose2' => $rose2, 'gulf' => $gulf] = companyPassports();
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        expect(overview('medical_status=all&company=rose')->json('data.*.id'))->toEqualCanonicalizing([$rose1->id, $rose2->id])
+            ->and(overview('medical_status=all&company=DESERT ROSE')->json('data.*.id'))->toEqualCanonicalizing([$rose1->id, $rose2->id])
+            ->and(overview('medical_status=all&company=star cat')->json('data.*.id'))->toBe([$gulf->id])
+            ->and(overview('medical_status=all&company=')->json('data.*.id'))->toHaveCount(3);
+    });
+
+    it('combines with the reference filter and the general search', function () {
+        ['rose1' => $rose1, 'rose2' => $rose2, 'gulf' => $gulf] = companyPassports();
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        expect(overview('medical_status=all&company=rose&reference=karim')->json('data.*.id'))->toBe([$rose1->id])
+            ->and(overview('medical_status=all&company=star&reference=karim')->json('data.*.id'))->toBe([$gulf->id])
+            ->and(overview('medical_status=all&company=rose&q=DR2222222')->json('data.*.id'))->toBe([$rose2->id])
+            ->and(overview('medical_status=all&company=rose&reference=sea&q=DR2222222')->json('data.*.id'))->toBe([$rose2->id])
+            // The default (unfit left out) still applies.
+            ->and(overview('company=rose')->json('data.*.id'))->toBe([$rose1->id]);
+    });
+
+    it('returns an empty page for unmatched text', function () {
+        companyPassports();
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        $this->getJson('/api/data-entry/passports?view=overview&medical_status=all&company=nowhere')
+            ->assertOk()
+            ->assertJsonPath('data', [])
+            ->assertJsonPath('meta.total', 0);
+        $this->getJson('/api/data-entry/passports?view=overview&medical_status=all&company=rose&reference=nobody')
+            ->assertJsonPath('meta.total', 0);
+    });
+
+    it('keeps the exact company_id filter, and works in the full list', function () {
+        ['rose1' => $rose1, 'rose2' => $rose2, 'gulf' => $gulf] = companyPassports();
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        expect(overview("medical_status=all&company_id={$gulf->company_id}")->json('data.*.id'))->toBe([$gulf->id])
+            ->and(overview("medical_status=all&company_id={$gulf->company_id}&company=rose")->json('data.*.id'))->toBe([]);
+
+        $this->getJson('/api/data-entry/passports?medical_status=all&company=Rose&sort=created_at&direction=asc')
+            ->assertOk()
+            ->assertJsonPath('data.*.id', [$rose1->id, $rose2->id]);
+    });
+
+    it('rejects a company longer than 100 characters', function () {
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        $this->getJson('/api/data-entry/passports?view=overview&company='.str_repeat('a', 101))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('company');
+    });
 });

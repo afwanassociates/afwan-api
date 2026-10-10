@@ -21,7 +21,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * A received passport. created_by, updated_by and deleted_by are deliberately
  * not fillable: they are set in code from the logged-in user. current_medical_id,
  * current_stage, stage_status and stage_status_date are not fillable either:
- * only App\Services\WorkflowService::recompute sets them.
+ * only App\Services\WorkflowService::recompute sets them. The medical slip
+ * (medical_slip_date, medical_slip_no, medical_center_id) is set only through
+ * App\Services\MedicalService::updateSlip.
  */
 #[Fillable([
     'passport_name', 'passport_number', 'country_code', 'date_of_birth', 'reference_id', 'company_id',
@@ -57,6 +59,7 @@ class PassportEntry extends Model
             'passport_received_date' => 'date',
             'passport_expiry_date' => 'date',
             'stage_status_date' => 'date',
+            'medical_slip_date' => 'date',
         ];
     }
 
@@ -74,6 +77,17 @@ class PassportEntry extends Model
     protected function passportName(): Attribute
     {
         return Attribute::make(set: fn (?string $value) => Normalize::passportName($value));
+    }
+
+    /**
+     * Where the medical is done (set with the medical slip). Includes
+     * soft-deleted centres, so old entries still show theirs.
+     *
+     * @return BelongsTo<MedicalCenter, $this>
+     */
+    public function medicalCenter(): BelongsTo
+    {
+        return $this->belongsTo(MedicalCenter::class)->withTrashed();
     }
 
     /**
@@ -157,7 +171,7 @@ class PassportEntry extends Model
      */
     public function hasStepRecords(): bool
     {
-        return ! in_array($this->current_stage, [null, 'medical'], true)
+        return ! in_array($this->current_stage, [null, 'passport', 'medical'], true)
             && ! ($this->current_stage === 'calling' && $this->stage_status === 'waiting');
     }
 
@@ -176,7 +190,7 @@ class PassportEntry extends Model
      */
     public function medicalStatus(): MedicalStatus
     {
-        return MedicalStatus::fromRecord($this->currentMedical, LocalDate::today());
+        return MedicalStatus::fromRecord($this->currentMedical, LocalDate::today(), $this->medical_slip_date !== null);
     }
 
     /**

@@ -5,7 +5,10 @@ namespace App\Http\Requests\DataEntry;
 use Illuminate\Contracts\Validation\ValidationRule;
 
 /**
- * Same rules as creating, but every field is optional (PATCH).
+ * Same rules as creating, but every field is optional (PATCH): a field is
+ * only required to be filled in when it is sent, as the full edit form does.
+ * Old entries missing a date of birth, expiry, country or reference stay
+ * valid until someone saves the form for them.
  */
 class UpdatePassportEntryRequest extends StorePassportEntryRequest
 {

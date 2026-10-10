@@ -29,13 +29,15 @@ function workflowPassport(string $medical = 'fit', array $attributes = []): Pass
     $passport = PassportEntry::factory()->create([
         'passport_received_date' => '2026-01-15',
         'passport_expiry_date' => '2035-01-01',
+        // Slip date entered on the day received ("not_started" leaves it out).
+        'medical_slip_date' => $medical === 'not_started' ? null : '2026-01-15',
         ...$attributes,
     ]);
 
     $factory = MedicalRecord::factory()->for($passport);
 
     match ($medical) {
-        'pending' => null,
+        'not_started', 'pending' => null,
         'fit' => $factory->on('2026-04-01')->create(),
         'expiring_soon' => $factory->validUntil('2026-05-10')->create(),
         // Valid until yesterday in Dhaka (still today in UTC).
@@ -278,7 +280,8 @@ describe('recompute', function () {
 
     it('keeps an unfit passport at medical / unfit and a pending one at medical / pending', function () {
         expect(storedPosition(workflowPassport('unfit')))->toBe(['medical', 'unfit', '2026-04-01'])
-            ->and(storedPosition(workflowPassport('pending')))->toBe(['medical', 'pending', '2026-01-15']);
+            ->and(storedPosition(workflowPassport('pending')))->toBe(['medical', 'pending', '2026-01-15'])
+            ->and(storedPosition(workflowPassport('not_started')))->toBe(['passport', 'not_started', '2026-01-15']);
     });
 
     it('counts a fit medical whose validity ended as passed', function () {
@@ -764,6 +767,7 @@ describe('passport list', function () {
 
         expect(DB::getQueryLog())->toHaveCount(2)
             ->and($response->json('data.stages'))->toBe([
+                'passport' => ['total' => 0, 'not_started' => 0],
                 'medical' => ['total' => 2, 'pending' => 1, 'unfit' => 1],
                 'calling' => ['total' => 2, 'waiting' => 1, 'in_process' => 0, 'rejected' => 1],
                 'visa' => ['total' => 2, 'waiting' => 0, 'in_process' => 1, 'rejected' => 1],

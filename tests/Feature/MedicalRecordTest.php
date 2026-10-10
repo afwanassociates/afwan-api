@@ -17,7 +17,8 @@ function freezeDhakaTime(string $localDateTime): void
 
 /**
  * A passport received well before the frozen dates used in these tests, with
- * a long-valid passport, so no warnings fire unless a test wants them.
+ * a long-valid passport (so no warnings fire unless a test wants them) and its
+ * medical slip date entered.
  *
  * @param  array<string, mixed>  $attributes
  */
@@ -26,6 +27,8 @@ function receivedPassport(array $attributes = []): PassportEntry
     return PassportEntry::factory()->create([
         'passport_received_date' => '2025-01-01',
         'passport_expiry_date' => '2035-01-01',
+        // A medical result needs the slip date first.
+        'medical_slip_date' => '2025-01-05',
         ...$attributes,
     ]);
 }

@@ -22,6 +22,11 @@ use Illuminate\Support\Collection;
 class Workflow
 {
     /**
+     * The stage of a passport whose medical has not started (no slip date yet).
+     */
+    public const PASSPORT = 'passport';
+
+    /**
      * The stage of a passport whose every step is completed.
      */
     public const COMPLETED = 'completed';
@@ -31,7 +36,7 @@ class Workflow
      *
      * @var list<string>
      */
-    public const STAGE_STATUSES = ['pending', 'unfit', 'waiting', 'in_process', 'rejected'];
+    public const STAGE_STATUSES = ['not_started', 'pending', 'unfit', 'waiting', 'in_process', 'rejected'];
 
     /**
      * The configured steps, in order, with their definitions.
@@ -120,7 +125,7 @@ class Workflow
      */
     public function stages(): array
     {
-        return ['medical', ...$this->recordStepKeys(), self::COMPLETED];
+        return [self::PASSPORT, 'medical', ...$this->recordStepKeys(), self::COMPLETED];
     }
 
     /**
@@ -191,7 +196,7 @@ class Workflow
         $medicalStatus ??= $passport->medicalStatus();
         $latest = $this->latestRecords($passport);
         $stages = $this->stages();
-        $stageIndex = array_search($passport->current_stage ?? 'medical', $stages, true);
+        $stageIndex = array_search($passport->current_stage ?? self::PASSPORT, $stages, true);
 
         $steps = [];
 
@@ -201,6 +206,7 @@ class Workflow
             $state = match (true) {
                 $step['key'] === 'passport' => $passport->isIncomplete() ? 'needs_attention' : 'done',
                 $step['key'] === 'medical' => match ($medicalStatus) {
+                    MedicalStatus::NotStarted => 'not_started',
                     MedicalStatus::Pending => 'pending',
                     MedicalStatus::Fit, MedicalStatus::ExpiringSoon => 'passed',
                     MedicalStatus::Unfit => 'failed',
@@ -226,7 +232,7 @@ class Workflow
         $currentStep = match (true) {
             $passport->isIncomplete() => 'passport',
             $passport->current_stage === self::COMPLETED => null,
-            default => $passport->current_stage ?? 'medical',
+            default => $passport->current_stage ?? self::PASSPORT,
         };
 
         return ['steps' => $steps, 'current_step' => $currentStep];
@@ -353,7 +359,7 @@ class Workflow
      */
     public function latestStatus(PassportEntry $passport): array
     {
-        $stage = (string) ($passport->current_stage ?? 'medical');
+        $stage = (string) ($passport->current_stage ?? self::PASSPORT);
         $status = (string) $passport->stage_status;
         $textStage = $this->label($stage);
         $lastStep = $this->recordStepKeys()[count($this->recordStepKeys()) - 1] ?? null;
@@ -463,7 +469,8 @@ class Workflow
                 'count(*) as total_all',
                 "coalesce(sum({$notUnfit}), 0) as total_active",
                 "coalesce(sum({$notUnfit} and ({$incomplete})), 0) as incomplete",
-                "coalesce(sum({$m}.id is null), 0) as pending",
+                "coalesce(sum({$m}.id is null and passport_entries.medical_slip_date is null), 0) as not_started",
+                "coalesce(sum({$m}.id is null and passport_entries.medical_slip_date is not null), 0) as pending",
                 "coalesce(sum({$m}.result = '{$fit}' and {$m}.valid_until >= ?), 0) as fit",
                 "coalesce(sum({$m}.result = '{$fit}' and {$m}.valid_until between ? and ?), 0) as expiring_soon",
                 "coalesce(sum({$m}.result = '{$fit}' and {$m}.valid_until < ?), 0) as expired",
@@ -480,8 +487,12 @@ class Workflow
 
         $stages = [];
 
-        foreach (['medical', ...$this->recordStepKeys()] as $stage) {
-            $statuses = $stage === 'medical' ? ['pending', 'unfit'] : ['waiting', 'in_process', 'rejected'];
+        foreach ([self::PASSPORT, 'medical', ...$this->recordStepKeys()] as $stage) {
+            $statuses = match ($stage) {
+                self::PASSPORT => ['not_started'],
+                'medical' => ['pending', 'unfit'],
+                default => ['waiting', 'in_process', 'rejected'],
+            };
             $rows = $counts->where('current_stage', $stage);
 
             $stages[$stage] = [
@@ -502,6 +513,7 @@ class Workflow
                 'incomplete' => (int) $row->incomplete,
             ],
             'step2' => [
+                'not_started' => (int) $row->not_started,
                 'pending' => (int) $row->pending,
                 'fit' => (int) $row->fit,
                 'expiring_soon' => (int) $row->expiring_soon,

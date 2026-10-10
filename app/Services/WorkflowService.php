@@ -30,7 +30,9 @@ class WorkflowService
 
     /**
      * Work out and store where the passport is in the workflow:
-     * - no current medical: medical / pending (dated by the received date);
+     * - no current medical and no medical slip date: passport / not_started
+     *   (dated by the received date);
+     * - no current medical but a slip date: medical / pending (the slip date);
      * - unfit: medical / unfit (the medical date);
      * - fit (even if its validity has ended): walk the record steps in order
      *   by their latest record. Completed moves on; in_process or rejected
@@ -79,7 +81,7 @@ class WorkflowService
         $count = 0;
 
         PassportEntry::withTrashed()
-            ->select(['id', 'passport_received_date', 'current_medical_id', 'current_stage', 'stage_status', 'stage_status_date'])
+            ->select(['id', 'passport_received_date', 'medical_slip_date', 'current_medical_id', 'current_stage', 'stage_status', 'stage_status_date'])
             ->chunkById($chunk, function (Collection $passports) use (&$count) {
                 foreach ($passports as $passport) {
                     $this->recompute($passport);
@@ -245,7 +247,9 @@ class WorkflowService
     protected function position(PassportEntry $passport, ?MedicalRecord $medical, Collection $latest): array
     {
         if ($medical === null) {
-            return ['medical', 'pending', $passport->passport_received_date?->toDateString()];
+            return $passport->medical_slip_date !== null
+                ? ['medical', 'pending', $passport->medical_slip_date->toDateString()]
+                : [Workflow::PASSPORT, 'not_started', $passport->passport_received_date?->toDateString()];
         }
 
         if ($medical->result === MedicalResult::Unfit) {

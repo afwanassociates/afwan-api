@@ -7,14 +7,17 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Database\Query\Builder;
 
 /**
- * A passport's medical status, worked out from its current medical record and
- * today's date in the business timezone (see App\Support\LocalDate).
+ * A passport's medical status, worked out from its current medical record,
+ * its medical slip date and today's date in the business timezone (see
+ * App\Support\LocalDate): not_started until the slip date is entered, then
+ * pending until a result is recorded.
  *
  * expiring_soon is a subset of fit: a passport is shown as expiring_soon, but
  * the fit filter and the fit count include it.
  */
 enum MedicalStatus: string
 {
+    case NotStarted = 'not_started';
     case Pending = 'pending';
     case Fit = 'fit';
     case ExpiringSoon = 'expiring_soon';
@@ -27,6 +30,7 @@ enum MedicalStatus: string
     public function label(): string
     {
         return match ($this) {
+            self::NotStarted => 'Medical Not Started',
             self::Pending => 'Medical Pending',
             self::Fit => 'Fit',
             self::ExpiringSoon => 'Fit (Expiring Soon)',
@@ -44,12 +48,13 @@ enum MedicalStatus: string
     }
 
     /**
-     * The status for a passport whose current medical record is $record.
+     * The status for a passport whose current medical record is $record and
+     * whose medical slip date is (or is not) entered.
      */
-    public static function fromRecord(?MedicalRecord $record, CarbonImmutable $today): self
+    public static function fromRecord(?MedicalRecord $record, CarbonImmutable $today, bool $slipEntered = true): self
     {
         if ($record === null) {
-            return self::Pending;
+            return $slipEntered ? self::Pending : self::NotStarted;
         }
 
         if ($record->result === MedicalResult::Unfit) {
@@ -72,7 +77,8 @@ enum MedicalStatus: string
     public function applyTo(Builder $query, string $alias, CarbonImmutable $today): void
     {
         match ($this) {
-            self::Pending => $query->whereNull("{$alias}.id"),
+            self::NotStarted => $query->whereNull("{$alias}.id")->whereNull('passport_entries.medical_slip_date'),
+            self::Pending => $query->whereNull("{$alias}.id")->whereNotNull('passport_entries.medical_slip_date'),
             self::Unfit => $query->where("{$alias}.result", MedicalResult::Unfit->value),
             self::Fit => $query->where("{$alias}.result", MedicalResult::Fit->value)
                 ->where("{$alias}.valid_until", '>=', $today->toDateString()),

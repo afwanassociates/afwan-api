@@ -30,6 +30,9 @@ class PassportEntryController extends Controller
         Gate::authorize('viewAny', PassportEntry::class);
 
         $search = trim((string) $request->validated('q'));
+        $reference = trim((string) $request->validated('reference'));
+        $company = trim((string) $request->validated('company'));
+        // The overview ignores sort and direction (they are not validated there).
         $sort = $request->validated('sort', 'created_at');
         $direction = $request->validated('direction', 'desc');
         $medicalStatus = $request->validated('medical_status');
@@ -60,6 +63,8 @@ class PassportEntryController extends Controller
                 ->orWhere('passport_entries.passport_number', 'like', Like::contains((string) Normalize::passportNumber($search)))
                 ->orWhereHas('reference', fn (Builder $query) => $query->where('name', 'like', Like::contains($search)))
                 ->orWhereHas('company', fn (Builder $query) => $query->where('name', 'like', Like::contains($search)))))
+            ->when($reference !== '', fn (Builder $query) => $query->whereHas('reference', fn (Builder $query) => $query->where('name', 'like', Like::contains($reference))))
+            ->when($company !== '', fn (Builder $query) => $query->whereHas('company', fn (Builder $query) => $query->where('name', 'like', Like::contains($company))))
             ->when($request->has('stage'), fn (Builder $query) => $query->where('passport_entries.current_stage', $request->validated('stage')))
             ->when($request->has('stage_status'), fn (Builder $query) => $query->where('passport_entries.stage_status', $request->validated('stage_status')))
             ->when($request->has('reference_id'), fn (Builder $query) => $query->where('reference_id', $request->integer('reference_id')))

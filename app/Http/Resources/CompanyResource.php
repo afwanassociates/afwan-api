@@ -31,6 +31,7 @@ class CompanyResource extends JsonResource
             'bd_agency_name' => $this->bd_agency_name,
             'quota' => $this->quota,
             'is_active' => $this->is_active,
+            'passports_count' => $this->whenCounted('passportEntries'),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

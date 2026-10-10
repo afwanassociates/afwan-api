@@ -49,8 +49,16 @@ class ListPassportEntriesRequest extends FormRequest
      */
     public function rules(): array
     {
+        $overview = $this->isOverview();
+        $stages = app(Workflow::class)->stages();
+
         return [
             'q' => ['sometimes', 'nullable', 'string', 'max:100'],
+            // Part of a reference's name, any case (combines with q).
+            'reference' => ['sometimes', 'nullable', 'string', 'max:100'],
+            // Part of a company's name, any case (combines with q and reference;
+            // company_id stays for exact matches).
+            'company' => ['sometimes', 'nullable', 'string', 'max:100'],
             'reference_id' => ['sometimes', 'integer'],
             'reference_type' => ['sometimes', Rule::enum(ReferenceType::class)],
             'company_id' => ['sometimes', 'integer'],
@@ -60,13 +68,23 @@ class ListPassportEntriesRequest extends FormRequest
             // "all" lists every status (the All Passports screen).
             'medical_status' => ['sometimes', Rule::in([...array_column(MedicalStatus::cases(), 'value'), self::ALL_MEDICAL_STATUSES])],
             // Where the passport is in the workflow (stored by WorkflowService).
-            'stage' => ['sometimes', Rule::in(app(Workflow::class)->stages())],
+            // The overview (All Passports) offers no "completed" stage filter.
+            'stage' => ['sometimes', Rule::in($overview ? array_values(array_diff($stages, [Workflow::COMPLETED])) : $stages)],
             'stage_status' => ['sometimes', Rule::in(Workflow::STAGE_STATUSES)],
             'received_to' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:received_from'],
-            'sort' => ['sometimes', Rule::in(self::SORTABLE)],
-            'direction' => ['sometimes', Rule::in(['asc', 'desc'])],
+            // The overview ignores sorting: always newest first.
+            'sort' => $overview ? ['exclude'] : ['sometimes', Rule::in(self::SORTABLE)],
+            'direction' => $overview ? ['exclude'] : ['sometimes', Rule::in(['asc', 'desc'])],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
             'view' => ['sometimes', 'nullable', Rule::in([self::OVERVIEW])],
         ];
+    }
+
+    /**
+     * Whether the lean All Passports overview is asked for.
+     */
+    public function isOverview(): bool
+    {
+        return $this->input('view') === self::OVERVIEW;
     }
 }

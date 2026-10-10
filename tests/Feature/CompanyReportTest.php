@@ -26,9 +26,11 @@ function companyPassport(Company $company, string $state): PassportEntry
         'company_id' => $company->id,
         'passport_received_date' => '2026-01-15',
         'passport_expiry_date' => '2035-01-01',
+        // Slip date entered ("not_started" leaves it out).
+        'medical_slip_date' => $state === 'not_started' ? null : '2026-01-15',
     ]);
 
-    if ($state === 'pending') {
+    if (in_array($state, ['not_started', 'pending'], true)) {
         return $passport->fresh();
     }
 
@@ -87,9 +89,9 @@ function csvRows(string $body): array
 
 describe('company fields', function () {
     it('saves and returns the agent, BD agency and quota', function () {
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        Sanctum::actingAs(User::factory()->admin()->create());
 
-        $this->postJson('/api/data-entry/companies', [
+        $this->postJson('/api/admin/companies', [
             'name' => 'Desert Rose Construction',
             'country_code' => 'my',
             'agent_name' => '  Ahmad   Faiz ',
@@ -122,9 +124,9 @@ describe('company fields', function () {
     });
 
     it('rejects bad values', function (array $payload, string $field) {
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        Sanctum::actingAs(User::factory()->admin()->create());
 
-        $this->postJson('/api/data-entry/companies', ['name' => 'Some Company', 'country_code' => 'MY', ...$payload])
+        $this->postJson('/api/admin/companies', ['name' => 'Some Company', 'country_code' => 'MY', ...$payload])
             ->assertUnprocessable()
             ->assertJsonValidationErrors($field);
     })->with([
@@ -156,6 +158,7 @@ describe('company report', function () {
                 'medical_fit' => 5,
                 'medical_unfit' => 2,
                 'medical_pending' => 1,
+                'not_started' => 0,
                 'calling_done' => 3,
                 'visa_done' => 2,
                 'bmet_done' => 2,
@@ -167,7 +170,7 @@ describe('company report', function () {
             ->and($response->json('data.1'))->toMatchArray(['total' => 1, 'medical_pending' => 1, 'in_process' => 1, 'quota' => null, 'balance' => null])
             ->and($response->json('data.2'))->toMatchArray(['total' => 0, 'medical_fit' => 0, 'quota' => 3, 'balance' => 3])
             ->and($response->json('totals'))->toBe([
-                'quota' => 13, 'total' => 9, 'medical_fit' => 5, 'medical_unfit' => 2, 'medical_pending' => 2,
+                'quota' => 13, 'total' => 9, 'medical_fit' => 5, 'medical_unfit' => 2, 'medical_pending' => 2, 'not_started' => 0,
                 'calling_done' => 3, 'visa_done' => 2, 'bmet_done' => 2, 'flight_done' => 1, 'in_process' => 6,
                 'balance' => 5,
             ]);
@@ -200,9 +203,10 @@ describe('company report', function () {
         expect($totals['total'])->toBe(PassportEntry::count())
             ->and($totals['medical_unfit'])->toBe($stages->where('current_stage', 'medical')->where('stage_status', 'unfit')->count())
             ->and($totals['medical_pending'])->toBe($stages->where('current_stage', 'medical')->where('stage_status', 'pending')->count())
-            ->and($totals['medical_fit'])->toBe($stages->where('current_stage', '!=', 'medical')->count())
+            ->and($totals['medical_fit'])->toBe($stages->whereNotIn('current_stage', ['passport', 'medical'])->count())
+            ->and($totals['not_started'])->toBe($stages->where('current_stage', 'passport')->count())
             ->and($totals['flight_done'])->toBe($stages->where('current_stage', 'completed')->count())
-            ->and($totals['medical_fit'] + $totals['medical_unfit'] + $totals['medical_pending'])->toBe($totals['total'])
+            ->and($totals['medical_fit'] + $totals['medical_unfit'] + $totals['medical_pending'] + $totals['not_started'])->toBe($totals['total'])
             ->and($totals['in_process'])->toBe($totals['total'] - $totals['flight_done'] - $totals['medical_unfit']);
     });
 
@@ -219,11 +223,11 @@ describe('company report', function () {
             ->and($response->headers->get('Content-Type'))->toContain('text/csv')
             // 1 May 2026 in Dhaka (still 30 April in UTC).
             ->and($response->headers->get('Content-Disposition'))->toContain('company-report-01-05-2026.csv')
-            ->and($rows[0])->toBe(['ID', 'Company', 'Country', 'Agent', 'BD agency', 'Quota', 'Total', 'Medical fit', 'Medical unfit', 'Medical pending', 'Calling done', 'Visa done', 'Bmet done', 'Flight done', 'In process', 'Balance'])
+            ->and($rows[0])->toBe(['ID', 'Company', 'Country', 'Agent', 'BD agency', 'Quota', 'Total', 'Medical fit', 'Medical unfit', 'Medical pending', 'Not started', 'Calling done', 'Visa done', 'Bmet done', 'Flight done', 'In process', 'Balance'])
             ->and($rows)->toHaveCount(5)
-            ->and($rows[1])->toBe([(string) $a->id, 'Alpha Builders', 'MY', '\'=HYPERLINK("x")', 'Sea Star Overseas', '10', '8', '5', '2', '1', '3', '2', '2', '1', '5', '2'])
-            ->and($rows[2][15])->toBe('')
-            ->and($rows[4])->toBe(['Total', '', '', '', '', '13', '9', '5', '2', '2', '3', '2', '2', '1', '6', '5']);
+            ->and($rows[1])->toBe([(string) $a->id, 'Alpha Builders', 'MY', '\'=HYPERLINK("x")', 'Sea Star Overseas', '10', '8', '5', '2', '1', '0', '3', '2', '2', '1', '5', '2'])
+            ->and($rows[2][16])->toBe('')
+            ->and($rows[4])->toBe(['Total', '', '', '', '', '13', '9', '5', '2', '2', '0', '3', '2', '2', '1', '6', '5']);
     });
 });
 
@@ -244,7 +248,9 @@ describe('company passports', function () {
             ])
             ->and($response->json('data.0.workflow.steps'))->toHaveCount(6)
             ->and($response->json('data.0'))->toHaveKeys(['current_stage', 'stage_status', 'medical_status', 'current_medical', 'warnings'])
-            ->and($response->json('data.0.can'))->toBe(['update' => false, 'delete' => false, 'record_medical' => false]);
+            // Read only: no action permissions, only whether passport details may be edited.
+            ->and($response->json('data.0'))->not->toHaveKey('can')
+            ->and($response->json('data.*.can_edit_passport'))->each->toBeFalse();
 
         $this->getJson("/api/reports/companies/{$a->id}/passports?stage=medical&stage_status=unfit")
             ->assertJsonPath('meta.total', 2);

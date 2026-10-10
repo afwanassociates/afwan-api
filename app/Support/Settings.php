@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\AppSetting;
+use App\Models\Country;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 
@@ -17,6 +18,11 @@ class Settings
     public const DEFAULT_PASSPORT_COUNTRY = 'default_passport_country_code';
 
     public const CACHE_KEY = 'app_settings';
+
+    /**
+     * The country used when a default-country setting has never been saved.
+     */
+    public const FALLBACK_COUNTRY = 'MY';
 
     /**
      * The value of a setting, or $default when it is not set.
@@ -50,6 +56,38 @@ class Settings
         }
 
         Cache::forget(self::CACHE_KEY);
+    }
+
+    /**
+     * The default company and passport countries as {code, name}, from one query.
+     *
+     * - Passport: always a country. MY when the setting is missing or empty,
+     *   or names a country that does not exist or is inactive.
+     * - Company: MY when the setting was never saved; one saved empty stays null.
+     *
+     * @return array{default_company_country: array{code: string, name: string|null}|null, default_passport_country: array{code: string, name: string|null}}
+     */
+    public function defaultCountries(): array
+    {
+        $settings = $this->all();
+        $company = array_key_exists(self::DEFAULT_COMPANY_COUNTRY, $settings) ? $settings[self::DEFAULT_COMPANY_COUNTRY] : self::FALLBACK_COUNTRY;
+        $passport = $settings[self::DEFAULT_PASSPORT_COUNTRY] ?? null;
+
+        $countries = Country::query()
+            ->whereIn('code', array_filter([$company, $passport, self::FALLBACK_COUNTRY]))
+            ->get(['code', 'name', 'is_active'])
+            ->keyBy('code');
+
+        if ($passport === null || ! ($countries[$passport]->is_active ?? false)) {
+            $passport = self::FALLBACK_COUNTRY;
+        }
+
+        $country = fn (?string $code) => $code === null ? null : ['code' => $code, 'name' => $countries[$code]->name ?? null];
+
+        return [
+            'default_company_country' => $country($company),
+            'default_passport_country' => $country($passport),
+        ];
     }
 
     /**

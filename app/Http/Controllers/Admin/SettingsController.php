@@ -38,8 +38,11 @@ class SettingsController extends Controller
     protected function respond(Settings $settings): JsonResponse
     {
         return response()->json(['data' => [
+            // The stored values, as the admin form edits them.
             'default_company_country_code' => $settings->get(Settings::DEFAULT_COMPANY_COUNTRY),
             'default_passport_country_code' => $settings->get(Settings::DEFAULT_PASSPORT_COUNTRY),
+            // What the passport form actually uses (with the MY fallback).
+            ...$settings->defaultCountries(),
         ]]);
     }
 }
