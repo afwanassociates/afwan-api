@@ -28,6 +28,12 @@ class ListPassportEntriesRequest extends FormRequest
     public const ALL_MEDICAL_STATUSES = 'all';
 
     /**
+     * mode value for the Passport List page: only passports just entered
+     * (medical not started: no slip date, no result).
+     */
+    public const PASSPORT_ENTERED = 'passport_entered';
+
+    /**
      * Accept the country code in any case, and a "-" prefix on sort.
      */
     protected function prepareForValidation(): void
@@ -66,7 +72,11 @@ class ListPassportEntriesRequest extends FormRequest
             'received_from' => ['sometimes', 'date_format:Y-m-d'],
             // Without it, unfit passports are left out; "unfit" lists only them and
             // "all" lists every status (the All Passports screen).
-            'medical_status' => ['sometimes', Rule::in([...array_column(MedicalStatus::cases(), 'value'), self::ALL_MEDICAL_STATUSES])],
+            'medical_status' => $this->isPassportEntered()
+                ? ['exclude']
+                : ['sometimes', Rule::in([...array_column(MedicalStatus::cases(), 'value'), self::ALL_MEDICAL_STATUSES])],
+            // A named list mode; medical_status is ignored with it.
+            'mode' => ['sometimes', 'nullable', Rule::in([self::PASSPORT_ENTERED])],
             // Where the passport is in the workflow (stored by WorkflowService).
             // The overview (All Passports) offers no "completed" stage filter.
             'stage' => ['sometimes', Rule::in($overview ? array_values(array_diff($stages, [Workflow::COMPLETED])) : $stages)],
@@ -78,6 +88,14 @@ class ListPassportEntriesRequest extends FormRequest
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
             'view' => ['sometimes', 'nullable', Rule::in([self::OVERVIEW])],
         ];
+    }
+
+    /**
+     * Whether the Passport List mode (passports just entered) is asked for.
+     */
+    public function isPassportEntered(): bool
+    {
+        return $this->input('mode') === self::PASSPORT_ENTERED;
     }
 
     /**

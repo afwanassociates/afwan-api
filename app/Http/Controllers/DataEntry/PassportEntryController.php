@@ -23,7 +23,8 @@ class PassportEntryController extends Controller
 {
     /**
      * Paginated, searchable list of passport entries. view=overview returns the
-     * lean All Passports overview instead of the full entries.
+     * lean All Passports overview instead of the full entries; mode=passport_entered
+     * keeps only passports whose medical has not started (the Passport List page).
      */
     public function index(ListPassportEntriesRequest $request): AnonymousResourceCollection
     {
@@ -35,7 +36,11 @@ class PassportEntryController extends Controller
         // The overview ignores sort and direction (they are not validated there).
         $sort = $request->validated('sort', 'created_at');
         $direction = $request->validated('direction', 'desc');
-        $medicalStatus = $request->validated('medical_status');
+        // mode=passport_entered lists only passports whose medical has not
+        // started (no slip date, no result; so never unfit).
+        $medicalStatus = $request->validated('mode') === ListPassportEntriesRequest::PASSPORT_ENTERED
+            ? MedicalStatus::NotStarted->value
+            : $request->validated('medical_status');
         $overview = $request->validated('view') === ListPassportEntriesRequest::OVERVIEW;
 
         // Columns are qualified: the current medical record is joined in.
