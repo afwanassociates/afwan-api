@@ -125,7 +125,7 @@ describe('BMET dates', function () {
             ->firstWhere('key', 'bmet')['fields'];
 
         expect(array_column($fields, 'name'))->toBe(['reference_no', 'step_date', 'training_certificate_date', 'finger_date'])
-            ->and($fields[2])->toBe(['name' => 'training_certificate_date', 'label' => 'Training certificate date', 'type' => 'date', 'max' => null, 'in_details' => true, 'required_for' => []])
+            ->and($fields[2])->toBe(['name' => 'training_certificate_date', 'label' => 'Training certificate date', 'type' => 'date', 'max' => null, 'in_details' => true, 'required_for' => [], 'phase' => 'start'])
             ->and($fields[3]['label'])->toBe('Finger date');
     });
 

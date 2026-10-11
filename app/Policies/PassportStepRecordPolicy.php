@@ -22,6 +22,14 @@ class PassportStepRecordPolicy
         return $user->hasRole(UserRole::DataEntry, UserRole::Admin, UserRole::SuperAdmin);
     }
 
+    /**
+     * Read the step work lists (accounts too, read only).
+     */
+    public function viewList(User $user): bool
+    {
+        return $user->hasRole(UserRole::DataEntry, UserRole::Accounts, UserRole::Admin, UserRole::SuperAdmin);
+    }
+
     public function create(User $user, PassportEntry $passport): bool
     {
         return $this->viewAny($user);

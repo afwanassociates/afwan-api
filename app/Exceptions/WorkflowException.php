@@ -37,6 +37,11 @@ class WorkflowException extends Exception
         return new self('step_in_process', "The {$stepLabel} step is in process: update its record instead of adding a new one.");
     }
 
+    public static function stepNotStarted(string $stepLabel): self
+    {
+        return new self('step_not_started', "The {$stepLabel} step has no record in process: start it before recording its result.");
+    }
+
     public static function laterStepExists(): self
     {
         return new self('later_step_exists', 'A later step already has records. Remove those records first.');

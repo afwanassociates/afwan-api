@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\DataEntry;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\DataEntry\Concerns\RespondsWithStepRecord;
 use App\Http\Requests\DataEntry\StoreStepRecordRequest;
 use App\Http\Requests\DataEntry\UpdateStepRecordRequest;
 use App\Http\Resources\PassportStepRecordResource;
@@ -17,6 +18,8 @@ use Illuminate\Support\Facades\Gate;
 
 class StepRecordController extends Controller
 {
+    use RespondsWithStepRecord;
+
     public function __construct(protected WorkflowService $service, protected Workflow $workflow) {}
 
     /**
@@ -73,28 +76,5 @@ class StepRecordController extends Controller
         $this->service->deleteStep($stepRecord, $request->user());
 
         return response()->noContent();
-    }
-
-    /**
-     * The record, the passport's new stage and step bar, and any warnings
-     * (warnings never block saving).
-     */
-    protected function respond(PassportStepRecord $record, PassportEntry $passport): JsonResponse
-    {
-        $passport->load(['currentMedical', 'stepRecords.creator']);
-        $record->load(PassportStepRecordResource::RELATIONS)->setRelation('passportEntry', $passport);
-
-        return (new PassportStepRecordResource($record))
-            ->additional([
-                'passport' => [
-                    'id' => $passport->id,
-                    'current_stage' => $passport->current_stage,
-                    'stage_status' => $passport->stage_status,
-                    'medical_status' => $passport->medicalStatus()->value,
-                    'workflow' => $this->workflow->forPassport($passport),
-                ],
-                'warnings' => $this->workflow->warnings($passport),
-            ])
-            ->response();
     }
 }

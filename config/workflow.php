@@ -13,7 +13,9 @@ return [
     |
     | - statuses: the label of each App\Enums\StepStatus for this step.
     | - fields: the record's form. "name" is a passport_step_records column,
-    |   or a key in its "details" JSON when "in_details" is true. "required_for"
+    |   or a key in its "details" JSON when "in_details" is true. "phase" says
+    |   which action asks for it: "start" (applying) or "result" (the outcome);
+    |   start when left out. "required_for"
     |   lists the statuses that need the field; "rules" are extra Laravel
     |   validation rules; "not_future_for" lists statuses for which a date may
     |   not be after today.
@@ -48,9 +50,9 @@ return [
                 'rejected' => 'Rejected',
             ],
             'fields' => [
-                ['name' => 'reference_no', 'label' => 'Permit / calling number', 'type' => 'text', 'max' => 100, 'required_for' => ['completed']],
-                ['name' => 'step_date', 'label' => 'Date', 'type' => 'date', 'required_for' => ['in_process', 'completed', 'rejected']],
-                ['name' => 'valid_until', 'label' => 'Valid until', 'type' => 'date', 'required_for' => []],
+                ['name' => 'reference_no', 'label' => 'Permit / calling number', 'phase' => 'result', 'type' => 'text', 'max' => 100, 'required_for' => ['completed']],
+                ['name' => 'step_date', 'label' => 'Date', 'phase' => 'start', 'type' => 'date', 'required_for' => ['in_process', 'completed', 'rejected']],
+                ['name' => 'valid_until', 'label' => 'Valid until', 'phase' => 'result', 'type' => 'date', 'required_for' => []],
             ],
             'warning_days' => 30,
         ],
@@ -65,9 +67,9 @@ return [
                 'rejected' => 'Rejected',
             ],
             'fields' => [
-                ['name' => 'reference_no', 'label' => 'Visa number', 'type' => 'text', 'max' => 100, 'required_for' => ['completed']],
-                ['name' => 'step_date', 'label' => 'Date', 'type' => 'date', 'required_for' => ['in_process', 'completed', 'rejected']],
-                ['name' => 'valid_until', 'label' => 'Valid until', 'type' => 'date', 'required_for' => []],
+                ['name' => 'reference_no', 'label' => 'Visa number', 'phase' => 'result', 'type' => 'text', 'max' => 100, 'required_for' => ['completed']],
+                ['name' => 'step_date', 'label' => 'Date', 'phase' => 'start', 'type' => 'date', 'required_for' => ['in_process', 'completed', 'rejected']],
+                ['name' => 'valid_until', 'label' => 'Valid until', 'phase' => 'result', 'type' => 'date', 'required_for' => []],
             ],
             'warning_days' => 30,
         ],
@@ -82,10 +84,10 @@ return [
                 'rejected' => 'Rejected',
             ],
             'fields' => [
-                ['name' => 'reference_no', 'label' => 'Clearance number', 'type' => 'text', 'max' => 100, 'required_for' => ['completed']],
-                ['name' => 'step_date', 'label' => 'Date', 'type' => 'date', 'required_for' => ['in_process', 'completed', 'rejected']],
-                ['name' => 'training_certificate_date', 'label' => 'Training certificate date', 'type' => 'date', 'in_details' => true, 'required_for' => [], 'not_future_for' => ['in_process', 'completed', 'rejected']],
-                ['name' => 'finger_date', 'label' => 'Finger date', 'type' => 'date', 'in_details' => true, 'required_for' => [], 'not_future_for' => ['in_process', 'completed', 'rejected']],
+                ['name' => 'reference_no', 'label' => 'Clearance number', 'phase' => 'result', 'type' => 'text', 'max' => 100, 'required_for' => ['completed']],
+                ['name' => 'step_date', 'label' => 'Date', 'phase' => 'start', 'type' => 'date', 'required_for' => ['in_process', 'completed', 'rejected']],
+                ['name' => 'training_certificate_date', 'label' => 'Training certificate date', 'phase' => 'start', 'type' => 'date', 'in_details' => true, 'required_for' => [], 'not_future_for' => ['in_process', 'completed', 'rejected']],
+                ['name' => 'finger_date', 'label' => 'Finger date', 'phase' => 'start', 'type' => 'date', 'in_details' => true, 'required_for' => [], 'not_future_for' => ['in_process', 'completed', 'rejected']],
             ],
             'warning_days' => 30,
         ],
@@ -100,11 +102,11 @@ return [
                 'rejected' => 'Cancelled',
             ],
             'fields' => [
-                ['name' => 'step_date', 'label' => 'Booking date', 'type' => 'date', 'required_for' => ['in_process', 'completed', 'rejected']],
-                ['name' => 'airline', 'label' => 'Airline', 'type' => 'text', 'max' => 100, 'in_details' => true, 'required_for' => ['in_process', 'completed']],
-                ['name' => 'flight_no', 'label' => 'Flight number', 'type' => 'text', 'max' => 20, 'in_details' => true, 'required_for' => ['in_process', 'completed'], 'rules' => ['regex:/^[A-Za-z0-9]+$/']],
-                ['name' => 'departure_date', 'label' => 'Departure date', 'type' => 'date', 'in_details' => true, 'required_for' => ['in_process', 'completed'], 'not_future_for' => ['completed']],
-                ['name' => 'ticket_pnr', 'label' => 'Ticket PNR', 'type' => 'text', 'max' => 20, 'in_details' => true, 'required_for' => []],
+                ['name' => 'step_date', 'label' => 'Booking date', 'phase' => 'start', 'type' => 'date', 'required_for' => ['in_process', 'completed', 'rejected']],
+                ['name' => 'airline', 'label' => 'Airline', 'phase' => 'start', 'type' => 'text', 'max' => 100, 'in_details' => true, 'required_for' => ['in_process', 'completed']],
+                ['name' => 'flight_no', 'label' => 'Flight number', 'phase' => 'start', 'type' => 'text', 'max' => 20, 'in_details' => true, 'required_for' => ['in_process', 'completed'], 'rules' => ['regex:/^[A-Za-z0-9]+$/']],
+                ['name' => 'departure_date', 'label' => 'Departure date', 'phase' => 'start', 'type' => 'date', 'in_details' => true, 'required_for' => ['in_process', 'completed'], 'not_future_for' => ['completed']],
+                ['name' => 'ticket_pnr', 'label' => 'Ticket PNR', 'phase' => 'start', 'type' => 'text', 'max' => 20, 'in_details' => true, 'required_for' => []],
             ],
             'warning_days' => 30,
         ],

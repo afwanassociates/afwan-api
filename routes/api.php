@@ -17,6 +17,8 @@ use App\Http\Controllers\DataEntry\MedicalSlipController;
 use App\Http\Controllers\DataEntry\PassportEntryController;
 use App\Http\Controllers\DataEntry\PassportScanController;
 use App\Http\Controllers\DataEntry\ReferenceController;
+use App\Http\Controllers\DataEntry\StepActionController;
+use App\Http\Controllers\DataEntry\StepListController;
 use App\Http\Controllers\DataEntry\StepRecordController;
 use App\Http\Controllers\DataEntry\WorkflowConfigController;
 use App\Http\Controllers\DataEntry\WorkflowSummaryController;
@@ -105,6 +107,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/passports/{passport}/steps/{stepKey}', [StepRecordController::class, 'store'])
             ->whereIn('stepKey', app(Workflow::class)->recordStepKeys())
             ->name('passports.steps.store');
+        // The step pages' actions: start a step, then record its result.
+        Route::match(['post', 'patch'], '/passports/{passport}/steps/{step}/start', [StepActionController::class, 'start'])
+            ->whereIn('step', app(Workflow::class)->recordStepKeys())
+            ->name('passports.steps.start');
+        Route::post('/passports/{passport}/steps/{step}/result', [StepActionController::class, 'result'])
+            ->whereIn('step', app(Workflow::class)->recordStepKeys())
+            ->name('passports.steps.result');
         Route::patch('/step-records/{stepRecord}', [StepRecordController::class, 'update'])->name('step-records.update');
         Route::delete('/step-records/{stepRecord}', [StepRecordController::class, 'destroy'])->name('step-records.destroy');
 
@@ -116,6 +125,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/companies/{company}', [AdminCompanyController::class, 'destroy'])->name('companies.destroy');
         Route::get('/countries', CountryLookupController::class)->name('countries.index');
         Route::get('/defaults', DefaultsController::class)->name('defaults');
+    });
+
+    // The step work lists, readable by accounts too (actions stay data-entry only).
+    Route::prefix('data-entry')->name('data-entry.')->middleware('role:data_entry,accounts')->group(function () {
+        Route::get('/steps/{step}/passports', StepListController::class)
+            ->whereIn('step', app(Workflow::class)->recordStepKeys())
+            ->name('steps.passports');
     });
 
     // Read-only reports for data entry and accounts (admin and super_admin pass too).

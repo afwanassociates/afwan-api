@@ -433,6 +433,7 @@ class Workflow
                     'max' => $field['max'] ?? null,
                     'in_details' => (bool) ($field['in_details'] ?? false),
                     'required_for' => $field['required_for'] ?? [],
+                    'phase' => $field['phase'] ?? 'start',
                 ], $step['fields']),
                 'warning_days' => $step['warning_days'],
             ];
@@ -475,7 +476,10 @@ class Workflow
                 "coalesce(sum({$m}.result = '{$fit}' and {$m}.valid_until between ? and ?), 0) as expiring_soon",
                 "coalesce(sum({$m}.result = '{$fit}' and {$m}.valid_until < ?), 0) as expired",
                 "coalesce(sum({$m}.result = '{$unfit}'), 0) as unfit",
-            ]), [$today, $today, $soon, $today])
+                // Waiting for the first step after medical with a fit medical
+                // that has run out: not in that step's Pending tab.
+                "coalesce(sum(passport_entries.current_stage = ? and passport_entries.stage_status = 'waiting' and {$m}.valid_until < ?), 0) as first_step_medical_expired",
+            ]), [$today, $today, $soon, $today, $this->recordStepKeys()[0] ?? '', $today])
             ->first();
 
         $counts = PassportEntry::query()
@@ -527,6 +531,35 @@ class Workflow
             ],
             'stages' => $stages,
             'completed' => (int) $counts->where('current_stage', self::COMPLETED)->sum('total'),
+            'step_tabs' => $this->stepTabCounts($counts, (int) $row->first_step_medical_expired),
         ];
+    }
+
+    /**
+     * Each record step's tab totals, matching App\Support\StepList: pending
+     * (waiting at the step; for the first step also with a medical still
+     * valid today), in_process, rejected, and completed (past the step).
+     *
+     * @param  Collection<int, object>  $counts  passports per current_stage and stage_status
+     * @return array<string, array{pending: int, in_process: int, completed: int, rejected: int}>
+     */
+    protected function stepTabCounts(Collection $counts, int $firstStepMedicalExpired): array
+    {
+        $tabs = [];
+        $stages = $this->stages();
+
+        foreach ($this->recordStepKeys() as $index => $key) {
+            $atStep = $counts->where('current_stage', $key);
+            $later = array_slice($stages, (int) array_search($key, $stages, true) + 1);
+
+            $tabs[$key] = [
+                'pending' => (int) $atStep->where('stage_status', 'waiting')->sum('total') - ($index === 0 ? $firstStepMedicalExpired : 0),
+                'in_process' => (int) $atStep->where('stage_status', 'in_process')->sum('total'),
+                'completed' => (int) $counts->whereIn('current_stage', $later)->sum('total'),
+                'rejected' => (int) $atStep->where('stage_status', 'rejected')->sum('total'),
+            ];
+        }
+
+        return $tabs;
     }
 }
