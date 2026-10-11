@@ -8,8 +8,10 @@ use App\Http\Requests\DataEntry\ListPassportEntriesRequest;
 use App\Http\Requests\DataEntry\StorePassportEntryRequest;
 use App\Http\Requests\DataEntry\UpdatePassportEntryRequest;
 use App\Http\Resources\PassportEntryResource;
+use App\Http\Resources\PassportListResource;
 use App\Http\Resources\PassportOverviewResource;
 use App\Models\PassportEntry;
+use App\Services\PassportScanService;
 use App\Services\WorkflowService;
 use App\Support\Like;
 use App\Support\Normalize;
@@ -17,6 +19,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 class PassportEntryController extends Controller
@@ -24,7 +27,9 @@ class PassportEntryController extends Controller
     /**
      * Paginated, searchable list of passport entries. view=overview returns the
      * lean All Passports overview instead of the full entries; mode=passport_entered
-     * keeps only passports whose medical has not started (the Passport List page).
+     * keeps only passports whose medical has not started (the Passport List page);
+     * mode=medical shows one Medical page tab (medical_status), Pending by slip
+     * date oldest first and the other tabs newest first, ignoring sort.
      */
     public function index(ListPassportEntriesRequest $request): AnonymousResourceCollection
     {
@@ -38,9 +43,13 @@ class PassportEntryController extends Controller
         $direction = $request->validated('direction', 'desc');
         // mode=passport_entered lists only passports whose medical has not
         // started (no slip date, no result; so never unfit).
-        $medicalStatus = $request->validated('mode') === ListPassportEntriesRequest::PASSPORT_ENTERED
-            ? MedicalStatus::NotStarted->value
-            : $request->validated('medical_status');
+        $mode = $request->validated('mode');
+        $medicalStatus = match ($mode) {
+            ListPassportEntriesRequest::PASSPORT_ENTERED => MedicalStatus::NotStarted->value,
+            // The Medical page shows one tab at a time, pending by default.
+            ListPassportEntriesRequest::MEDICAL => $request->validated('medical_status', MedicalStatus::Pending->value),
+            default => $request->validated('medical_status'),
+        };
         $overview = $request->validated('view') === ListPassportEntriesRequest::OVERVIEW;
 
         // Columns are qualified: the current medical record is joined in.
@@ -49,6 +58,11 @@ class PassportEntryController extends Controller
             'status_date' => 'passport_entries.stage_status_date',
             default => "passport_entries.{$sort}",
         };
+
+        // The Medical page's Pending tab: longest waiting since the slip first.
+        if ($mode === ListPassportEntriesRequest::MEDICAL && $medicalStatus === MedicalStatus::Pending->value) {
+            [$sortColumn, $direction] = ['passport_entries.medical_slip_date', 'asc'];
+        }
 
         $entries = PassportEntry::query()
             ->with($overview ? PassportOverviewResource::RELATIONS : PassportEntryResource::RELATIONS)
@@ -85,21 +99,26 @@ class PassportEntryController extends Controller
 
         return $overview
             ? PassportOverviewResource::collection($entries)
-            : PassportEntryResource::collection($entries);
+            : PassportListResource::collection($entries);
     }
 
     /**
      * Record a received passport.
      */
-    public function store(StorePassportEntryRequest $request, WorkflowService $workflow): PassportEntryResource
+    public function store(StorePassportEntryRequest $request, WorkflowService $workflow, PassportScanService $scans): PassportEntryResource
     {
         Gate::authorize('create', PassportEntry::class);
 
-        $entry = new PassportEntry($request->validated());
-        $entry->created_by = $request->user()->id;
-        $entry->updated_by = $request->user()->id;
-        $entry->save();
-        $workflow->recompute($entry);
+        // The entry and its scan copy are saved together.
+        $entry = DB::transaction(function () use ($request, $workflow, $scans) {
+            $entry = new PassportEntry($request->safe()->except('scan'));
+            $entry->created_by = $request->user()->id;
+            $entry->updated_by = $request->user()->id;
+            $entry->save();
+            $workflow->recompute($entry);
+
+            return $scans->store($entry, $request->file('scan'));
+        });
 
         return new PassportEntryResource($entry->load(PassportEntryResource::RELATIONS));
     }
@@ -117,18 +136,25 @@ class PassportEntryController extends Controller
     /**
      * Edit a passport entry.
      */
-    public function update(UpdatePassportEntryRequest $request, PassportEntry $passport, WorkflowService $workflow): PassportEntryResource
+    public function update(UpdatePassportEntryRequest $request, PassportEntry $passport, WorkflowService $workflow, PassportScanService $scans): PassportEntryResource
     {
         Gate::authorize('update', $passport);
 
-        $passport->fill($request->validated());
-        $passport->updated_by = $request->user()->id;
-        $passport->save();
+        DB::transaction(function () use ($request, $passport, $workflow, $scans) {
+            $passport->fill($request->safe()->except('scan'));
+            $passport->updated_by = $request->user()->id;
+            $passport->save();
 
-        // A pending passport's status date is its received date.
-        if ($passport->wasChanged('passport_received_date')) {
-            $workflow->recompute($passport);
-        }
+            // A pending passport's status date is its received date.
+            if ($passport->wasChanged('passport_received_date')) {
+                $workflow->recompute($passport);
+            }
+
+            // Required while the passport has no scan yet; otherwise an optional replacement.
+            if ($request->hasFile('scan')) {
+                $scans->store($passport, $request->file('scan'));
+            }
+        });
 
         return new PassportEntryResource($passport->load(PassportEntryResource::RELATIONS));
     }

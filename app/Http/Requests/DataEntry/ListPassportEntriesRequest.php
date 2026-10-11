@@ -34,6 +34,19 @@ class ListPassportEntriesRequest extends FormRequest
     public const PASSPORT_ENTERED = 'passport_entered';
 
     /**
+     * mode value for the Medical page: one tab (medical_status) at a time,
+     * ordered per tab; sort is ignored.
+     */
+    public const MEDICAL = 'medical';
+
+    /**
+     * The Medical page's tabs (medical_status values allowed with mode=medical).
+     *
+     * @var list<string>
+     */
+    public const MEDICAL_TABS = ['pending', 'fit', 'expiring_soon', 'expired', 'unfit'];
+
+    /**
      * Accept the country code in any case, and a "-" prefix on sort.
      */
     protected function prepareForValidation(): void
@@ -72,19 +85,23 @@ class ListPassportEntriesRequest extends FormRequest
             'received_from' => ['sometimes', 'date_format:Y-m-d'],
             // Without it, unfit passports are left out; "unfit" lists only them and
             // "all" lists every status (the All Passports screen).
-            'medical_status' => $this->isPassportEntered()
-                ? ['exclude']
-                : ['sometimes', Rule::in([...array_column(MedicalStatus::cases(), 'value'), self::ALL_MEDICAL_STATUSES])],
-            // A named list mode; medical_status is ignored with it.
-            'mode' => ['sometimes', 'nullable', Rule::in([self::PASSPORT_ENTERED])],
+            'medical_status' => match (true) {
+                $this->isPassportEntered() => ['exclude'],
+                // The Medical page's tab (pending when not sent).
+                $this->isMedicalMode() => ['sometimes', Rule::in(self::MEDICAL_TABS)],
+                default => ['sometimes', Rule::in([...array_column(MedicalStatus::cases(), 'value'), self::ALL_MEDICAL_STATUSES])],
+            },
+            // Named list modes: passport_entered ignores medical_status; medical
+            // takes it as the tab.
+            'mode' => ['sometimes', 'nullable', Rule::in([self::PASSPORT_ENTERED, self::MEDICAL])],
             // Where the passport is in the workflow (stored by WorkflowService).
             // The overview (All Passports) offers no "completed" stage filter.
             'stage' => ['sometimes', Rule::in($overview ? array_values(array_diff($stages, [Workflow::COMPLETED])) : $stages)],
             'stage_status' => ['sometimes', Rule::in(Workflow::STAGE_STATUSES)],
             'received_to' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:received_from'],
-            // The overview ignores sorting: always newest first.
-            'sort' => $overview ? ['exclude'] : ['sometimes', Rule::in(self::SORTABLE)],
-            'direction' => $overview ? ['exclude'] : ['sometimes', Rule::in(['asc', 'desc'])],
+            // The overview and the Medical page ignore sorting (fixed order).
+            'sort' => $overview || $this->isMedicalMode() ? ['exclude'] : ['sometimes', Rule::in(self::SORTABLE)],
+            'direction' => $overview || $this->isMedicalMode() ? ['exclude'] : ['sometimes', Rule::in(['asc', 'desc'])],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
             'view' => ['sometimes', 'nullable', Rule::in([self::OVERVIEW])],
         ];
@@ -96,6 +113,14 @@ class ListPassportEntriesRequest extends FormRequest
     public function isPassportEntered(): bool
     {
         return $this->input('mode') === self::PASSPORT_ENTERED;
+    }
+
+    /**
+     * Whether the Medical page mode is asked for.
+     */
+    public function isMedicalMode(): bool
+    {
+        return $this->input('mode') === self::MEDICAL;
     }
 
     /**

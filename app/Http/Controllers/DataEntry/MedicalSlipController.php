@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Gate;
 class MedicalSlipController extends Controller
 {
     /**
-     * Save the passport's medical slip (date, number, centre). Entering the
+     * Save the passport's medical slip (date and centre). Entering the
      * date moves the passport from not_started into Medical Pending.
      */
     public function __invoke(UpdateMedicalSlipRequest $request, PassportEntry $passport, MedicalService $medicals): PassportEntryResource

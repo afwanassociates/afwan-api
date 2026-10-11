@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\DataEntry;
 
+use App\Rules\PassportScanFile;
 use Illuminate\Contracts\Validation\ValidationRule;
 
 /**
@@ -19,6 +20,10 @@ class UpdatePassportEntryRequest extends StorePassportEntryRequest
      */
     public function rules(): array
     {
-        return array_map(fn (array $rules) => ['sometimes', ...$rules], parent::rules());
+        return [
+            ...array_map(fn (array $rules) => ['sometimes', ...$rules], parent::rules()),
+            // Required until the passport has a scan; then an optional replacement.
+            'scan' => PassportScanFile::rules(required: ! $this->entry()?->hasScan()),
+        ];
     }
 }

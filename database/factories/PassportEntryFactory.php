@@ -8,6 +8,7 @@ use App\Models\Reference;
 use App\Models\User;
 use App\Services\WorkflowService;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Str;
 
 /**
  * @extends Factory<PassportEntry>
@@ -30,6 +31,13 @@ class PassportEntryFactory extends Factory
             'company_id' => Company::factory(),
             'passport_received_date' => fake()->dateTimeBetween('-1 year', 'now'),
             'passport_expiry_date' => fake()->dateTimeBetween('+1 year', '+10 years'),
+            // Scan details only (no file on the disk): new passports always have a
+            // scan, so editing them needs no upload. Use withoutScan() for old rows.
+            'scan_path' => fn () => 'passport-scans/factory/'.Str::uuid().'.jpg',
+            'scan_original_name' => 'passport.jpg',
+            'scan_mime' => 'image/jpeg',
+            'scan_size' => 102400,
+            'scan_uploaded_at' => now(),
         ];
     }
 
@@ -42,6 +50,21 @@ class PassportEntryFactory extends Factory
         return $this->afterCreating(function (PassportEntry $entry) {
             app(WorkflowService::class)->recompute($entry);
         });
+    }
+
+    /**
+     * Indicate that no scan copy was uploaded (as on passports entered
+     * before scans were required).
+     */
+    public function withoutScan(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'scan_path' => null,
+            'scan_original_name' => null,
+            'scan_mime' => null,
+            'scan_size' => null,
+            'scan_uploaded_at' => null,
+        ]);
     }
 
     /**

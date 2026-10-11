@@ -10,10 +10,12 @@ use App\Http\Controllers\DataEntry\CompanyController;
 use App\Http\Controllers\DataEntry\CountryLookupController;
 use App\Http\Controllers\DataEntry\DefaultsController;
 use App\Http\Controllers\DataEntry\MedicalCenterLookupController;
+use App\Http\Controllers\DataEntry\MedicalDateController;
 use App\Http\Controllers\DataEntry\MedicalQueueController;
 use App\Http\Controllers\DataEntry\MedicalRecordController;
 use App\Http\Controllers\DataEntry\MedicalSlipController;
 use App\Http\Controllers\DataEntry\PassportEntryController;
+use App\Http\Controllers\DataEntry\PassportScanController;
 use App\Http\Controllers\DataEntry\ReferenceController;
 use App\Http\Controllers\DataEntry\StepRecordController;
 use App\Http\Controllers\DataEntry\WorkflowConfigController;
@@ -82,9 +84,14 @@ Route::middleware('auth:sanctum')->group(function () {
             ->parameters(['passports' => 'passport']);
 
         // Step 2: medical results. Every write goes through App\Services\MedicalService.
+        // The passport scan copy. Admin and super_admin reach these through the
+        // role hierarchy; it is the only prefix that serves passport details.
+        Route::get('/passports/{passport}/scan', [PassportScanController::class, 'show'])->name('passports.scan.show');
+        Route::post('/passports/{passport}/scan', [PassportScanController::class, 'store'])->name('passports.scan.store');
         Route::patch('/passports/{passport}/medical-slip', MedicalSlipController::class)->name('passports.medical-slip');
+        Route::patch('/passports/{passport}/medical-date', MedicalDateController::class)->name('passports.medical-date');
+        Route::post('/passports/{passport}/medical-result', [MedicalRecordController::class, 'result'])->name('passports.medical-result');
         Route::get('/passports/{passport}/medicals', [MedicalRecordController::class, 'index'])->name('passports.medicals.index');
-        Route::post('/passports/{passport}/medicals', [MedicalRecordController::class, 'store'])->name('passports.medicals.store');
         Route::patch('/medicals/{medical}', [MedicalRecordController::class, 'update'])->name('medicals.update');
         Route::delete('/medicals/{medical}', [MedicalRecordController::class, 'destroy'])->name('medicals.destroy');
         Route::get('/medical/queue', MedicalQueueController::class)->name('medical.queue');

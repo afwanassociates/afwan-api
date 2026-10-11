@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Http\Resources\Concerns\HasScanFields;
 use App\Models\MedicalRecord;
 use App\Models\PassportEntry;
 use App\Support\Workflow;
@@ -13,6 +14,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 class PassportEntryResource extends JsonResource
 {
+    use HasScanFields;
+
     /**
      * Relations to eager load before returning entries.
      *
@@ -60,12 +63,18 @@ class PassportEntryResource extends JsonResource
             // The medical slip ("MYGRAM"); the medical result form pre-fills from it.
             'medical_slip' => [
                 'date' => $this->medical_slip_date?->toDateString(),
-                'no' => $this->medical_slip_no,
                 'medical_center' => $this->medicalCenter ? [
                     'id' => $this->medicalCenter->id,
                     'name' => $this->medicalCenter->name,
                 ] : null,
             ],
+            // The date the passport goes (or went) for its medical; null until entered.
+            'medical_date' => $this->medical_date?->toDateString(),
+            // Where the medical is done (same as medical_slip.medical_center).
+            'medical_center' => $this->medicalCenter ? [
+                'id' => $this->medicalCenter->id,
+                'name' => $this->medicalCenter->name,
+            ] : null,
             'medical_status' => $medicalStatus->value,
             'medical_status_label' => $medicalStatus->label(),
             'current_medical' => $this->currentMedical ? MedicalRecordResource::summary($this->currentMedical) : null,
@@ -73,6 +82,7 @@ class PassportEntryResource extends JsonResource
             'stage_status' => $this->stage_status,
             'workflow' => $workflow->forPassport($this->resource, $medicalStatus),
             'warnings' => $workflow->warnings($this->resource),
+            ...$this->scanFields(),
             'created_by' => $this->created_by,
             'updated_by' => $this->updated_by,
             'created_at' => $this->created_at,
@@ -84,5 +94,15 @@ class PassportEntryResource extends JsonResource
                 'record_medical' => $request->user()?->can('create', [MedicalRecord::class, $this->resource]) ?? false,
             ],
         ];
+    }
+
+    /**
+     * The scan copy: every field on a details response (lists override this).
+     *
+     * @return array<string, mixed>
+     */
+    protected function scanFields(): array
+    {
+        return $this->scanDetails($this->resource);
     }
 }

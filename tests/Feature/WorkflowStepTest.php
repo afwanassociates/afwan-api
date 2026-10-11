@@ -583,7 +583,9 @@ describe('medical interplay', function () {
         PassportStepRecord::factory()->for($passport)->status(StepStatus::InProcess)->on('2026-04-10')->create();
         Sanctum::actingAs($clerk);
 
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medicals", ['medical_date' => '2026-04-25', 'result' => 'fit'])->assertForbidden();
+        // The medical date is locked (a result exists) and the result is admin-only.
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-25'])->assertUnprocessable();
+        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit'])->assertForbidden();
         $this->patchJson("/api/data-entry/medicals/{$medical->id}", ['remarks' => 'x'])->assertForbidden();
     });
 
@@ -592,7 +594,7 @@ describe('medical interplay', function () {
         $medical = MedicalRecord::sole();
         Sanctum::actingAs(User::factory()->admin()->create());
 
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medicals", ['medical_date' => '2026-04-25', 'result' => 'unfit'])
+        recordMedical($passport->id, '2026-04-25', 'unfit')
             ->assertUnprocessable()
             ->assertJsonPath('code', 'later_steps_exist');
         $this->patchJson("/api/data-entry/medicals/{$medical->id}", ['result' => 'unfit'])
@@ -606,7 +608,7 @@ describe('medical interplay', function () {
             ->and($medical->fresh()->result->value)->toBe('fit');
 
         // A fit re-test is fine.
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medicals", ['medical_date' => '2026-04-25', 'result' => 'fit'])->assertCreated();
+        recordMedical($passport->id, '2026-04-25', 'fit')->assertCreated();
         expect(storedPosition($passport))->toBe(['visa', 'waiting', '2026-04-02']);
     });
 });

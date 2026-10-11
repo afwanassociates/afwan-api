@@ -83,6 +83,11 @@ return new class extends Migration
      */
     public function down(): void
     {
+        // medical_slip_no may already be gone (2026_10_17_000002).
+        if (! Schema::hasColumn('passport_entries', 'medical_slip_no')) {
+            unset($this->columns['medical_slip_no']);
+        }
+
         Schema::table('medical_records', function (Blueprint $table) {
             $table->foreignId('medical_center_id')->nullable()->after('passport_entry_id')
                 ->constrained('medical_centers')->restrictOnDelete();
@@ -92,14 +97,14 @@ return new class extends Migration
 
         DB::table('passport_entries')
             ->whereNotNull('current_medical_id')
-            ->where(fn ($query) => $query->whereNotNull('medical_slip_date')->orWhereNotNull('medical_slip_no')->orWhereNotNull('medical_center_id'))
+            ->where(fn ($query) => $query->whereNotNull('medical_slip_date')->orWhereNotNull('medical_center_id'))
             ->select(['id', 'current_medical_id', ...array_keys($this->columns)])
             ->orderBy('id')
             ->chunkById(500, function ($passports) {
                 foreach ($passports as $passport) {
                     DB::table('medical_records')
                         ->where('id', $passport->current_medical_id)
-                        ->whereNull('slip_date')->whereNull('slip_no')->whereNull('medical_center_id')
+                        ->whereNull('slip_date')->whereNull('medical_center_id')
                         ->update(collect($this->columns)->mapWithKeys(fn (string $to, string $from) => [$to => $passport->{$from}])->all());
                 }
             });
@@ -113,7 +118,7 @@ return new class extends Migration
         Schema::table('passport_entries', function (Blueprint $table) {
             $table->dropConstrainedForeignId('medical_center_id');
             $table->dropIndex(['medical_slip_date']);
-            $table->dropColumn(['medical_slip_date', 'medical_slip_no']);
+            $table->dropColumn(['medical_slip_date', ...(Schema::hasColumn('passport_entries', 'medical_slip_no') ? ['medical_slip_no'] : [])]);
             $table->string('current_stage', 20)->default('medical')->change();
         });
     }

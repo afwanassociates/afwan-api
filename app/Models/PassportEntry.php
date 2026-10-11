@@ -8,6 +8,7 @@ use App\Support\LocalDate;
 use App\Support\Normalize;
 use Database\Factories\PassportEntryFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -22,9 +23,11 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * not fillable: they are set in code from the logged-in user. current_medical_id,
  * current_stage, stage_status and stage_status_date are not fillable either:
  * only App\Services\WorkflowService::recompute sets them. The medical slip
- * (medical_slip_date, medical_slip_no, medical_center_id) is set only through
- * App\Services\MedicalService::updateSlip.
+ * (medical_slip_date, medical_center_id) and the medical_date are set only
+ * through App\Services\MedicalService, and the scan columns only through
+ * App\Services\PassportScanService (scan_path is never sent to clients).
  */
+#[Hidden(['scan_path'])]
 #[Fillable([
     'passport_name', 'passport_number', 'country_code', 'date_of_birth', 'reference_id', 'company_id',
     'passport_received_date', 'passport_expiry_date',
@@ -60,6 +63,9 @@ class PassportEntry extends Model
             'passport_expiry_date' => 'date',
             'stage_status_date' => 'date',
             'medical_slip_date' => 'date',
+            'medical_date' => 'date',
+            'scan_size' => 'integer',
+            'scan_uploaded_at' => 'datetime',
         ];
     }
 
@@ -191,6 +197,14 @@ class PassportEntry extends Model
     public function medicalStatus(): MedicalStatus
     {
         return MedicalStatus::fromRecord($this->currentMedical, LocalDate::today(), $this->medical_slip_date !== null);
+    }
+
+    /**
+     * Whether a scan copy has been uploaded.
+     */
+    public function hasScan(): bool
+    {
+        return $this->scan_path !== null;
     }
 
     /**

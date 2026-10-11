@@ -134,7 +134,7 @@ describe('passport list', function () {
 
         expect(listedPassportIds())->toBe([]);
 
-        $this->postJson("/api/data-entry/passports/{$unfit->id}/medicals", ['medical_date' => '2026-04-28', 'result' => 'fit'])
+        recordMedical($unfit->id, '2026-04-28', 'fit')
             ->assertCreated();
 
         expect(listedPassportIds())->toBe([$unfit->id])

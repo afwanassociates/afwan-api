@@ -1,6 +1,9 @@
 <?php
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /*
@@ -33,6 +36,8 @@ pest()->extend(TestCase::class)
             throw new RuntimeException('Refusing to run tests: configuration is cached. Run "php artisan config:clear" first.');
         }
     })
+    // Uploads (passport scans) go to a temporary fake disk, never storage/app/private.
+    ->beforeEach(fn () => Storage::fake('local'))
     ->in('Feature');
 
 /*
@@ -61,7 +66,33 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * A passport scan upload with real file content (finfo reads the type from
+ * it): "jpg", "png" or "pdf". $padKb pads the file to roughly that size.
+ */
+function fakeScan(string $type = 'jpg', ?string $name = null, int $padKb = 1): UploadedFile
 {
-    // ..
+    $content = match ($type) {
+        'jpg' => "\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00".str_repeat("\x00", $padKb * 1024)."\xFF\xD9",
+        'png' => "\x89PNG\r\n\x1A\n\x00\x00\x00\x0DIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xDE".str_repeat("\x00", $padKb * 1024),
+        'pdf' => "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n1 0 obj\n<< /Type /Catalog >>\nendobj\n".str_repeat(' ', $padKb * 1024)."\n%%EOF\n",
+    };
+
+    return UploadedFile::fake()->createWithContent($name ?? "passport.{$type}", $content);
+}
+
+/**
+ * Record a medical result the way the SPA does: set the passport's medical
+ * date, then post the result. Returns the date response when that fails,
+ * otherwise the result response.
+ */
+function recordMedical(int $passportId, string $medicalDate, string $result): TestResponse
+{
+    $date = test()->patchJson("/api/data-entry/passports/{$passportId}/medical-date", ['medical_date' => $medicalDate]);
+
+    if (! $date->isOk()) {
+        return $date;
+    }
+
+    return test()->postJson("/api/data-entry/passports/{$passportId}/medical-result", ['result' => $result]);
 }

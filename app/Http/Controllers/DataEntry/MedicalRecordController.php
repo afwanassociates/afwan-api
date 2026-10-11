@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers\DataEntry;
 
+use App\Enums\MedicalResult;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\DataEntry\StoreMedicalRecordRequest;
+use App\Http\Requests\DataEntry\StoreMedicalResultRequest;
 use App\Http\Requests\DataEntry\UpdateMedicalRecordRequest;
 use App\Http\Resources\MedicalRecordResource;
 use App\Models\MedicalRecord;
@@ -37,14 +38,15 @@ class MedicalRecordController extends Controller
     }
 
     /**
-     * Record a medical result (a re-test adds a new record; history is kept).
+     * Record the result (fit or unfit) for the passport's medical date. A
+     * re-test adds a new record after a new medical date; history is kept.
      */
-    public function store(StoreMedicalRecordRequest $request, PassportEntry $passport): JsonResponse
+    public function result(StoreMedicalResultRequest $request, PassportEntry $passport): JsonResponse
     {
         $passport->load('currentMedical');
         Gate::authorize('create', [MedicalRecord::class, $passport]);
 
-        $record = $this->medicals->record($passport, $request->validated(), $request->user());
+        $record = $this->medicals->recordResult($passport, MedicalResult::from($request->validated('result')), $request->user());
 
         return $this->respond($record, $passport)->setStatusCode(201);
     }

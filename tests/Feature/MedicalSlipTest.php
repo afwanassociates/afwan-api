@@ -58,13 +58,14 @@ describe('medical pending only after the slip date', function () {
             'company_id' => Company::factory()->create()->id,
             'passport_received_date' => '2026-04-10',
             'passport_expiry_date' => '2031-04-10',
+            'scan' => fakeScan(),
         ])
             ->assertCreated()
             ->assertJsonPath('data.medical_status', 'not_started')
             ->assertJsonPath('data.current_stage', 'passport')
             ->assertJsonPath('data.stage_status', 'not_started')
             ->assertJsonPath('data.workflow.current_step', 'passport')
-            ->assertJsonPath('data.medical_slip', ['date' => null, 'no' => null, 'medical_center' => null])
+            ->assertJsonPath('data.medical_slip', ['date' => null, 'medical_center' => null])
             ->json('data.id');
 
         expect(slipListIds())->toBe([$id])
@@ -76,6 +77,7 @@ describe('medical pending only after the slip date', function () {
         // Saving the slip date moves it into Medical Pending.
         $this->patchJson("/api/data-entry/passports/{$id}/medical-slip", [
             'medical_slip_date' => '2026-04-15',
+            // No longer recorded: ignored.
             'medical_slip_no' => 'MG-2026-0042',
             'medical_center_id' => meem()->id,
         ])
@@ -85,7 +87,6 @@ describe('medical pending only after the slip date', function () {
             ->assertJsonPath('data.stage_status', 'pending')
             ->assertJsonPath('data.medical_slip', [
                 'date' => '2026-04-15',
-                'no' => 'MG-2026-0042',
                 'medical_center' => ['id' => meem()->id, 'name' => 'Meem Medical Center'],
             ]);
 
@@ -96,7 +97,7 @@ describe('medical pending only after the slip date', function () {
             ->and(PassportEntry::find($id)->stage_status_date->toDateString())->toBe('2026-04-15');
 
         // Recording the result takes it out of pending; the slip stays on the passport.
-        $this->postJson("/api/data-entry/passports/{$id}/medicals", ['medical_date' => '2026-04-20', 'result' => 'fit'])
+        recordMedical($id, '2026-04-20', 'fit')
             ->assertCreated()
             ->assertJsonPath('passport.medical_status', 'fit');
 
@@ -105,7 +106,8 @@ describe('medical pending only after the slip date', function () {
 
         $this->getJson("/api/data-entry/passports/{$id}")
             ->assertJsonPath('data.current_stage', 'calling')
-            ->assertJsonPath('data.medical_slip.no', 'MG-2026-0042')
+            ->assertJsonPath('data.medical_slip.date', '2026-04-15')
+            ->assertJsonMissingPath('data.medical_slip.no')
             ->assertJsonPath('data.current_medical.medical_date', '2026-04-20');
     });
 
@@ -113,7 +115,11 @@ describe('medical pending only after the slip date', function () {
         $passport = PassportEntry::factory()->create();
         Sanctum::actingAs(User::factory()->admin()->create());
 
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medicals", ['medical_date' => '2026-04-20', 'result' => 'fit'])
+        // Neither the medical date nor the result can come before the slip date.
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-20'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['medical_date' => 'Enter the medical slip date before the medical date.']);
+        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['medical_slip_date' => 'Enter the medical slip date before recording the medical result.']);
 
@@ -131,7 +137,7 @@ describe('medical pending only after the slip date', function () {
             ->assertJsonPath('data.current_stage', 'passport');
 
         $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-16'])->assertOk();
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medicals", ['medical_date' => '2026-04-20', 'result' => 'unfit'])->assertCreated();
+        recordMedical($passport->id, '2026-04-20', 'unfit')->assertCreated();
 
         $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => null])
             ->assertUnprocessable()
@@ -176,9 +182,8 @@ describe('medical pending only after the slip date', function () {
             ->assertUnprocessable()
             ->assertJsonValidationErrors($field);
     })->with([
-        'date missing' => [['medical_slip_no' => 'MG-1'], 'medical_slip_date'],
+        'date missing' => [['medical_center_id' => null], 'medical_slip_date'],
         'bad date' => [['medical_slip_date' => '15-04-2026'], 'medical_slip_date'],
-        'slip number too long' => [['medical_slip_date' => '2026-04-15', 'medical_slip_no' => str_repeat('9', 51)], 'medical_slip_no'],
         'inactive centre' => [['medical_slip_date' => '2026-04-15', 'medical_center_id' => '__zain'], 'medical_center_id'],
         'unknown centre' => [['medical_slip_date' => '2026-04-15', 'medical_center_id' => 999999], 'medical_center_id'],
     ]);
@@ -209,12 +214,11 @@ describe('medical pending only after the slip date', function () {
         }
     });
 
-    it('no longer takes slip fields on the medical result', function () {
-        $passport = PassportEntry::factory()->withMedicalSlip()->create();
+    it('takes only the result: the slip and centre stay on the passport', function () {
+        $passport = PassportEntry::factory()->withMedicalSlip()->create(['medical_date' => '2026-04-20']);
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medicals", [
-            'medical_date' => '2026-04-20',
+        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", [
             'result' => 'fit',
             'slip_no' => 'IGNORED',
             'medical_center_id' => meem()->id,

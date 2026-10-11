@@ -132,15 +132,15 @@ describe('stage_status_date', function () {
         Sanctum::actingAs($admin);
 
         // Unfit: the current medical's date.
-        $unfit = $this->postJson("/api/data-entry/passports/{$passport->id}/medicals", ['medical_date' => '2026-03-01', 'result' => 'unfit'])->json('data.id');
+        $unfit = recordMedical($passport->id, '2026-03-01', 'unfit')->json('data.id');
         expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-03-01');
 
         // Fit re-test: waiting for the next step since the medical date.
-        $fit = $this->postJson("/api/data-entry/passports/{$passport->id}/medicals", ['medical_date' => '2026-04-10', 'result' => 'fit'])->json('data.id');
+        $fit = recordMedical($passport->id, '2026-04-10', 'fit')->json('data.id');
         expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-04-10');
 
         // A back-dated medical does not move it.
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medicals", ['medical_date' => '2026-02-15', 'result' => 'fit'])->assertCreated();
+        recordMedical($passport->id, '2026-02-15', 'fit')->assertCreated();
         expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-04-10');
 
         // Editing the current medical's date moves it.
@@ -203,7 +203,7 @@ describe('overview list', function () {
 
         expect(array_keys($item))->toBe([
             'id', 'passport_name', 'passport_number', 'date_of_birth', 'country', 'passport_expiry_date',
-            'company', 'reference', 'passport_received_date', 'entered_by', 'created_at', 'latest_status',
+            'company', 'reference', 'passport_received_date', 'entered_by', 'created_at', 'has_scan', 'latest_status',
         ])
             ->and($item)->not->toHaveKeys(['current_medical', 'workflow', 'warnings', 'medical_status', 'can'])
             ->and(array_keys($item['reference']))->toBe(['id', 'name', 'type'])

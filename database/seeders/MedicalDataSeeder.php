@@ -94,13 +94,18 @@ class MedicalDataSeeder extends Seeder
 
                 $medicals->updateSlip($passport, [
                     'medical_slip_date' => LocalDate::parse($firstMedical)->subDays(3)->toDateString(),
-                    'medical_slip_no' => 'MG-'.(5000 + $passport->id),
                     'medical_center_id' => $centers->isEmpty() ? null : $centers[$index % $centers->count()],
                 ]);
             }
 
+            // The medical date first, then the result (remarks are added after).
             foreach ($records as [$actor, $data]) {
-                $medicals->record($passport, $data, $actor);
+                $medicals->updateMedicalDate($passport, $data['medical_date'], $actor);
+                $record = $medicals->recordResult($passport, $data['result'], $actor);
+
+                if (isset($data['remarks'])) {
+                    $medicals->update($record, ['remarks' => $data['remarks']], $actor);
+                }
             }
         }
     }

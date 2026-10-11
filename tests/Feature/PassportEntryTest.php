@@ -25,6 +25,7 @@ function passportPayload(array $overrides = []): array
         'company_id' => $overrides['company_id'] ?? Company::factory()->create()->id,
         'passport_received_date' => now()->subDay()->toDateString(),
         'passport_expiry_date' => now()->addYears(5)->toDateString(),
+        'scan' => fakeScan(),
         ...$overrides,
     ];
 }

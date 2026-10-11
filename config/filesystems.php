@@ -33,7 +33,9 @@ return [
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
-            'serve' => true,
+            // Private files (e.g. passport scans) are only streamed by their
+            // own authorized endpoints, never through a served-files route.
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],

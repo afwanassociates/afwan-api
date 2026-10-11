@@ -10,7 +10,7 @@ use Illuminate\Http\Request;
  * (with the six-step workflow) plus the overview's latest_status. It carries
  * no action permissions, only whether the viewer may edit passport details.
  */
-class CompanyPassportResource extends PassportEntryResource
+class CompanyPassportResource extends PassportListResource
 {
     /**
      * Transform the resource into an array.

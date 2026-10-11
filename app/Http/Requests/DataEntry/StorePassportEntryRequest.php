@@ -5,6 +5,7 @@ namespace App\Http\Requests\DataEntry;
 use App\Enums\MedicalStatus;
 use App\Models\PassportEntry;
 use App\Rules\ActiveCountry;
+use App\Rules\PassportScanFile;
 use App\Support\Normalize;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Database\Query\Builder;
@@ -46,6 +47,8 @@ class StorePassportEntryRequest extends FormRequest
             'company_id' => ['required', 'integer', $this->selectable('companies', $this->entry()?->company_id)],
             'passport_received_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
             'passport_expiry_date' => ['required', 'date_format:Y-m-d', $this->afterReceivedDate()],
+            // The passport scan copy (multipart): JPG, PNG or PDF up to 5 MB.
+            'scan' => PassportScanFile::rules(required: true),
         ];
     }
 
@@ -60,6 +63,9 @@ class StorePassportEntryRequest extends FormRequest
             'passport_number.unique' => $this->duplicatePassportNumberMessage(),
             'passport_number.regex' => 'The passport number must be 6 to 20 letters and digits.',
             'reference_id.required' => 'Please choose a reference.',
+            'scan.required' => 'Please upload the passport scan copy.',
+            'scan.mimes' => 'The scan must be a JPG, PNG or PDF file.',
+            'scan.max' => 'The scan may not be larger than 5 MB.',
             'reference_id.exists' => 'The selected reference does not exist or is inactive.',
             'company_id.exists' => 'The selected company does not exist or is inactive.',
             'passport_received_date.before_or_equal' => 'The passport received date cannot be in the future.',

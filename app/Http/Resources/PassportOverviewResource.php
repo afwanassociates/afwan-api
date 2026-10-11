@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Http\Resources\Concerns\HasScanFields;
 use App\Models\PassportEntry;
 use App\Support\Workflow;
 use Illuminate\Http\Request;
@@ -16,6 +17,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 class PassportOverviewResource extends JsonResource
 {
+    use HasScanFields;
+
     /**
      * Relations to eager load before returning entries. currentMedical is only
      * read to tell an expired fit medical apart; its creator is not needed.
@@ -60,6 +63,7 @@ class PassportOverviewResource extends JsonResource
                 'name' => $this->creator->name,
             ] : null,
             'created_at' => $this->created_at,
+            ...$this->scanFlag($this->resource),
             'latest_status' => app(Workflow::class)->latestStatus($this->resource),
         ];
     }

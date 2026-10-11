@@ -34,9 +34,34 @@ class PassportEntryPolicy
     }
 
     /**
-     * Save the medical slip (date, number, centre) of any passport.
+     * Save the medical slip (date and centre) of any passport.
      */
     public function updateMedicalSlip(User $user, PassportEntry $entry): bool
+    {
+        return $this->viewAny($user);
+    }
+
+    /**
+     * Set the medical date of any passport (the result lock is checked in
+     * App\Services\MedicalService).
+     */
+    public function updateMedicalDate(User $user, PassportEntry $entry): bool
+    {
+        return $this->viewAny($user);
+    }
+
+    /**
+     * View or download the scan copy of any passport.
+     */
+    public function viewScan(User $user, PassportEntry $entry): bool
+    {
+        return $this->viewAny($user);
+    }
+
+    /**
+     * Upload or replace the scan copy of any passport.
+     */
+    public function uploadScan(User $user, PassportEntry $entry): bool
     {
         return $this->viewAny($user);
     }

@@ -24,7 +24,6 @@ class UpdateMedicalSlipRequest extends FormRequest
     {
         return [
             'medical_slip_date' => ['present', 'nullable', 'date_format:Y-m-d'],
-            'medical_slip_no' => ['sometimes', 'nullable', 'string', 'max:50'],
             'medical_center_id' => ['sometimes', 'nullable', 'integer', $this->selectableCenter()],
         ];
     }

@@ -9,6 +9,8 @@ services:
     working_dir: /var/www
     volumes:
       - ./:/var/www
+      # Upload limits for passport scans (5 MB).
+      - ./docker/php/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
     networks:
       - network
 

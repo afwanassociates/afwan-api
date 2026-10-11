@@ -78,7 +78,9 @@ class PassportDataSeeder extends Seeder
             return;
         }
 
+        // No scan files exist for sample data, so the sample passports have none.
         PassportEntry::factory()
+            ->withoutScan()
             ->count(20)
             ->sequence(fn ($sequence) => [
                 'reference_id' => $references[$sequence->index % $references->count()]->id,
