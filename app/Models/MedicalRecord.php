@@ -30,6 +30,7 @@ class MedicalRecord extends Model
     {
         return [
             'medical_date' => 'date',
+            'issue_date' => 'date',
             'result' => MedicalResult::class,
             'valid_until' => 'date',
         ];

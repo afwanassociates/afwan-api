@@ -35,6 +35,7 @@ class MedicalRecordFactory extends Factory
                 $attributes['medical_date'],
                 $attributes['result'] instanceof MedicalResult ? $attributes['result'] : MedicalResult::from($attributes['result']),
             ),
+            'issue_date' => fn (array $attributes) => $attributes['medical_date'],
             'remarks' => null,
             'created_by' => User::factory()->dataEntry(),
         ];

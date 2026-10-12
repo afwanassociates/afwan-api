@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\EntryMode;
 use App\Enums\MedicalResult;
 use App\Enums\MedicalStatus;
 use App\Support\LocalDate;
@@ -24,7 +25,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * current_stage, stage_status and stage_status_date are not fillable either:
  * only App\Services\WorkflowService::recompute sets them. The medical slip
  * (medical_slip_date, medical_center_id) and the medical_date are set only
- * through App\Services\MedicalService, and the scan columns only through
+ * through App\Services\MedicalService, entry_mode only through
+ * App\Services\WorkflowService::updateEntryMode, and the scan columns only through
  * App\Services\PassportScanService (scan_path is never sent to clients).
  */
 #[Hidden(['scan_path'])]
@@ -65,6 +67,7 @@ class PassportEntry extends Model
             'medical_slip_date' => 'date',
             'medical_date' => 'date',
             'scan_size' => 'integer',
+            'entry_mode' => EntryMode::class,
             'scan_uploaded_at' => 'datetime',
         ];
     }

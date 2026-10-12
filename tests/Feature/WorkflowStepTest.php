@@ -31,6 +31,8 @@ function workflowPassport(string $medical = 'fit', array $attributes = []): Pass
         'passport_expiry_date' => '2035-01-01',
         // Slip date entered on the day received ("not_started" leaves it out).
         'medical_slip_date' => $medical === 'not_started' ? null : '2026-01-15',
+        // Marked Online, so a fit passport is available for Calling.
+        'entry_mode' => 'online',
         ...$attributes,
     ]);
 
@@ -75,7 +77,11 @@ function stepPayload(string $step, string $status, array $overrides = []): array
 {
     $payload = ['status' => $status, 'step_date' => '2026-04-20'];
 
-    if ($status === 'completed' && $step !== 'flight') {
+    if ($status === 'completed' && $step === 'calling') {
+        // Permitted: the calling receive date, issued date and expiry.
+        $payload['details'] = ['receive_date' => '2026-04-20', 'issue_date' => '2026-04-20'];
+        $payload['valid_until'] = '2026-10-20';
+    } elseif ($status === 'completed' && $step !== 'flight') {
         $payload['reference_no'] = 'REF-12345';
     }
 
@@ -145,10 +151,12 @@ describe('config', function () {
             ->and($response->json('data.steps.2.label'))->toBe('Calling / Work Permit')
             ->and($response->json('data.steps.2.short_label'))->toBe('Calling')
             ->and($response->json('data.steps.2.statuses'))->toBe([
-                ['value' => 'in_process', 'label' => 'Applied'],
-                ['value' => 'completed', 'label' => 'Approved'],
-                ['value' => 'rejected', 'label' => 'Rejected'],
+                ['value' => 'in_process', 'label' => 'Calling date entered'],
+                ['value' => 'completed', 'label' => 'Permitted'],
             ])
+            ->and($response->json('data.steps.2.tabs'))->toBe([['key' => 'pending', 'label' => 'Pending'], ['key' => 'permitted', 'label' => 'Permitted']])
+            ->and($response->json('data.steps.3.tabs'))->toBe([['key' => 'pending', 'label' => 'Pending'], ['key' => 'issued', 'label' => 'Visa issued'], ['key' => 'rejected', 'label' => 'Rejected']])
+            ->and($response->json('data.steps.4.tabs.*.key'))->toBe(['pending', 'in_process', 'completed', 'rejected'])
             ->and($response->json('data.steps.2.warning_days'))->toBe(30)
             ->and($response->json('data.steps.5.statuses.*.label'))->toBe(['Ticket booked', 'Departed', 'Cancelled'])
             ->and($response->json('data.steps.5.fields.*.name'))->toBe(['step_date', 'airline', 'flight_no', 'departure_date', 'ticket_pnr'])
@@ -181,7 +189,7 @@ describe('gating', function () {
         $passport = workflowPassport($medical);
         Sanctum::actingAs(User::factory()->admin()->create());
 
-        $response = $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling", stepPayload('calling', 'in_process'));
+        $response = $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling", stepPayload('calling', 'completed'));
 
         $allowed
             ? $response->assertCreated()
@@ -198,51 +206,52 @@ describe('gating', function () {
         $passport = completeSteps(workflowPassport(), ['calling']);
         Sanctum::actingAs(User::factory()->admin()->create());
 
-        $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling", stepPayload('calling', 'in_process'))
+        $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling", stepPayload('calling', 'completed'))
             ->assertUnprocessable()
             ->assertJsonPath('code', 'step_already_completed');
     });
 
     it('moves an in-process step forward with PATCH, not a new record', function () {
-        $passport = workflowPassport();
+        $passport = completeSteps(workflowPassport(), ['calling']);
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        $id = $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling", stepPayload('calling', 'in_process'))
+        $id = $this->postJson("/api/data-entry/passports/{$passport->id}/steps/visa", stepPayload('visa', 'in_process'))
             ->assertCreated()
-            ->assertJsonPath('passport.current_stage', 'calling')
+            ->assertJsonPath('passport.current_stage', 'visa')
             ->assertJsonPath('passport.stage_status', 'in_process')
             ->json('data.id');
 
-        $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling", stepPayload('calling', 'completed'))
+        $this->postJson("/api/data-entry/passports/{$passport->id}/steps/visa", stepPayload('visa', 'completed'))
             ->assertUnprocessable()
             ->assertJsonPath('code', 'step_in_process');
 
-        $this->patchJson("/api/data-entry/step-records/{$id}", ['status' => 'completed', 'reference_no' => 'WP-998877'])
+        $this->patchJson("/api/data-entry/step-records/{$id}", ['status' => 'completed', 'reference_no' => 'V-998877'])
             ->assertOk()
-            ->assertJsonPath('data.status_label', 'Approved')
-            ->assertJsonPath('passport.current_stage', 'visa')
+            ->assertJsonPath('data.status_label', 'Visa issued')
+            ->assertJsonPath('passport.current_stage', 'bmet')
             ->assertJsonPath('passport.stage_status', 'waiting');
 
-        expect(PassportStepRecord::count())->toBe(1);
+        // The calling record and one visa record.
+        expect(PassportStepRecord::count())->toBe(2);
     });
 
     it('allows a new record after a rejection and keeps the history', function () {
-        $passport = workflowPassport();
+        $passport = completeSteps(workflowPassport(), ['calling']);
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling", stepPayload('calling', 'rejected', ['step_date' => '2026-04-10']))
+        $this->postJson("/api/data-entry/passports/{$passport->id}/steps/visa", stepPayload('visa', 'rejected', ['step_date' => '2026-04-10']))
             ->assertCreated()
             ->assertJsonPath('passport.stage_status', 'rejected');
-        $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling", stepPayload('calling', 'in_process', ['step_date' => '2026-04-15']))
+        $this->postJson("/api/data-entry/passports/{$passport->id}/steps/visa", stepPayload('visa', 'in_process', ['step_date' => '2026-04-15']))
             ->assertCreated()
             ->assertJsonPath('passport.stage_status', 'in_process');
 
         $this->getJson("/api/data-entry/passports/{$passport->id}/steps")
             ->assertOk()
-            ->assertJsonCount(2, 'data.calling')
-            ->assertJsonPath('data.calling.0.status', 'in_process')
-            ->assertJsonPath('data.calling.1.status', 'rejected')
-            ->assertJsonPath('data.visa', [])
+            ->assertJsonCount(2, 'data.visa')
+            ->assertJsonPath('data.visa.0.status', 'in_process')
+            ->assertJsonPath('data.visa.1.status', 'rejected')
+            ->assertJsonPath('data.bmet', [])
             ->assertJsonPath('data.flight', []);
     });
 });
@@ -256,10 +265,11 @@ describe('recompute', function () {
         // Fit medical on 2026-04-01: waiting for calling since then.
         expect(storedPosition($passport))->toBe(['calling', 'waiting', '2026-04-01']);
 
-        $calling = $post('calling', stepPayload('calling', 'in_process', ['step_date' => '2026-04-05']));
-        expect(storedPosition($passport))->toBe(['calling', 'in_process', '2026-04-05']);
-
-        $this->patchJson("/api/data-entry/step-records/{$calling}", ['status' => 'completed', 'reference_no' => 'WP-1', 'step_date' => '2026-04-08'])->assertOk();
+        // Permitted in one go; Visa waits from the calling receive date.
+        $post('calling', stepPayload('calling', 'completed', [
+            'details' => ['receive_date' => '2026-04-08', 'issue_date' => '2026-04-07'],
+            'valid_until' => '2026-10-07',
+        ]));
         expect(storedPosition($passport))->toBe(['visa', 'waiting', '2026-04-08']);
 
         $post('visa', stepPayload('visa', 'rejected', ['step_date' => '2026-04-10']));
@@ -347,18 +357,25 @@ describe('validation', function () {
 
         expect(PassportStepRecord::where('step_key', $step)->count())->toBe(0);
     })->with([
-        'calling approved without a permit number' => ['calling', 'completed', ['reference_no' => '__unset'], 'reference_no'],
+        'calling permitted without the receive date' => ['calling', 'completed', ['details.receive_date' => '__unset'], 'details.receive_date'],
+        'calling permitted without the issued date' => ['calling', 'completed', ['details.issue_date' => '__unset'], 'details.issue_date'],
+        'calling permitted without the expiry date' => ['calling', 'completed', ['valid_until' => '__unset'], 'valid_until'],
+        'calling receive date in the future' => ['calling', 'completed', ['details' => ['receive_date' => '2026-05-02', 'issue_date' => '2026-04-20']], 'details.receive_date'],
+        'calling issued date in the future' => ['calling', 'completed', ['details' => ['receive_date' => '2026-04-20', 'issue_date' => '2026-05-02'], 'valid_until' => '2026-10-20'], 'details.issue_date'],
+        'calling expiry on the issued date' => ['calling', 'completed', ['valid_until' => '2026-04-20'], 'valid_until'],
+        'calling cannot be rejected' => ['calling', 'rejected', [], 'status'],
         'visa issued without a visa number' => ['visa', 'completed', ['reference_no' => null], 'reference_no'],
         'BMET cleared without a clearance number' => ['bmet', 'completed', ['reference_no' => ''], 'reference_no'],
         'reference number too long' => ['visa', 'in_process', ['reference_no' => str_repeat('A', 101)], 'reference_no'],
-        'missing step date' => ['calling', 'in_process', ['step_date' => '__unset'], 'step_date'],
-        'step date in the future (Dhaka)' => ['calling', 'in_process', ['step_date' => '2026-05-02'], 'step_date'],
+        'missing step date' => ['visa', 'in_process', ['step_date' => '__unset'], 'step_date'],
+        'step date in the future (Dhaka)' => ['visa', 'in_process', ['step_date' => '2026-05-02'], 'step_date'],
+        'a new calling record cannot be in process' => ['calling', 'in_process', [], 'status'],
         'valid until before the step date' => ['visa', 'completed', ['valid_until' => '2026-04-19'], 'valid_until'],
         'valid until on the step date' => ['visa', 'completed', ['valid_until' => '2026-04-20'], 'valid_until'],
         'valid until more than 5 years ahead' => ['visa', 'completed', ['valid_until' => '2031-05-02'], 'valid_until'],
         'bad status' => ['calling', 'approved', [], 'status'],
-        'missing status' => ['calling', 'in_process', ['status' => '__unset'], 'status'],
-        'remarks too long' => ['calling', 'in_process', ['remarks' => str_repeat('a', 1001)], 'remarks'],
+        'missing status' => ['calling', 'completed', ['status' => '__unset'], 'status'],
+        'remarks too long' => ['calling', 'completed', ['remarks' => str_repeat('a', 1001)], 'remarks'],
         'flight booked without airline' => ['flight', 'in_process', ['details.airline' => '__unset'], 'details.airline'],
         'flight booked without flight number' => ['flight', 'in_process', ['details.flight_no' => '__unset'], 'details.flight_no'],
         'flight booked without departure date' => ['flight', 'in_process', ['details.departure_date' => '__unset'], 'details.departure_date'],
@@ -415,8 +432,8 @@ describe('validation', function () {
     });
 
     it('validates a PATCH against the record as a whole', function () {
-        $passport = workflowPassport();
-        $record = PassportStepRecord::factory()->for($passport)->status(StepStatus::InProcess)->on('2026-04-10')->create(['reference_no' => null]);
+        $passport = completeSteps(workflowPassport(), ['calling']);
+        $record = PassportStepRecord::factory()->for($passport)->step('visa')->status(StepStatus::InProcess)->on('2026-04-10')->create(['reference_no' => null]);
         Sanctum::actingAs(User::factory()->admin()->create());
 
         $this->patchJson("/api/data-entry/step-records/{$record->id}", ['status' => 'completed'])
@@ -516,25 +533,25 @@ describe('editing', function () {
         $this->patchJson("/api/data-entry/step-records/{$others->id}", ['remarks' => 'Corrected'])->assertForbidden();
 
         // Once the next step has a record, the earlier one is closed to data entry.
-        $this->patchJson("/api/data-entry/step-records/{$own->id}", ['status' => 'completed', 'reference_no' => 'WP-1'])->assertOk();
+        $this->patchJson("/api/data-entry/step-records/{$own->id}", ['status' => 'completed', 'details' => ['receive_date' => '2026-04-12', 'issue_date' => '2026-04-11'], 'valid_until' => '2026-10-11'])->assertOk();
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/visa", stepPayload('visa', 'in_process'))->assertCreated();
         $this->patchJson("/api/data-entry/step-records/{$own->id}", ['remarks' => 'Again'])->assertForbidden();
     });
 
     it('lets admin and super admin edit any record, but never out of order', function (string $role) {
-        $passport = completeSteps(workflowPassport(), ['calling']);
-        $calling = PassportStepRecord::sole();
-        PassportStepRecord::factory()->for($passport)->step('visa')->status(StepStatus::InProcess)->on('2026-04-20')->create();
+        $passport = completeSteps(workflowPassport(), ['calling', 'visa']);
+        $visa = PassportStepRecord::query()->where('step_key', 'visa')->sole();
+        PassportStepRecord::factory()->for($passport)->step('bmet')->status(StepStatus::InProcess)->on('2026-04-20')->create();
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
-        $this->patchJson("/api/data-entry/step-records/{$calling->id}", ['remarks' => 'Checked'])->assertOk();
+        $this->patchJson("/api/data-entry/step-records/{$visa->id}", ['remarks' => 'Checked'])->assertOk();
 
-        $this->patchJson("/api/data-entry/step-records/{$calling->id}", ['status' => 'rejected'])
+        $this->patchJson("/api/data-entry/step-records/{$visa->id}", ['status' => 'rejected'])
             ->assertUnprocessable()
             ->assertJsonPath('code', 'order_violation');
 
-        expect($calling->fresh()->status)->toBe(StepStatus::Completed)
-            ->and(storedPosition($passport))->toBe(['visa', 'in_process', '2026-04-20']);
+        expect($visa->fresh()->status)->toBe(StepStatus::Completed)
+            ->and(storedPosition($passport))->toBe(['bmet', 'in_process', '2026-04-20']);
     })->with(['admin', 'superAdmin']);
 });
 
@@ -559,17 +576,17 @@ describe('deleting', function () {
     });
 
     it('makes the previous latest record current again', function (string $role) {
-        $passport = workflowPassport();
-        PassportStepRecord::factory()->for($passport)->status(StepStatus::Rejected)->on('2026-04-05')->create();
-        $approved = PassportStepRecord::factory()->for($passport)->on('2026-04-10')->create();
+        $passport = completeSteps(workflowPassport(), ['calling']);
+        PassportStepRecord::factory()->for($passport)->step('visa')->status(StepStatus::Rejected)->on('2026-04-05')->create();
+        $approved = PassportStepRecord::factory()->for($passport)->step('visa')->on('2026-04-10')->create();
         $user = User::factory()->{$role}()->create();
         Sanctum::actingAs($user);
 
-        expect(storedPosition($passport))->toBe(['visa', 'waiting', '2026-04-10']);
+        expect(storedPosition($passport))->toBe(['bmet', 'waiting', '2026-04-10']);
 
         $this->deleteJson("/api/data-entry/step-records/{$approved->id}")->assertNoContent();
 
-        expect(storedPosition($passport))->toBe(['calling', 'rejected', '2026-04-05'])
+        expect(storedPosition($passport))->toBe(['visa', 'rejected', '2026-04-05'])
             ->and(PassportStepRecord::withTrashed()->find($approved->id)->deleted_by)->toBe($user->id);
     })->with(['admin', 'superAdmin']);
 });
@@ -585,7 +602,7 @@ describe('medical interplay', function () {
 
         // The medical date is locked (a result exists) and the result is admin-only.
         $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-25'])->assertUnprocessable();
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit'])->assertForbidden();
+        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit', 'issue_date' => '2026-04-25', 'expiry_date' => '2026-07-25'])->assertForbidden();
         $this->patchJson("/api/data-entry/medicals/{$medical->id}", ['remarks' => 'x'])->assertForbidden();
     });
 
@@ -628,10 +645,11 @@ describe('latest status', function () {
         expect($this->getJson('/api/data-entry/passports?view=overview&medical_status=all')->json('data.0.latest_status'))
             ->toMatchArray($expected);
     })->with([
-        'calling applied' => [[], ['calling', 'in_process'], ['text' => 'Calling / Work Permit: Applied', 'tone' => 'blue', 'date' => '2026-04-20']],
-        'calling rejected' => [[], ['calling', 'rejected'], ['text' => 'Calling / Work Permit: Rejected', 'tone' => 'red', 'date' => '2026-04-20']],
-        'calling approved, visa waiting' => [['calling'], null, ['stage' => 'visa', 'text' => 'Visa: Waiting', 'tone' => 'amber', 'date' => '2026-04-02']],
-        'visa submitted' => [['calling'], ['visa', 'in_process'], ['text' => 'Visa: Submitted', 'tone' => 'blue', 'date' => '2026-04-20']],
+        'calling date entered' => [[], ['calling', 'in_process'], ['text' => 'Calling date entered', 'tone' => 'blue', 'date' => '2026-04-20']],
+        // An old rejected calling record no longer counts: ready again.
+        'old rejected calling' => [[], ['calling', 'rejected'], ['stage' => 'calling', 'status' => 'waiting', 'text' => 'Ready for Calling (Online)', 'date' => '2026-04-01']],
+        'permitted, visa waiting' => [['calling'], null, ['stage' => 'visa', 'status' => 'waiting', 'text' => 'Permitted - enter visa submitted date', 'tone' => 'amber', 'date' => '2026-04-02']],
+        'visa submitted' => [['calling'], ['visa', 'in_process'], ['text' => 'Visa submitted', 'tone' => 'blue', 'date' => '2026-04-20']],
         'visa rejected' => [['calling'], ['visa', 'rejected'], ['text' => 'Visa: Rejected', 'tone' => 'red', 'date' => '2026-04-20']],
         'visa issued, BMET waiting' => [['calling', 'visa'], null, ['text' => 'BMET Clearance: Waiting', 'tone' => 'amber', 'date' => '2026-04-03']],
         'BMET submitted' => [['calling', 'visa'], ['bmet', 'in_process'], ['text' => 'BMET Clearance: Submitted', 'tone' => 'blue', 'date' => '2026-04-20']],
@@ -717,7 +735,8 @@ describe('passport list', function () {
         expect($ids(''))->toHaveCount(6)->not->toContain($p['unfit']->id)->toContain($p['completed']->id)
             ->and($ids('stage=visa'))->toEqualCanonicalizing([$p['visa_in_process']->id, $p['visa_rejected']->id])
             ->and($ids('stage=visa&stage_status=rejected'))->toBe([$p['visa_rejected']->id])
-            ->and($ids('stage_status=rejected'))->toEqualCanonicalizing([$p['calling_rejected']->id, $p['visa_rejected']->id])
+            // An old rejected calling record is history: that passport is waiting.
+            ->and($ids('stage_status=rejected'))->toBe([$p['visa_rejected']->id])
             ->and($ids('stage=completed'))->toBe([$p['completed']->id])
             ->and($ids('stage=medical'))->toBe([$p['pending']->id])
             ->and($ids('stage=medical&medical_status=all'))->toEqualCanonicalizing([$p['pending']->id, $p['unfit']->id])
@@ -767,14 +786,16 @@ describe('passport list', function () {
         DB::enableQueryLog();
         $response = $this->getJson('/api/data-entry/workflow/summary')->assertOk();
 
-        expect(DB::getQueryLog())->toHaveCount(2)
+        // The aggregate row, the grouped stages and the tab counts.
+        expect(DB::getQueryLog())->toHaveCount(3)
             ->and($response->json('data.stages'))->toBe([
                 'passport' => ['total' => 0, 'not_started' => 0],
-                'medical' => ['total' => 2, 'pending' => 1, 'unfit' => 1],
-                'calling' => ['total' => 2, 'waiting' => 1, 'in_process' => 0, 'rejected' => 1],
-                'visa' => ['total' => 2, 'waiting' => 0, 'in_process' => 1, 'rejected' => 1],
-                'bmet' => ['total' => 0, 'waiting' => 0, 'in_process' => 0, 'rejected' => 0],
-                'flight' => ['total' => 0, 'waiting' => 0, 'in_process' => 0, 'rejected' => 0],
+                'medical' => ['total' => 2, 'pending' => 1, 'unfit' => 1, 'fit' => 0],
+                // Record steps: their Pending tab, as the step pages count it.
+                'calling' => ['total' => 2, 'waiting' => 2],
+                'visa' => ['total' => 1, 'waiting' => 1],
+                'bmet' => ['total' => 0, 'waiting' => 0],
+                'flight' => ['total' => 0, 'waiting' => 0],
             ])
             ->and($response->json('data.completed'))->toBe(1)
             ->and($response->json('data.step1.total_all'))->toBe(7)
@@ -790,9 +811,10 @@ describe('development seeder', function () {
             ->map(fn (PassportEntry $passport) => $passport->current_stage.'/'.$passport->stage_status)
             ->unique()->sort()->values()->all();
 
-        expect($stages)->toContain('medical/pending', 'medical/unfit', 'calling/waiting', 'calling/in_process',
+        expect($stages)->toContain('medical/pending', 'medical/unfit', 'medical/fit', 'calling/in_process',
             'visa/in_process', 'visa/rejected', 'bmet/waiting', 'bmet/in_process', 'flight/waiting', 'flight/in_process', 'completed/')
-            ->and(PassportStepRecord::query()->where('step_key', 'calling')->where('status', 'rejected')->exists())->toBeTrue();
+            ->and(PassportStepRecord::query()->where('step_key', 'calling')->where('status', 'rejected')->exists())->toBeFalse()
+            ->and(PassportStepRecord::query()->where('step_key', 'calling')->where('status', 'completed')->get()->every(fn ($r) => $r->detail('receive_date') && $r->valid_until))->toBeTrue();
 
         $count = PassportStepRecord::count();
         $this->seed();

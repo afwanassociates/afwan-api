@@ -75,6 +75,8 @@ describe('data-entry lookups', function () {
                 'default_passport_country' => ['code' => 'BD', 'name' => 'Bangladesh'],
                 'default_company_country_code' => 'MY',
                 'default_passport_country_code' => 'BD',
+                'medical_validity_months' => 3,
+                'medical_expiring_soon_days' => 14,
             ]]);
     });
 

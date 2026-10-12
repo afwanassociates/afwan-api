@@ -91,7 +91,15 @@ class PassportEntryController extends Controller
             ->when($request->has('company_id'), fn (Builder $query) => $query->where('company_id', $request->integer('company_id')))
             ->when($request->has('company_country_code'), fn (Builder $query) => $query->whereHas('company', fn (Builder $query) => $query->where('country_code', $request->validated('company_country_code'))))
             ->when($request->has('received_from'), fn (Builder $query) => $query->whereDate('passport_received_date', '>=', $request->validated('received_from')))
-            ->when($request->has('received_to'), fn (Builder $query) => $query->whereDate('passport_received_date', '<=', $request->validated('received_to')))
+            ->when($request->has('received_to'), fn (Builder $query) => $query->whereDate('passport_received_date', '<=', $request->validated('received_to')));
+
+        // The Medical page's Fit and Expiring soon tabs hold only passports not
+        // yet marked Online; once marked they move to Calling pending.
+        if ($mode === ListPassportEntriesRequest::MEDICAL && in_array($medicalStatus, ListPassportEntriesRequest::UNMARKED_TABS, true)) {
+            $entries->whereNull('passport_entries.entry_mode');
+        }
+
+        $entries = $entries
             ->orderBy($sortColumn, $direction)
             ->orderBy('passport_entries.id', $direction)
             ->paginate($request->integer('per_page', 15))

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\DataEntry\Concerns\RespondsWithStepRecord;
 use App\Http\Requests\DataEntry\StartStepRequest;
 use App\Http\Requests\DataEntry\StepResultRequest;
+use App\Http\Requests\DataEntry\UpdateCallingRequest;
 use App\Models\PassportEntry;
 use App\Models\PassportStepRecord;
 use App\Services\WorkflowService;
@@ -26,8 +27,8 @@ class StepActionController extends Controller
 
     /**
      * Start the step: the earlier steps must be completed (and, for the first
-     * step, the medical fit and valid today). A rejected step may be started
-     * again; history is kept.
+     * step, the medical fit and valid today, and the passport marked Online).
+     * A rejected step may be started again; history is kept.
      */
     public function start(StartStepRequest $request, PassportEntry $passport, string $step): JsonResponse
     {
@@ -36,6 +37,20 @@ class StepActionController extends Controller
         $record = $this->service->recordStep($passport, $step, $request->recordData(), $request->user());
 
         return $this->respond($record, $passport)->setStatusCode(201);
+    }
+
+    /**
+     * Calling / Work Permit in one update: the receive, issued and expiry
+     * dates make it Permitted (Visa becomes available). Needs a valid fit
+     * medical and the Online mark; a permitted step can no longer change.
+     */
+    public function updateCalling(UpdateCallingRequest $request, PassportEntry $passport): JsonResponse
+    {
+        Gate::authorize('create', [PassportStepRecord::class, $passport]);
+
+        $record = $this->service->saveFirstStep($passport, $request->recordData(), $request->user());
+
+        return $this->respond($record, $passport->refresh())->setStatusCode($record->wasRecentlyCreated ? 201 : 200);
     }
 
     /**
@@ -49,6 +64,7 @@ class StepActionController extends Controller
 
         $record = $request->record();
         $data = $request->recordData();
+
         $data['details'] = [
             ...($data['details'] ?? []),
             'start_date' => $record->detail('start_date') ?? $record->step_date->toDateString(),

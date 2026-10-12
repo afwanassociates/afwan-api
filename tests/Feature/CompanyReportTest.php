@@ -28,6 +28,8 @@ function companyPassport(Company $company, string $state): PassportEntry
         'passport_expiry_date' => '2035-01-01',
         // Slip date entered ("not_started" leaves it out).
         'medical_slip_date' => $state === 'not_started' ? null : '2026-01-15',
+        // Marked Online, so a fit passport is available for Calling.
+        'entry_mode' => 'online',
     ]);
 
     if (in_array($state, ['not_started', 'pending'], true)) {
@@ -203,7 +205,7 @@ describe('company report', function () {
         expect($totals['total'])->toBe(PassportEntry::count())
             ->and($totals['medical_unfit'])->toBe($stages->where('current_stage', 'medical')->where('stage_status', 'unfit')->count())
             ->and($totals['medical_pending'])->toBe($stages->where('current_stage', 'medical')->where('stage_status', 'pending')->count())
-            ->and($totals['medical_fit'])->toBe($stages->whereNotIn('current_stage', ['passport', 'medical'])->count())
+            ->and($totals['medical_fit'])->toBe($stages->filter(fn (PassportEntry $p) => ! in_array($p->current_stage, ['passport', 'medical'], true) || $p->stage_status === 'fit')->count())
             ->and($totals['not_started'])->toBe($stages->where('current_stage', 'passport')->count())
             ->and($totals['flight_done'])->toBe($stages->where('current_stage', 'completed')->count())
             ->and($totals['medical_fit'] + $totals['medical_unfit'] + $totals['medical_pending'] + $totals['not_started'])->toBe($totals['total'])

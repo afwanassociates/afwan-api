@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\EntryMode;
 use App\Enums\MedicalResult;
 use App\Enums\MedicalStatus;
 use App\Enums\StepStatus;
@@ -14,6 +15,7 @@ use App\Support\LocalDate;
 use App\Support\Workflow;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * The only place that creates, changes or deletes step records (calling,
@@ -34,6 +36,8 @@ class WorkflowService
      *   (dated by the received date);
      * - no current medical but a slip date: medical / pending (the slip date);
      * - unfit: medical / unfit (the medical date);
+     * - fit, not marked Online and no calling record yet: medical /
+     *   fit (dated by the medical date);
      * - fit (even if its validity has ended): walk the record steps in order
      *   by their latest record. Completed moves on; in_process or rejected
      *   stops there (that record's step date); no record stops there as
@@ -80,8 +84,8 @@ class WorkflowService
     {
         $count = 0;
 
+        // Every column: a migration may call this before later columns exist.
         PassportEntry::withTrashed()
-            ->select(['id', 'passport_received_date', 'medical_slip_date', 'current_medical_id', 'current_stage', 'stage_status', 'stage_status_date'])
             ->chunkById($chunk, function (Collection $passports) use (&$count) {
                 foreach ($passports as $passport) {
                     $this->recompute($passport);
@@ -143,6 +147,40 @@ class WorkflowService
             $this->recompute($passport);
 
             return $record;
+        });
+    }
+
+    /**
+     * Mark a fit passport Online (or clear the mark), which makes it
+     * available for the first step after medical. Marking needs a fit medical
+     * still valid today; neither marking nor clearing is allowed once that
+     * step has a record.
+     *
+     * @throws ValidationException
+     */
+    public function updateEntryMode(PassportEntry $passport, ?EntryMode $mode): PassportEntry
+    {
+        return DB::transaction(function () use ($passport, $mode) {
+            $locked = $this->lock($passport);
+            $first = $this->workflow->recordStepKeys()[0] ?? null;
+
+            if (PassportStepRecord::query()->where('passport_entry_id', $locked->id)->where('step_key', $first)->exists()) {
+                throw ValidationException::withMessages([
+                    'entry_mode' => 'The Online mark cannot be changed once '.$this->workflow->label((string) $first).' has started.',
+                ]);
+            }
+
+            if ($mode !== null && ! MedicalStatus::fromRecord($this->currentMedical($locked->id), LocalDate::today())->isPassed()) {
+                throw ValidationException::withMessages([
+                    'entry_mode' => 'Only a passport with a fit medical that has not expired can be marked Online.',
+                ]);
+            }
+
+            // Query builder update: the mark is not an edit of the passport details.
+            PassportEntry::withTrashed()->whereKey($locked->id)->toBase()->update(['entry_mode' => $mode?->value]);
+            $passport->setAttribute('entry_mode', $mode)->syncOriginalAttribute('entry_mode');
+
+            return $this->recompute($passport);
         });
     }
 
@@ -216,13 +254,8 @@ class WorkflowService
     {
         $label = $this->workflow->label($stepKey);
 
-        // The first step after medical needs a fit medical that is valid today.
         if ($stepKey === ($this->workflow->recordStepKeys()[0] ?? null)) {
-            $medical = $this->currentMedical($passport->id);
-
-            if (MedicalStatus::fromRecord($medical, LocalDate::today())->isPassed() === false) {
-                throw WorkflowException::medicalNotValid();
-            }
+            $this->ensureReadyForFirstStep($passport);
         }
 
         foreach ($this->workflow->recordStepsBefore($stepKey) as $earlier) {
@@ -236,6 +269,80 @@ class WorkflowService
             StepStatus::InProcess => throw WorkflowException::stepInProcess($label),
             default => null,
         };
+    }
+
+    /**
+     * The first step after medical needs a fit medical that is valid today,
+     * and the passport marked Online.
+     *
+     * @throws WorkflowException
+     */
+    public function ensureReadyForFirstStep(PassportEntry $passport): void
+    {
+        $this->ensureMedicalForFirstStep($passport);
+
+        if ($passport->entry_mode === null) {
+            throw WorkflowException::entryModeMissing($this->workflow->label((string) ($this->workflow->recordStepKeys()[0] ?? '')));
+        }
+    }
+
+    /**
+     * The first step after medical needs a fit medical that is valid today.
+     *
+     * @throws WorkflowException
+     */
+    public function ensureMedicalForFirstStep(PassportEntry $passport): void
+    {
+        if (MedicalStatus::fromRecord($this->currentMedical($passport->id), LocalDate::today())->isPassed() === false) {
+            throw WorkflowException::medicalNotValid();
+        }
+    }
+
+    /**
+     * Complete the first step after medical in one go (calling: the permit
+     * dates). Creates the completed record, or completes an older in-process
+     * one (its calling date is kept in details.calling_date). A completed step
+     * can no longer change. A new record needs the passport marked Online; an
+     * older in-process one started before marks existed.
+     *
+     * @param  array<string, mixed>  $data  status, step_date, details, valid_until
+     *
+     * @throws WorkflowException
+     */
+    public function saveFirstStep(PassportEntry $passport, array $data, User $actor): PassportStepRecord
+    {
+        return DB::transaction(function () use ($passport, $data, $actor) {
+            $locked = $this->lock($passport);
+            $step = (string) ($this->workflow->recordStepKeys()[0] ?? '');
+            $open = $this->latestRecords($locked->id)->get($step);
+
+            if ($open?->status === StepStatus::Completed) {
+                throw WorkflowException::stepAlreadyCompleted($this->workflow->label($step));
+            }
+
+            if ($open?->status === StepStatus::InProcess) {
+                $this->ensureMedicalForFirstStep($locked);
+
+                $data['details'] = [
+                    ...($data['details'] ?? []),
+                    'calling_date' => $open->detail('calling_date') ?? $open->step_date->toDateString(),
+                ];
+                $record = $this->updateStep($open, $data, $actor);
+            } else {
+                $this->ensureReadyForFirstStep($locked);
+
+                $record = new PassportStepRecord($data);
+                $record->passport_entry_id = $locked->id;
+                $record->step_key = $step;
+                $record->created_by = $actor->id;
+                $record->updated_by = $actor->id;
+                $record->save();
+            }
+
+            $this->recompute($passport);
+
+            return $record;
+        });
     }
 
     /**
@@ -258,6 +365,13 @@ class WorkflowService
 
         $previousDate = $medical->medical_date->toDateString();
         $last = null;
+        $first = $this->workflow->recordStepKeys()[0] ?? null;
+
+        // Fit, but not yet marked Online, and Calling not started:
+        // it stays in the Medical Fit tab.
+        if ($first !== null && ! $latest->has($first) && $passport->entry_mode === null) {
+            return ['medical', 'fit', $previousDate];
+        }
 
         foreach ($this->workflow->recordStepKeys() as $key) {
             $record = $latest->get($key);
@@ -270,7 +384,7 @@ class WorkflowService
                 return [$key, $record->status->value, $record->step_date->toDateString()];
             }
 
-            $previousDate = $record->step_date->toDateString();
+            $previousDate = $this->workflow->completedOn($record);
             $last = $record;
         }
 
@@ -300,11 +414,14 @@ class WorkflowService
      */
     protected function latestRecords(int $passportId): Collection
     {
+        // Only records whose status their step has (a rejected calling record
+        // is history only).
         return PassportStepRecord::query()
             ->where('passport_entry_id', $passportId)
             ->orderByDesc('step_date')
             ->orderByDesc('id')
             ->get()
+            ->filter(fn (PassportStepRecord $record) => $this->workflow->isActiveRecord($record))
             ->unique('step_key')
             ->keyBy('step_key');
     }

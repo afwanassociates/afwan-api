@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Enums\EntryMode;
 use App\Enums\MedicalResult;
 use App\Enums\MedicalStatus;
 use App\Enums\StepStatus;
@@ -36,7 +37,7 @@ class Workflow
      *
      * @var list<string>
      */
-    public const STAGE_STATUSES = ['not_started', 'pending', 'unfit', 'waiting', 'in_process', 'rejected'];
+    public const STAGE_STATUSES = ['not_started', 'pending', 'unfit', 'fit', 'waiting', 'in_process', 'rejected'];
 
     /**
      * The configured steps, in order, with their definitions.
@@ -54,7 +55,67 @@ class Workflow
             'statuses' => $step['statuses'] ?? [],
             'fields' => $step['fields'] ?? [],
             'warning_days' => isset($step['warning_days']) ? (int) $step['warning_days'] : null,
+            'tabs' => $step['tabs'] ?? null,
+            'single_update' => (bool) ($step['single_update'] ?? false),
+            'date_from' => $step['date_from'] ?? null,
+            'list_hidden' => $step['list_hidden'] ?? [],
+            'status_texts' => $step['status_texts'] ?? [],
         ], array_values(config('workflow.steps', [])), array_keys(array_values(config('workflow.steps', [])))));
+    }
+
+    /**
+     * The step page's tabs: the step's own (config "tabs") or the default
+     * pending, in_process, completed and rejected. Each tab lists the record
+     * states it holds (waiting = no record yet; next_waiting = completed and
+     * the next step not started) and its order.
+     *
+     * @return list<array{key: string, label: string, states: list<string>, order: string}>
+     */
+    public function tabs(string $key): array
+    {
+        $tabs = $this->step($key)['tabs'] ?? null;
+
+        if ($tabs === null) {
+            $statuses = $this->step($key)['statuses'] ?? [];
+
+            $tabs = [
+                ['key' => 'pending', 'label' => 'Pending', 'states' => ['waiting'], 'order' => 'waiting_asc'],
+                ['key' => 'in_process', 'label' => $statuses['in_process'] ?? 'In Process', 'states' => ['in_process'], 'order' => 'status_date_desc'],
+                ['key' => 'completed', 'label' => $statuses['completed'] ?? 'Completed', 'states' => ['completed'], 'order' => 'completed_desc'],
+                ['key' => 'rejected', 'label' => $statuses['rejected'] ?? 'Rejected', 'states' => ['rejected'], 'order' => 'status_date_desc'],
+            ];
+        }
+
+        $statuses = $this->step($key)['statuses'] ?? [];
+
+        return array_map(fn (array $tab) => [
+            'key' => (string) $tab['key'],
+            // Without a label, a one-status tab takes the status label ("Visa issued").
+            'label' => (string) ($tab['label'] ?? $statuses[$tab['states'][0] ?? ''] ?? str($tab['key'])->replace('_', ' ')->title()),
+            'states' => array_values($tab['states']),
+            'order' => (string) ($tab['order'] ?? 'status_date_desc'),
+        ], $tabs);
+    }
+
+    /**
+     * Whether a record counts for its step: its status is one the step has.
+     * A record whose status the step no longer has (e.g. a rejected calling
+     * record) is history only.
+     */
+    public function isActiveRecord(PassportStepRecord $record): bool
+    {
+        return array_key_exists($record->status->value, $this->step($record->step_key)['statuses'] ?? []);
+    }
+
+    /**
+     * When a completed record was completed: its receive date when the step
+     * has one (calling), otherwise its date.
+     */
+    public function completedOn(PassportStepRecord $record): string
+    {
+        $received = $record->detail('receive_date');
+
+        return is_string($received) && $received !== '' ? $received : $record->step_date->toDateString();
     }
 
     /**
@@ -119,6 +180,16 @@ class Workflow
     }
 
     /**
+     * Record steps saved through start / result (not single_update ones).
+     *
+     * @return list<string>
+     */
+    public function startResultStepKeys(): array
+    {
+        return array_values(array_filter($this->recordStepKeys(), fn (string $key) => ! ($this->step($key)['single_update'] ?? false)));
+    }
+
+    /**
      * Every value of passport_entries.current_stage.
      *
      * @return list<string>
@@ -179,6 +250,7 @@ class Workflow
     public function latestRecords(PassportEntry $passport): Collection
     {
         return $passport->stepRecords
+            ->filter(fn (PassportStepRecord $record) => $this->isActiveRecord($record))
             ->sortByDesc(fn (PassportStepRecord $record) => [$record->step_date->toDateString(), $record->id])
             ->unique('step_key')
             ->keyBy('step_key');
@@ -318,6 +390,28 @@ class Workflow
             ];
         }
 
+        // The calling permit runs out soon (or already has) before departure.
+        $permit = $latest->get($this->recordStepKeys()[0] ?? '');
+
+        if ($permit?->status === StepStatus::Completed && $permit->valid_until !== null && $passport->current_stage !== self::COMPLETED
+            && in_array($this->validityStatus($permit), ['expiring_soon', 'expired'], true)) {
+            $warnings[] = $this->validityStatus($permit) === 'expired'
+                ? ['code' => 'permit_expired', 'message' => 'The calling permit has expired.']
+                : ['code' => 'permit_expires_soon', 'message' => 'The calling permit expires soon.'];
+        }
+
+        // The visa submitted before the calling permit was received.
+        $visa = $latest->get($this->recordStepsAfter($this->recordStepKeys()[0] ?? '')[0] ?? '');
+        $received = $permit?->detail('receive_date');
+        $submitted = $visa ? ($visa->detail('start_date') ?? $visa->step_date->toDateString()) : null;
+
+        if ($submitted !== null && is_string($received) && $submitted < $received) {
+            $warnings[] = [
+                'code' => 'visa_before_calling_received',
+                'message' => 'The visa submitted date is before the calling receive date.',
+            ];
+        }
+
         $visaValidUntil = $latest->get('visa')?->valid_until;
 
         if ($visaValidUntil !== null && $departure !== null && LocalDate::parse($visaValidUntil)->lt($departure)) {
@@ -361,21 +455,35 @@ class Workflow
     {
         $stage = (string) ($passport->current_stage ?? self::PASSPORT);
         $status = (string) $passport->stage_status;
-        $textStage = $this->label($stage);
+        $first = $this->recordStepKeys()[0] ?? null;
         $lastStep = $this->recordStepKeys()[count($this->recordStepKeys()) - 1] ?? null;
+        $waitingForFirst = ($stage === $first && $status === 'waiting') || ($stage === 'medical' && $status === 'fit');
+        $mode = $passport->entry_mode;
 
         if ($stage === self::COMPLETED) {
             $status = StepStatus::Completed->value;
             $statusLabel = $lastStep ? StepStatus::Completed->label($lastStep) : $this->statusLabel($status);
-            $textStage = $this->statusLabel(self::COMPLETED);
-        } elseif ($stage === ($this->recordStepKeys()[0] ?? null) && $status === 'waiting'
-            && $passport->medicalStatus() === MedicalStatus::Expired) {
+            $text = $this->statusLabel(self::COMPLETED).": {$statusLabel}";
+        } elseif ($waitingForFirst && $passport->medicalStatus() === MedicalStatus::Expired) {
             $status = 'expired';
             $statusLabel = $this->statusLabel($status);
-            $textStage = $this->label('medical');
+            $text = $this->label('medical').": {$statusLabel}";
+        } elseif ($stage === 'medical' && $status === 'fit') {
+            // Fit, waiting to be marked Online.
+            $statusLabel = $this->statusLabel('fit');
+            $text = 'Medical fit - mark Online';
+        } elseif ($stage === $first && $status === 'waiting' && $mode instanceof EntryMode) {
+            $statusLabel = "Ready ({$mode->label()})";
+            $text = 'Ready for '.($this->step($first)['short_label'] ?? $this->label($first))." ({$mode->label()})";
+        } elseif (isset($this->step($stage)['status_texts'][$status])) {
+            // The step's own status line, e.g. "Visa submitted".
+            $stepStatus = StepStatus::tryFrom($status);
+            $statusLabel = $stepStatus ? $stepStatus->label($stage) : $this->statusLabel($status);
+            $text = (string) $this->step($stage)['status_texts'][$status];
         } else {
             $stepStatus = StepStatus::tryFrom($status);
             $statusLabel = $stepStatus ? $stepStatus->label($stage) : $this->statusLabel($status);
+            $text = "{$this->label($stage)}: {$statusLabel}";
         }
 
         return [
@@ -383,7 +491,7 @@ class Workflow
             'stage_label' => $stage === self::COMPLETED ? $this->statusLabel(self::COMPLETED) : $this->label($stage),
             'status' => $status,
             'status_label' => $statusLabel,
-            'text' => "{$textStage}: {$statusLabel}",
+            'text' => $text,
             'tone' => $this->tone($status),
             'date' => $passport->stage_status_date?->toDateString(),
         ];
@@ -416,7 +524,11 @@ class Workflow
             $statuses = match ($step['key']) {
                 'passport' => [],
                 'medical' => array_map(fn (MedicalResult $result) => ['value' => $result->value, 'label' => $result->label()], MedicalResult::cases()),
-                default => array_map(fn (StepStatus $status) => ['value' => $status->value, 'label' => $status->label($step['key'])], StepStatus::cases()),
+                // Only the statuses the step has (calling has no rejected).
+                default => array_values(array_map(
+                    fn (StepStatus $status) => ['value' => $status->value, 'label' => $status->label($step['key'])],
+                    array_filter(StepStatus::cases(), fn (StepStatus $status) => array_key_exists($status->value, $step['statuses'])),
+                )),
             };
 
             return [
@@ -434,8 +546,12 @@ class Workflow
                     'in_details' => (bool) ($field['in_details'] ?? false),
                     'required_for' => $field['required_for'] ?? [],
                     'phase' => $field['phase'] ?? 'start',
+                    'after' => $field['after'] ?? null,
                 ], $step['fields']),
                 'warning_days' => $step['warning_days'],
+                'tabs' => in_array($step['key'], $this->recordStepKeys(), true)
+                    ? array_map(fn (array $tab) => ['key' => $tab['key'], 'label' => $tab['label']], $this->tabs($step['key']))
+                    : [],
             ];
         }, $this->steps());
     }
@@ -472,14 +588,12 @@ class Workflow
                 "coalesce(sum({$notUnfit} and ({$incomplete})), 0) as incomplete",
                 "coalesce(sum({$m}.id is null and passport_entries.medical_slip_date is null), 0) as not_started",
                 "coalesce(sum({$m}.id is null and passport_entries.medical_slip_date is not null), 0) as pending",
-                "coalesce(sum({$m}.result = '{$fit}' and {$m}.valid_until >= ?), 0) as fit",
-                "coalesce(sum({$m}.result = '{$fit}' and {$m}.valid_until between ? and ?), 0) as expiring_soon",
+                // Like the Medical Fit and Expiring soon tabs: not yet marked Online.
+                "coalesce(sum({$m}.result = '{$fit}' and {$m}.valid_until >= ? and passport_entries.entry_mode is null), 0) as fit",
+                "coalesce(sum({$m}.result = '{$fit}' and {$m}.valid_until between ? and ? and passport_entries.entry_mode is null), 0) as expiring_soon",
                 "coalesce(sum({$m}.result = '{$fit}' and {$m}.valid_until < ?), 0) as expired",
                 "coalesce(sum({$m}.result = '{$unfit}'), 0) as unfit",
-                // Waiting for the first step after medical with a fit medical
-                // that has run out: not in that step's Pending tab.
-                "coalesce(sum(passport_entries.current_stage = ? and passport_entries.stage_status = 'waiting' and {$m}.valid_until < ?), 0) as first_step_medical_expired",
-            ]), [$today, $today, $soon, $today, $this->recordStepKeys()[0] ?? '', $today])
+            ]), [$today, $today, $soon, $today])
             ->first();
 
         $counts = PassportEntry::query()
@@ -491,10 +605,14 @@ class Workflow
 
         $stages = [];
 
-        foreach ([self::PASSPORT, 'medical', ...$this->recordStepKeys()] as $stage) {
+        // Record steps count their tabs (App\Support\StepTabQuery, as the lists
+        // do); the stage entry's total and waiting are the Pending tab.
+        $stepTabs = app(StepTabQuery::class)->counts();
+
+        foreach ([self::PASSPORT, 'medical'] as $stage) {
             $statuses = match ($stage) {
                 self::PASSPORT => ['not_started'],
-                'medical' => ['pending', 'unfit'],
+                'medical' => ['pending', 'unfit', 'fit'],
                 default => ['waiting', 'in_process', 'rejected'],
             };
             $rows = $counts->where('current_stage', $stage);
@@ -506,6 +624,11 @@ class Workflow
                     $statuses,
                 )),
             ];
+        }
+
+        foreach ($stepTabs as $step => $tabs) {
+            $pending = $tabs['pending'] ?? 0;
+            $stages[$step] = ['total' => $pending, 'waiting' => $pending];
         }
 
         $calling = $this->recordStepKeys()[0] ?? null;
@@ -524,42 +647,14 @@ class Workflow
                 'expired' => (int) $row->expired,
                 'unfit' => (int) $row->unfit,
             ],
-            // The step after medical: passports waiting for it to be recorded.
+            // The step after medical: its Pending tab.
             'step3' => [
                 'enabled' => $calling !== null,
-                'ready' => $calling ? $stages[$calling]['waiting'] : 0,
+                'ready' => $calling ? ($stepTabs[$calling]['pending'] ?? 0) : 0,
             ],
             'stages' => $stages,
             'completed' => (int) $counts->where('current_stage', self::COMPLETED)->sum('total'),
-            'step_tabs' => $this->stepTabCounts($counts, (int) $row->first_step_medical_expired),
+            'step_tabs' => $stepTabs,
         ];
-    }
-
-    /**
-     * Each record step's tab totals, matching App\Support\StepList: pending
-     * (waiting at the step; for the first step also with a medical still
-     * valid today), in_process, rejected, and completed (past the step).
-     *
-     * @param  Collection<int, object>  $counts  passports per current_stage and stage_status
-     * @return array<string, array{pending: int, in_process: int, completed: int, rejected: int}>
-     */
-    protected function stepTabCounts(Collection $counts, int $firstStepMedicalExpired): array
-    {
-        $tabs = [];
-        $stages = $this->stages();
-
-        foreach ($this->recordStepKeys() as $index => $key) {
-            $atStep = $counts->where('current_stage', $key);
-            $later = array_slice($stages, (int) array_search($key, $stages, true) + 1);
-
-            $tabs[$key] = [
-                'pending' => (int) $atStep->where('stage_status', 'waiting')->sum('total') - ($index === 0 ? $firstStepMedicalExpired : 0),
-                'in_process' => (int) $atStep->where('stage_status', 'in_process')->sum('total'),
-                'completed' => (int) $counts->whereIn('current_stage', $later)->sum('total'),
-                'rejected' => (int) $atStep->where('stage_status', 'rejected')->sum('total'),
-            ];
-        }
-
-        return $tabs;
     }
 }

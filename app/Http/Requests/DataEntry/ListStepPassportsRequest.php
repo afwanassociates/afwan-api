@@ -20,7 +20,8 @@ class ListStepPassportsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'tab' => ['sometimes', 'nullable', Rule::in(StepList::TABS)],
+            // The step's own tabs (calling: pending, permitted).
+            'tab' => ['sometimes', 'nullable', Rule::in(app(StepList::class)->tabKeys((string) $this->route('step')))],
             'search' => ['sometimes', 'nullable', 'string', 'max:100'],
             'company' => ['sometimes', 'nullable', 'string', 'max:100'],
             'reference' => ['sometimes', 'nullable', 'string', 'max:100'],

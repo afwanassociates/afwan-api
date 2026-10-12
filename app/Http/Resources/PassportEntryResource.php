@@ -70,6 +70,13 @@ class PassportEntryResource extends JsonResource
             ],
             // The date the passport goes (or went) for its medical; null until entered.
             'medical_date' => $this->medical_date?->toDateString(),
+            'medical_slip_date' => $this->medical_slip_date?->toDateString(),
+            // The current result's issue and expiry dates (null until fit).
+            'issue_date' => $this->currentMedical?->issue_date?->toDateString(),
+            'valid_until' => $this->currentMedical?->valid_until?->toDateString(),
+            // The Online mark: a fit passport needs it before Calling.
+            'entry_mode' => $this->entry_mode ? ['value' => $this->entry_mode->value, 'label' => $this->entry_mode->label()] : null,
+            'has_calling_record' => $this->hasStepRecords(),
             // Where the medical is done (same as medical_slip.medical_center).
             'medical_center' => $this->medicalCenter ? [
                 'id' => $this->medicalCenter->id,
@@ -80,6 +87,8 @@ class PassportEntryResource extends JsonResource
             'current_medical' => $this->currentMedical ? MedicalRecordResource::summary($this->currentMedical) : null,
             'current_stage' => $this->current_stage,
             'stage_status' => $this->stage_status,
+            // One line for the stage and status, e.g. "Ready for Calling (Online)".
+            'latest_status' => $workflow->latestStatus($this->resource),
             'workflow' => $workflow->forPassport($this->resource, $medicalStatus),
             'warnings' => $workflow->warnings($this->resource),
             ...$this->scanFields(),

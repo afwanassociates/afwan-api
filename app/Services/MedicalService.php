@@ -66,9 +66,17 @@ class MedicalService
      * @throws ValidationException when the slip date or medical date is missing, or already has a result
      * @throws WorkflowException when later steps would lose their fit medical
      */
-    public function recordResult(PassportEntry $passport, MedicalResult $result, User $actor): MedicalRecord
+    public function recordResult(PassportEntry $passport, MedicalResult $result, User $actor, ?string $issueDate = null, ?string $expiryDate = null): MedicalRecord
     {
-        return DB::transaction(function () use ($passport, $result, $actor) {
+        return DB::transaction(function () use ($passport, $result, $actor, $issueDate, $expiryDate) {
+            // A fit result carries its own issue and expiry dates (not computed).
+            if ($result === MedicalResult::Fit && ($issueDate === null || $expiryDate === null)) {
+                throw ValidationException::withMessages(array_filter([
+                    'issue_date' => $issueDate === null ? 'Enter the issue date of the fit medical.' : null,
+                    'expiry_date' => $expiryDate === null ? 'Enter the expiry date of the fit medical.' : null,
+                ]));
+            }
+
             $locked = $this->lock($passport);
 
             // A result follows the medical slip (MYGRAM) and the medical date.
@@ -97,7 +105,8 @@ class MedicalService
 
             $record = new MedicalRecord(['medical_date' => $locked->medical_date->toDateString(), 'result' => $result]);
             $record->passport_entry_id = $locked->id;
-            $record->valid_until = self::validUntil($record->medical_date, $record->result);
+            $record->issue_date = $result === MedicalResult::Fit ? $issueDate : null;
+            $record->valid_until = $result === MedicalResult::Fit ? $expiryDate : null;
             $record->created_by = $actor->id;
             $record->updated_by = $actor->id;
             $record->save();
@@ -154,12 +163,24 @@ class MedicalService
         return DB::transaction(function () use ($record, $data, $actor) {
             $passport = $this->lock($record->passportEntry()->withTrashed()->firstOrFail());
 
-            $record->fill($data);
+            $record->fill(collect($data)->except(['issue_date', 'expiry_date'])->all());
 
-            // Only re-derive when the inputs change, so a later change to the
-            // validity period does not silently move old records.
-            if ($record->isDirty(['medical_date', 'result'])) {
-                $record->valid_until = self::validUntil($record->medical_date, $record->result);
+            // A fit result's dates are entered, never computed; unfit has none.
+            if (array_key_exists('issue_date', $data)) {
+                $record->issue_date = $data['issue_date'];
+            }
+
+            if (array_key_exists('expiry_date', $data)) {
+                $record->valid_until = $data['expiry_date'];
+            }
+
+            if ($record->result === MedicalResult::Unfit) {
+                $record->issue_date = null;
+                $record->valid_until = null;
+            } elseif ($record->valid_until === null) {
+                throw ValidationException::withMessages([
+                    'expiry_date' => 'Enter the expiry date of the fit medical.',
+                ]);
             }
 
             $record->updated_by = $actor->id;
@@ -197,8 +218,10 @@ class MedicalService
     }
 
     /**
-     * The date a result stays valid until: medical date plus the validity
-     * period for fit (month ends never overflow), null for unfit.
+     * The usual expiry of a fit result: the date plus config
+     * medical.validity_months (month ends never overflow); null for unfit.
+     * Only a suggestion for prefilling forms and for sample data: a recorded
+     * result keeps the expiry date entered for it.
      */
     public static function validUntil(string|DateTimeInterface $medicalDate, MedicalResult $result): ?string
     {

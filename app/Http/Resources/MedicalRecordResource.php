@@ -52,6 +52,7 @@ class MedicalRecordResource extends JsonResource
             'id' => $record->id,
             'medical_date' => $record->medical_date->toDateString(),
             'result' => $record->result->value,
+            'issue_date' => $record->issue_date?->toDateString(),
             'valid_until' => $record->valid_until?->toDateString(),
             'days_left' => self::daysLeft($record),
             'remarks' => $record->remarks,

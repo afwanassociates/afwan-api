@@ -46,7 +46,13 @@ class MedicalRecordController extends Controller
         $passport->load('currentMedical');
         Gate::authorize('create', [MedicalRecord::class, $passport]);
 
-        $record = $this->medicals->recordResult($passport, MedicalResult::from($request->validated('result')), $request->user());
+        $record = $this->medicals->recordResult(
+            $passport,
+            MedicalResult::from($request->validated('result')),
+            $request->user(),
+            $request->validated('issue_date'),
+            $request->validated('expiry_date'),
+        );
 
         return $this->respond($record, $passport)->setStatusCode(201);
     }

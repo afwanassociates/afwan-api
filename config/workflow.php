@@ -20,6 +20,20 @@ return [
     |   validation rules; "not_future_for" lists statuses for which a date may
     |   not be after today.
     | - warning_days: valid_until within this many days counts as expiring soon.
+    | - tabs (optional): the step page's tabs, each a list of record states
+    |   (waiting = no record yet, in_process, rejected, completed, next_waiting
+    |   = completed and the next step not started) and an order. A tab without
+    |   a label takes its status label. Without tabs a step gets pending,
+    |   in_process, completed and rejected.
+    | - single_update (optional): the step is saved with one update request
+    |   instead of start / result.
+    | - date_from (optional): the field the record's date (step_date) is taken
+    |   from, for a step without a date field of its own.
+    | - list_hidden (optional): row fields this step's list leaves out.
+    | - status_texts (optional): the passport's status line for a stage status
+    |   at this step (e.g. "Visa submitted").
+    | - A field's "after" names the field its date must follow (valid_until
+    |   follows step_date unless set).
     |
     | Adding or renaming a step only needs a change here (plus any extra
     | validation rules in its fields).
@@ -44,15 +58,32 @@ return [
             'label' => 'Calling / Work Permit',
             'short_label' => 'Calling',
             'enabled' => true,
+            // No rejected path: enter the calling date, then the permit details.
             'statuses' => [
-                'in_process' => 'Applied',
-                'completed' => 'Approved',
-                'rejected' => 'Rejected',
+                'in_process' => 'Calling date entered',
+                'completed' => 'Permitted',
             ],
             'fields' => [
-                ['name' => 'reference_no', 'label' => 'Permit / calling number', 'phase' => 'result', 'type' => 'text', 'max' => 100, 'required_for' => ['completed']],
-                ['name' => 'step_date', 'label' => 'Date', 'phase' => 'start', 'type' => 'date', 'required_for' => ['in_process', 'completed', 'rejected']],
-                ['name' => 'valid_until', 'label' => 'Valid until', 'phase' => 'result', 'type' => 'date', 'required_for' => []],
+                ['name' => 'receive_date', 'label' => 'Calling receive date', 'phase' => 'result', 'type' => 'date', 'in_details' => true, 'required_for' => ['completed'], 'not_future_for' => ['completed']],
+                ['name' => 'issue_date', 'label' => 'Issued date', 'phase' => 'result', 'type' => 'date', 'in_details' => true, 'required_for' => ['completed'], 'not_future_for' => ['completed']],
+                ['name' => 'valid_until', 'label' => 'Expiry date', 'phase' => 'result', 'type' => 'date', 'required_for' => ['completed'], 'after' => 'details.issue_date'],
+            ],
+            // The step page's tabs, by record state: Permitted until the visa
+            // submitted date is entered (next_waiting = done, next step not started).
+            'tabs' => [
+                ['key' => 'pending', 'label' => 'Pending', 'states' => ['waiting', 'in_process'], 'order' => 'medical_fit_asc'],
+                ['key' => 'permitted', 'label' => 'Permitted', 'states' => ['next_waiting'], 'order' => 'completed_desc'],
+            ],
+            // Saved with one update (the three permit dates), not through
+            // start / result. in_process exists only on older records that
+            // had a calling date; new records are created completed.
+            'single_update' => true,
+            // The record's date is the calling receive date.
+            'date_from' => 'receive_date',
+            // Left out of this step's list rows.
+            'list_hidden' => ['entry_mode', 'step_date', 'submitted_date'],
+            'status_texts' => [
+                'in_process' => 'Calling date entered',
             ],
             'warning_days' => 30,
         ],
@@ -68,8 +99,19 @@ return [
             ],
             'fields' => [
                 ['name' => 'reference_no', 'label' => 'Visa number', 'phase' => 'result', 'type' => 'text', 'max' => 100, 'required_for' => ['completed']],
-                ['name' => 'step_date', 'label' => 'Date', 'phase' => 'start', 'type' => 'date', 'required_for' => ['in_process', 'completed', 'rejected']],
+                ['name' => 'step_date', 'label' => 'Visa submitted date', 'phase' => 'start', 'type' => 'date', 'required_for' => ['in_process', 'completed', 'rejected']],
                 ['name' => 'valid_until', 'label' => 'Valid until', 'phase' => 'result', 'type' => 'date', 'required_for' => []],
+            ],
+            // Not started yet shows under Calling's Permitted tab; the visa page starts
+            // at the visa submitted date.
+            'tabs' => [
+                ['key' => 'pending', 'label' => 'Pending', 'states' => ['in_process'], 'order' => 'status_date_asc'],
+                ['key' => 'issued', 'states' => ['completed'], 'order' => 'completed_desc'],
+                ['key' => 'rejected', 'states' => ['rejected'], 'order' => 'status_date_desc'],
+            ],
+            'status_texts' => [
+                'waiting' => 'Permitted - enter visa submitted date',
+                'in_process' => 'Visa submitted',
             ],
             'warning_days' => 30,
         ],
@@ -141,6 +183,7 @@ return [
         'pending' => 'Pending',
         'waiting' => 'Waiting',
         'unfit' => 'Unfit',
+        'fit' => 'Fit - not marked',
         'expired' => 'Expired',
         'in_process' => 'In Process',
         'rejected' => 'Rejected',
@@ -151,6 +194,7 @@ return [
 
     'tones' => [
         'not_started' => 'amber',
+        'fit' => 'amber',
         'unfit' => 'red',
         'rejected' => 'red',
         'cancelled' => 'red',

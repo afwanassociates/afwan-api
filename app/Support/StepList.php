@@ -8,55 +8,36 @@ use App\Models\PassportStepRecord;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
- * The work list of one record step (calling, visa, bmet, flight), by tab,
- * read from the stored workflow position (current_stage, stage_status):
- *
- * - pending: the earlier steps are completed and this step has no record
- *   yet (stage = step, waiting); for the first step the fit medical must
- *   also still be valid today. Unfit passports never get here.
- * - in_process / rejected: this step's latest record has that status.
- * - completed: this step's latest record is completed (the passport is past it).
- *
- * App\Support\Workflow::summary() counts the same tabs.
+ * The work list of one record step (calling, visa, bmet, flight), by tab.
+ * Which passports are in a tab is defined once, in App\Support\StepTabQuery,
+ * shared with the tab counts and /workflow/summary.
  */
 class StepList
 {
-    public const TABS = ['pending', 'in_process', 'completed', 'rejected'];
-
-    public function __construct(protected Workflow $workflow) {}
+    public function __construct(protected Workflow $workflow, protected StepTabQuery $tabs) {}
 
     /**
-     * Passports in the step's tab, filtered and in the tab's order: pending by
-     * how long they have waited (since the step before was completed), the
-     * others newest status first. Sorting from the request is not used.
+     * Each tab's total for the step, with the same filters as the list.
      *
      * @param  array{search?: string|null, company?: string|null, reference?: string|null}  $filters
-     * @return Builder<PassportEntry>
+     * @return array<string, int>
      */
-    public function query(string $step, string $tab, array $filters = []): Builder
+    public function tabCounts(string $step, array $filters = []): array
+    {
+        return $this->tabs->counts([$step], fn (Builder $query) => $this->filter($query, $filters))[$step] ?? [];
+    }
+
+    /**
+     * The search, company and reference filters.
+     *
+     * @param  Builder<PassportEntry>  $query
+     * @param  array{search?: string|null, company?: string|null, reference?: string|null}  $filters
+     */
+    protected function filter(Builder $query, array $filters): void
     {
         $search = trim((string) ($filters['search'] ?? ''));
         $company = trim((string) ($filters['company'] ?? ''));
         $reference = trim((string) ($filters['reference'] ?? ''));
-        $stages = $this->workflow->stages();
-        $later = array_slice($stages, (int) array_search($step, $stages, true) + 1);
-        $isFirst = $step === ($this->workflow->recordStepKeys()[0] ?? null);
-        $today = LocalDate::today()->toDateString();
-
-        $query = PassportEntry::query()
-            ->with(['reference', 'company', 'currentMedical', 'stepRecords'])
-            ->select('passport_entries.*');
-
-        match ($tab) {
-            'pending' => $query->where('passport_entries.current_stage', $step)
-                ->where('passport_entries.stage_status', 'waiting')
-                ->when($isFirst, fn (Builder $query) => $query
-                    ->withCurrentMedical()
-                    ->where(PassportEntry::CURRENT_MEDICAL.'.valid_until', '>=', $today)),
-            'completed' => $query->whereIn('passport_entries.current_stage', $later),
-            default => $query->where('passport_entries.current_stage', $step)
-                ->where('passport_entries.stage_status', $tab),
-        };
 
         $query
             ->when($search !== '', fn (Builder $query) => $query->where(fn (Builder $query) => $query
@@ -64,18 +45,51 @@ class StepList
                 ->orWhere('passport_entries.passport_number', 'like', Like::contains((string) Normalize::passportNumber($search)))))
             ->when($company !== '', fn (Builder $query) => $query->whereHas('company', fn (Builder $query) => $query->where('name', 'like', Like::contains($company))))
             ->when($reference !== '', fn (Builder $query) => $query->whereHas('reference', fn (Builder $query) => $query->where('name', 'like', Like::contains($reference))));
+    }
 
-        return match ($tab) {
+    /**
+     * The tab keys of a step (its own tabs from config, or the default ones).
+     *
+     * @return list<string>
+     */
+    public function tabKeys(string $step): array
+    {
+        return array_column($this->workflow->tabs($step), 'key');
+    }
+
+    /**
+     * Passports in the step's tab (App\Support\StepTabQuery), filtered and in
+     * the tab's order. Sorting from the request is not used.
+     *
+     * @param  array{search?: string|null, company?: string|null, reference?: string|null}  $filters
+     * @return Builder<PassportEntry>
+     */
+    public function query(string $step, string $tab, array $filters = []): Builder
+    {
+        $definition = collect($this->workflow->tabs($step))->firstWhere('key', $tab)
+            ?? throw new \InvalidArgumentException("Unknown tab {$tab}.");
+
+        $query = $this->tabs->membership($step, $tab)
+            ->with(['reference', 'company', 'currentMedical', 'stepRecords'])
+            ->tap(fn (Builder $query) => $this->filter($query, $filters));
+
+        return match ($definition['order']) {
             // stage_status_date is when the step before was completed.
-            'pending' => $query->orderBy('passport_entries.stage_status_date')->orderBy('passport_entries.id'),
-            // When this step was completed.
-            'completed' => $query
+            'waiting_asc' => $query->orderBy('passport_entries.stage_status_date')->orderBy('passport_entries.id'),
+            // When the medical turned fit (its issue date, else its date).
+            'medical_fit_asc' => $query
+                ->orderByRaw('coalesce('.PassportEntry::CURRENT_MEDICAL.'.issue_date, '.PassportEntry::CURRENT_MEDICAL.'.medical_date)')
+                ->orderBy('passport_entries.id'),
+            // When this step was completed (its receive date, else its date).
+            'completed_desc' => $query
                 ->orderByDesc(PassportStepRecord::query()
-                    ->selectRaw('max(step_date)')
+                    ->selectRaw("max(coalesce(json_unquote(json_extract(details, '$.receive_date')), step_date))")
                     ->whereColumn('passport_step_records.passport_entry_id', 'passport_entries.id')
                     ->where('step_key', $step)
                     ->where('status', StepStatus::Completed->value))
                 ->orderByDesc('passport_entries.id'),
+            // stage_status_date is this step's latest record date: oldest first.
+            'status_date_asc' => $query->orderBy('passport_entries.stage_status_date')->orderBy('passport_entries.id'),
             // stage_status_date is this step's latest record date.
             default => $query->orderByDesc('passport_entries.stage_status_date')->orderByDesc('passport_entries.id'),
         };
@@ -83,7 +97,7 @@ class StepList
 
     /**
      * When the step before this one was completed: the medical date for the
-     * first step, otherwise the previous step's completed record date. Load
+     * first step, otherwise the previous step's completion. Load
      * currentMedical and stepRecords first to avoid queries.
      */
     public function previousCompletedOn(PassportEntry $passport, string $step): ?string
@@ -96,6 +110,6 @@ class StepList
 
         $previous = $this->workflow->latestRecords($passport)->get(end($before));
 
-        return $previous?->status === StepStatus::Completed ? $previous->step_date->toDateString() : null;
+        return $previous?->status === StepStatus::Completed ? $this->workflow->completedOn($previous) : null;
     }
 }

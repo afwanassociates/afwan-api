@@ -35,7 +35,20 @@ class UpdateMedicalRecordRequest extends FormRequest
             ],
             'result' => ['sometimes', 'required', Rule::enum(MedicalResult::class)],
             'remarks' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            // A fit result's validity (ignored for unfit).
+            'issue_date' => ['sometimes', 'required', 'date_format:Y-m-d', 'before_or_equal:'.$today->toDateString()],
+            'expiry_date' => ['sometimes', 'required', 'date_format:Y-m-d', 'after:'.$this->issueDate()],
         ];
+    }
+
+    /**
+     * The issue date to compare the expiry with: the one sent, or the record's.
+     */
+    protected function issueDate(): string
+    {
+        $issue = $this->input('issue_date', $this->route('medical')?->issue_date?->toDateString());
+
+        return is_string($issue) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $issue) ? $issue : 'issue_date';
     }
 
     /**
@@ -49,6 +62,8 @@ class UpdateMedicalRecordRequest extends FormRequest
             'medical_date.before_or_equal' => 'The medical date cannot be in the future.',
             'medical_date.after_or_equal' => 'The medical date cannot be more than 1 year ago.',
             'result.enum' => 'The result must be fit or unfit.',
+            'issue_date.before_or_equal' => 'The issue date cannot be in the future.',
+            'expiry_date.after' => 'The expiry date must be after the issue date.',
         ];
     }
 }

@@ -2,6 +2,7 @@
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
@@ -83,7 +84,8 @@ function fakeScan(string $type = 'jpg', ?string $name = null, int $padKb = 1): U
 
 /**
  * Record a medical result the way the SPA does: set the passport's medical
- * date, then post the result. Returns the date response when that fails,
+ * date, then post the result (a fit one issued on the medical date and valid
+ * for the usual 3 months). Returns the date response when that fails,
  * otherwise the result response.
  */
 function recordMedical(int $passportId, string $medicalDate, string $result): TestResponse
@@ -94,5 +96,9 @@ function recordMedical(int $passportId, string $medicalDate, string $result): Te
         return $date;
     }
 
-    return test()->postJson("/api/data-entry/passports/{$passportId}/medical-result", ['result' => $result]);
+    $dates = $result === 'fit'
+        ? ['issue_date' => $medicalDate, 'expiry_date' => Carbon::parse($medicalDate)->addMonthsNoOverflow(3)->toDateString()]
+        : [];
+
+    return test()->postJson("/api/data-entry/passports/{$passportId}/medical-result", ['result' => $result, ...$dates]);
 }

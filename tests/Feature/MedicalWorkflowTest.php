@@ -210,7 +210,8 @@ describe('passport list', function () {
 
 describe('workflow', function () {
     it('describes each step for the step bar', function (string $state, array $expected, ?string $currentStep) {
-        $passport = passportWithMedical($state);
+        // Fit passports marked Online, so they are available for Calling.
+        $passport = passportWithMedical($state, in_array($state, ['fit', 'expiring_soon', 'expired'], true) ? ['entry_mode' => 'online'] : []);
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $response = $this->getJson("/api/data-entry/passports/{$passport->id}")->assertOk();
@@ -252,12 +253,12 @@ describe('workflow', function () {
         DB::enableQueryLog();
         $response = $this->getJson('/api/data-entry/workflow/summary')->assertOk();
 
-        expect(DB::getQueryLog())->toHaveCount(2);
+        expect(DB::getQueryLog())->toHaveCount(3);
         $response
             ->assertJsonPath('data.step1', ['total_all' => 7, 'total_active' => 5, 'incomplete' => 1])
             ->assertJsonPath('data.step2', ['not_started' => 0, 'pending' => 2, 'fit' => 2, 'expiring_soon' => 1, 'expired' => 1, 'unfit' => 2])
-            // Fit, expiring soon and expired medicals all wait for calling.
-            ->assertJsonPath('data.step3', ['enabled' => true, 'ready' => 3])
+            // None is marked Online yet, so none is ready for Calling.
+            ->assertJsonPath('data.step3', ['enabled' => true, 'ready' => 0])
             ->assertJsonPath('data.steps.*.key', ['passport', 'medical', 'calling', 'visa', 'bmet', 'flight']);
     });
 
@@ -460,7 +461,7 @@ describe('all passports', function () {
 
         DB::enableQueryLog();
         $response = $this->getJson('/api/data-entry/workflow/summary')->assertOk();
-        expect(DB::getQueryLog())->toHaveCount(2);
+        expect(DB::getQueryLog())->toHaveCount(3);
 
         $step2 = $response->json('data.step2');
         // fit already includes expiring_soon, so it is not added twice.

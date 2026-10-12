@@ -17,7 +17,7 @@ describe('access', function () {
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
         $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-20'])->assertOk();
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit'])->assertCreated();
+        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit', 'issue_date' => '2026-04-20', 'expiry_date' => '2026-07-20'])->assertCreated();
     })->with(['dataEntry', 'admin', 'superAdmin']);
 
     it('rejects accounts and guests', function () {
@@ -51,12 +51,13 @@ describe('status flow', function () {
             ->assertOk()
             ->assertJsonPath('data.medical_status', 'pending');
 
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit'])
+        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit', 'issue_date' => '2026-04-20', 'expiry_date' => '2026-07-20'])
             ->assertCreated()
-            // medical date + config('medical.validity_months') (3).
+            // The expiry date entered, as valid_until.
             ->assertJsonPath('data.valid_until', '2026-07-20')
+            ->assertJsonPath('data.issue_date', '2026-04-20')
             ->assertJsonPath('passport.medical_status', 'fit')
-            ->assertJsonPath('passport.current_stage', 'calling');
+            ->assertJsonPath('passport.current_stage', 'medical');
 
         $status = fn () => $this->getJson("/api/data-entry/passports/{$passport->id}")->json('data.medical_status');
 
@@ -94,9 +95,10 @@ describe('status flow', function () {
 
         $id = recordMedical($passport->id, '2026-04-20', 'fit')->json('data.id');
 
+        // The expiry date is entered, so changing the medical date leaves it.
         $this->patchJson("/api/data-entry/medicals/{$id}", ['medical_date' => '2026-04-18'])
             ->assertOk()
-            ->assertJsonPath('data.valid_until', '2026-07-18');
+            ->assertJsonPath('data.valid_until', '2026-07-20');
 
         expect($passport->fresh()->medical_date->toDateString())->toBe('2026-04-18');
     });

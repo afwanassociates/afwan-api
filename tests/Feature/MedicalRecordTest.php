@@ -104,6 +104,8 @@ describe('recording', function () {
         $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-20'])->assertOk();
         $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", [
             'result' => 'fit',
+            'issue_date' => '2026-04-20',
+            'expiry_date' => '2026-07-20',
             'medical_date' => '2026-01-01',
             'remarks' => 'Ignored',
             'created_by' => $someoneElse->id,
@@ -176,7 +178,7 @@ describe('recording', function () {
 
         recordMedical($passport->id, '2026-04-20', 'unfit')->assertCreated();
 
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit'])
+        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit', 'issue_date' => '2026-04-20', 'expiry_date' => '2026-07-20'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['medical_date' => 'A result is already recorded for this medical date. Set a new medical date for a re-test.']);
 
@@ -245,7 +247,7 @@ describe('validation', function () {
         $passport = receivedPassport();
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit'])
+        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'unfit'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['medical_date' => 'Enter the medical date before recording the medical result.']);
 
@@ -356,7 +358,7 @@ describe('re-tests', function () {
         $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-30'])->assertOk();
 
         Sanctum::actingAs(User::factory()->dataEntry()->create());
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit'])->assertForbidden();
+        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit', 'issue_date' => '2026-04-30', 'expiry_date' => '2026-07-30'])->assertForbidden();
 
         expect(MedicalRecord::count())->toBe(1);
     });
@@ -390,7 +392,7 @@ describe('editing', function () {
             ->assertForbidden();
     });
 
-    it('lets admin edit any record, re-deriving valid_until and the current record', function () {
+    it('lets admin edit any record, with entered dates, and moves the current record', function () {
         $passport = receivedPassport();
         $older = MedicalRecord::factory()->for($passport)->on('2026-03-01')->create();
         $newer = MedicalRecord::factory()->for($passport)->on('2026-04-01')->create();
@@ -398,8 +400,9 @@ describe('editing', function () {
         Sanctum::actingAs($admin);
 
         // Moving the older record past the newer one makes it current.
-        $this->patchJson("/api/data-entry/medicals/{$older->id}", ['medical_date' => '2026-04-15'])
+        $this->patchJson("/api/data-entry/medicals/{$older->id}", ['medical_date' => '2026-04-15', 'issue_date' => '2026-04-15', 'expiry_date' => '2026-07-15'])
             ->assertOk()
+            ->assertJsonPath('data.issue_date', '2026-04-15')
             ->assertJsonPath('data.valid_until', '2026-07-15')
             ->assertJsonPath('passport.current_medical_id', $older->id);
 

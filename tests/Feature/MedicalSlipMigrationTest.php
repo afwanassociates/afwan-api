@@ -79,11 +79,12 @@ it('moves the slip to passports, keeps results, and is reversible and idempotent
     expect(Schema::hasColumn('medical_records', 'slip_date'))->toBeFalse()
         ->and((array) $row($a))->toBe([
             'medical_slip_date' => '2026-03-25', 'medical_slip_no' => 'MG-1', 'medical_center_id' => $center,
-            'current_medical_id' => $recordA, 'current_stage' => 'calling', 'stage_status' => 'waiting',
+            // Fit but not marked Online, and Calling not started.
+            'current_medical_id' => $recordA, 'current_stage' => 'medical', 'stage_status' => 'fit',
         ])
         // Pending without a slip date becomes not_started.
         ->and((array) $row($b))->toMatchArray(['medical_slip_date' => null, 'current_stage' => 'passport', 'stage_status' => 'not_started'])
-        ->and((array) $row($c))->toMatchArray(['medical_slip_date' => '2026-02-25', 'medical_slip_no' => 'MG-3', 'current_medical_id' => $recordC, 'current_stage' => 'calling'])
+        ->and((array) $row($c))->toMatchArray(['medical_slip_date' => '2026-02-25', 'medical_slip_no' => 'MG-3', 'current_medical_id' => $recordC, 'current_stage' => 'medical'])
         ->and(DB::table('medical_records')->count())->toBe(3);
 
     // Reversible: the slip goes back onto each passport's current record.

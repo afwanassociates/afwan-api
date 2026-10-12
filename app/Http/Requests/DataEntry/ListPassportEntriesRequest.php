@@ -47,6 +47,13 @@ class ListPassportEntriesRequest extends FormRequest
     public const MEDICAL_TABS = ['pending', 'fit', 'expiring_soon', 'expired', 'unfit'];
 
     /**
+     * Medical tabs holding only passports not yet marked Online.
+     *
+     * @var list<string>
+     */
+    public const UNMARKED_TABS = ['fit', 'expiring_soon'];
+
+    /**
      * Accept the country code in any case, and a "-" prefix on sort.
      */
     protected function prepareForValidation(): void

@@ -105,7 +105,9 @@ describe('medical pending only after the slip date', function () {
             ->and(slipQueueIds())->toBe([]);
 
         $this->getJson("/api/data-entry/passports/{$id}")
-            ->assertJsonPath('data.current_stage', 'calling')
+            // Fit stays at Medical until marked Online.
+            ->assertJsonPath('data.current_stage', 'medical')
+            ->assertJsonPath('data.stage_status', 'fit')
             ->assertJsonPath('data.medical_slip.date', '2026-04-15')
             ->assertJsonMissingPath('data.medical_slip.no')
             ->assertJsonPath('data.current_medical.medical_date', '2026-04-20');
@@ -119,7 +121,7 @@ describe('medical pending only after the slip date', function () {
         $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-20'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['medical_date' => 'Enter the medical slip date before the medical date.']);
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit'])
+        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'unfit'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['medical_slip_date' => 'Enter the medical slip date before recording the medical result.']);
 
@@ -220,6 +222,7 @@ describe('medical pending only after the slip date', function () {
 
         $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", [
             'result' => 'fit',
+            'issue_date' => '2026-04-20', 'expiry_date' => '2026-07-20',
             'slip_no' => 'IGNORED',
             'medical_center_id' => meem()->id,
         ])->assertCreated()->assertJsonMissingPath('data.slip_no');
@@ -243,8 +246,9 @@ describe('counts', function () {
 
         expect($response->json('data.step2'))->toMatchArray(['not_started' => 2, 'pending' => 3, 'fit' => 1, 'unfit' => 1])
             ->and($response->json('data.stages.passport'))->toBe(['total' => 2, 'not_started' => 2])
-            ->and($response->json('data.stages.medical'))->toBe(['total' => 4, 'pending' => 3, 'unfit' => 1])
-            ->and($response->json('data.stages.calling.waiting'))->toBe(1)
+            // The fit passport is not marked Online: still at Medical.
+            ->and($response->json('data.stages.medical'))->toBe(['total' => 5, 'pending' => 3, 'unfit' => 1, 'fit' => 1])
+            ->and($response->json('data.stages.calling.waiting'))->toBe(0)
             ->and($response->json('data.step1.total_all'))->toBe(7)
             // The default Passport list: every non-unfit passport, each with its status.
             ->and(collect($this->getJson('/api/data-entry/passports?per_page=100')->json('data.*.medical_status'))->countBy()->all())

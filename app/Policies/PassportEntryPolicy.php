@@ -66,6 +66,15 @@ class PassportEntryPolicy
         return $this->viewAny($user);
     }
 
+    /**
+     * Mark any fit passport Online (the medical and Calling rules
+     * are checked in App\Services\WorkflowService).
+     */
+    public function updateEntryMode(User $user, PassportEntry $entry): bool
+    {
+        return $this->viewAny($user);
+    }
+
     public function delete(User $user, PassportEntry $entry): bool
     {
         return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin);

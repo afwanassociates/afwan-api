@@ -27,6 +27,11 @@ class WorkflowException extends Exception
         return new self('medical_not_valid', 'Calling can only be recorded while the medical is fit and still valid today.');
     }
 
+    public static function entryModeMissing(string $stepLabel): self
+    {
+        return new self('entry_mode_missing', "Mark the passport Online before starting {$stepLabel}.");
+    }
+
     public static function stepAlreadyCompleted(string $stepLabel): self
     {
         return new self('step_already_completed', "The {$stepLabel} step is already completed.");

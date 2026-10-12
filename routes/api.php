@@ -9,6 +9,7 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\DataEntry\CompanyController;
 use App\Http\Controllers\DataEntry\CountryLookupController;
 use App\Http\Controllers\DataEntry\DefaultsController;
+use App\Http\Controllers\DataEntry\EntryModeController;
 use App\Http\Controllers\DataEntry\MedicalCenterLookupController;
 use App\Http\Controllers\DataEntry\MedicalDateController;
 use App\Http\Controllers\DataEntry\MedicalQueueController;
@@ -92,6 +93,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/passports/{passport}/scan', [PassportScanController::class, 'store'])->name('passports.scan.store');
         Route::patch('/passports/{passport}/medical-slip', MedicalSlipController::class)->name('passports.medical-slip');
         Route::patch('/passports/{passport}/medical-date', MedicalDateController::class)->name('passports.medical-date');
+        Route::patch('/passports/{passport}/entry-mode', EntryModeController::class)->name('passports.entry-mode');
         Route::post('/passports/{passport}/medical-result', [MedicalRecordController::class, 'result'])->name('passports.medical-result');
         Route::get('/passports/{passport}/medicals', [MedicalRecordController::class, 'index'])->name('passports.medicals.index');
         Route::patch('/medicals/{medical}', [MedicalRecordController::class, 'update'])->name('medicals.update');
@@ -108,11 +110,14 @@ Route::middleware('auth:sanctum')->group(function () {
             ->whereIn('stepKey', app(Workflow::class)->recordStepKeys())
             ->name('passports.steps.store');
         // The step pages' actions: start a step, then record its result.
+        // Calling is saved with one update instead (config single_update).
+        Route::post('/passports/{passport}/steps/calling/update', [StepActionController::class, 'updateCalling'])
+            ->name('passports.steps.calling.update');
         Route::match(['post', 'patch'], '/passports/{passport}/steps/{step}/start', [StepActionController::class, 'start'])
-            ->whereIn('step', app(Workflow::class)->recordStepKeys())
+            ->whereIn('step', app(Workflow::class)->startResultStepKeys())
             ->name('passports.steps.start');
         Route::post('/passports/{passport}/steps/{step}/result', [StepActionController::class, 'result'])
-            ->whereIn('step', app(Workflow::class)->recordStepKeys())
+            ->whereIn('step', app(Workflow::class)->startResultStepKeys())
             ->name('passports.steps.result');
         Route::patch('/step-records/{stepRecord}', [StepRecordController::class, 'update'])->name('step-records.update');
         Route::delete('/step-records/{stepRecord}', [StepRecordController::class, 'destroy'])->name('step-records.destroy');

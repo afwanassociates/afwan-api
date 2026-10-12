@@ -33,7 +33,8 @@ class StepResultRequest extends StoreStepRecordRequest
         $input = $this->all();
 
         $data = [
-            'status' => $this->input('result'),
+            // A step with one outcome (calling: permitted) needs no result value.
+            'status' => $this->input('result', count($this->outcomes()) === 1 ? $this->outcomes()[0] : null),
             'step_date' => $this->input('result_date') ?? LocalDate::today()->toDateString(),
             'remarks' => array_key_exists('remarks', $input) ? $input['remarks'] : $record->remarks,
             'reference_no' => $record->reference_no,
@@ -47,15 +48,17 @@ class StepResultRequest extends StoreStepRecordRequest
             }
 
             $key = $this->key($field);
+            // A details field may also be sent at the top level (receive_date).
+            $sentAs = Arr::has($input, $key) ? $key : (Arr::has($input, $field['name']) ? $field['name'] : null);
 
-            if (! Arr::has($input, $key)) {
+            if ($sentAs === null) {
                 continue;
             }
 
             if ($field['in_details'] ?? false) {
-                $details[$field['name']] = data_get($input, $key);
+                $details[$field['name']] = data_get($input, $sentAs);
             } else {
-                $data[$field['name']] = data_get($input, $key);
+                $data[$field['name']] = data_get($input, $sentAs);
             }
         }
 
@@ -71,9 +74,23 @@ class StepResultRequest extends StoreStepRecordRequest
     {
         return [
             ...parent::rules(),
-            'result' => ['required', Rule::in([StepStatus::Completed->value, StepStatus::Rejected->value])],
+            'result' => [count($this->outcomes()) === 1 ? 'sometimes' : 'required', Rule::in($this->outcomes())],
             'result_date' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'before_or_equal:'.LocalDate::today()->toDateString()],
         ];
+    }
+
+    /**
+     * The step's outcomes: its statuses other than in_process (calling has
+     * only completed; the other steps completed and rejected).
+     *
+     * @return list<string>
+     */
+    public function outcomes(): array
+    {
+        return array_values(array_diff(
+            array_keys(app(Workflow::class)->step($this->stepKey())['statuses'] ?? []),
+            [StepStatus::InProcess->value],
+        ));
     }
 
     /**
@@ -84,10 +101,12 @@ class StepResultRequest extends StoreStepRecordRequest
     public function messages(): array
     {
         $labels = app(Workflow::class)->step($this->stepKey())['statuses'] ?? [];
+        $outcomes = array_map(fn (string $outcome) => $labels[$outcome] ?? $outcome, $this->outcomes());
 
         return [
             ...parent::messages(),
-            'result.in' => 'The result must be '.($labels['completed'] ?? 'completed').' or '.($labels['rejected'] ?? 'rejected').'.',
+            'result.in' => 'The result must be '.implode(' or ', $outcomes).'.',
+            'status.in' => 'The result must be '.implode(' or ', $outcomes).'.',
             'result_date.before_or_equal' => 'The result date cannot be in the future.',
             'step_date.before_or_equal' => 'The result date cannot be in the future.',
         ];

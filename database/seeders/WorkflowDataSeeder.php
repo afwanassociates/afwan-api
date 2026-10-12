@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Enums\EntryMode;
 use App\Enums\StepStatus;
 use App\Enums\UserRole;
 use App\Models\PassportEntry;
@@ -54,13 +55,16 @@ class WorkflowDataSeeder extends Seeder
             ->values();
 
         $scenarios = [
-            'calling_applied', 'calling_rejected_then_applied', 'calling_approved',
+            'calling_legacy_date_entered', 'calling_pending', 'calling_permitted',
             'visa_submitted', 'visa_rejected', 'visa_issued_expiring',
             'bmet_submitted', 'bmet_cleared_visa_expired', 'flight_booked', 'flight_departed',
         ];
 
         foreach ($passports as $index => $passport) {
             $scenario = $scenarios[$index % count($scenarios)];
+
+            // Marked Online first: only then can Calling start.
+            $workflow->updateEntryMode($passport, EntryMode::Online);
 
             // One day apart after the medical, never after today.
             $base = LocalDate::parse($passport->currentMedical->medical_date);
@@ -69,26 +73,31 @@ class WorkflowDataSeeder extends Seeder
             $record = fn (string $step, StepStatus $status, int $days, array $extra = []) => $workflow->recordStep($passport, $step, [
                 'status' => $status,
                 'step_date' => $day($days),
-                'reference_no' => $status === StepStatus::Completed && $step !== 'flight' ? strtoupper($step).'-'.(1000 + $passport->id) : null,
+                'reference_no' => $status === StepStatus::Completed && ! in_array($step, ['calling', 'flight'], true) ? strtoupper($step).'-'.(1000 + $passport->id) : null,
                 ...$extra,
             ], $clerk);
+
+            // Permitted: received a day after the calling date, valid for 6 months.
+            $permit = fn () => [
+                'details' => ['receive_date' => $day(1), 'issue_date' => $day(1)],
+                'valid_until' => $today->addMonths(6)->toDateString(),
+            ];
 
             $flight = fn (CarbonImmutable $departure) => [
                 'details' => ['airline' => 'Sample Air', 'flight_no' => 'SA'.(100 + $passport->id), 'departure_date' => $departure->toDateString()],
             ];
 
             match ($scenario) {
-                'calling_applied' => $record('calling', StepStatus::InProcess, 1),
-                'calling_rejected_then_applied' => [
-                    $record('calling', StepStatus::Rejected, 1, ['remarks' => 'Sample remark: documents incomplete.']),
-                    $record('calling', StepStatus::InProcess, 2),
-                ],
-                'calling_approved' => $record('calling', StepStatus::Completed, 1, ['valid_until' => $today->addMonths(6)->toDateString()]),
+                // An older record that only had a calling date (still Pending).
+                'calling_legacy_date_entered' => $record('calling', StepStatus::InProcess, 1),
+                // No record yet: Pending.
+                'calling_pending' => null,
+                'calling_permitted' => $record('calling', StepStatus::Completed, 1, $permit()),
                 default => null,
             };
 
             if (in_array($scenario, ['visa_submitted', 'visa_rejected', 'visa_issued_expiring', 'bmet_submitted', 'bmet_cleared_visa_expired', 'flight_booked', 'flight_departed'], true)) {
-                $record('calling', StepStatus::Completed, 1, ['valid_until' => $today->addMonths(6)->toDateString()]);
+                $record('calling', StepStatus::Completed, 1, $permit());
             }
 
             match ($scenario) {

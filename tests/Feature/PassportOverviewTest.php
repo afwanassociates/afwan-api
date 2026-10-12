@@ -32,6 +32,8 @@ function overviewPassport(string $state, string $received = '2026-01-15', array 
         'passport_expiry_date' => '2035-01-01',
         // Slip date entered on the day received ("not_started" leaves it out).
         'medical_slip_date' => $state === 'not_started' ? null : $received,
+        // "marked_online": fit and marked Online for Calling.
+        'entry_mode' => str_starts_with($state, 'marked_') ? substr($state, 7) : null,
         ...$attributes,
     ]);
 
@@ -41,6 +43,7 @@ function overviewPassport(string $state, string $received = '2026-01-15', array 
         'not_started', 'pending' => null,
         // Medical 2026-03-30.
         'fit' => $factory->validUntil('2026-06-30')->create(),
+        'marked_online' => $factory->validUntil('2026-06-30')->create(),
         // Medical 2026-02-10.
         'expiring_soon' => $factory->validUntil('2026-05-10')->create(),
         // Medical 2026-01-30; valid until yesterday in Dhaka (still today in UTC).
@@ -79,17 +82,21 @@ describe('latest status', function () {
             'stage' => 'medical', 'stage_label' => 'Medical', 'status' => 'unfit', 'status_label' => 'Unfit',
             'text' => 'Medical: Unfit', 'tone' => 'red', 'date' => '2026-04-20',
         ]],
-        'fit, waiting for the next step' => ['fit', [
-            'stage' => 'calling', 'stage_label' => 'Calling / Work Permit', 'status' => 'waiting', 'status_label' => 'Waiting',
-            'text' => 'Calling / Work Permit: Waiting', 'tone' => 'amber', 'date' => '2026-03-30',
+        'fit, not marked Online yet' => ['fit', [
+            'stage' => 'medical', 'stage_label' => 'Medical', 'status' => 'fit', 'status_label' => 'Fit - not marked',
+            'text' => 'Medical fit - mark Online', 'tone' => 'amber', 'date' => '2026-03-30',
         ]],
-        'fit and expiring soon, still waiting' => ['expiring_soon', [
-            'stage' => 'calling', 'stage_label' => 'Calling / Work Permit', 'status' => 'waiting', 'status_label' => 'Waiting',
-            'text' => 'Calling / Work Permit: Waiting', 'tone' => 'amber', 'date' => '2026-02-10',
+        'fit and expiring soon, not marked' => ['expiring_soon', [
+            'stage' => 'medical', 'stage_label' => 'Medical', 'status' => 'fit', 'status_label' => 'Fit - not marked',
+            'text' => 'Medical fit - mark Online', 'tone' => 'amber', 'date' => '2026-02-10',
         ]],
         'fit but expired (Dhaka date)' => ['expired', [
-            'stage' => 'calling', 'stage_label' => 'Calling / Work Permit', 'status' => 'expired', 'status_label' => 'Expired',
+            'stage' => 'medical', 'stage_label' => 'Medical', 'status' => 'expired', 'status_label' => 'Expired',
             'text' => 'Medical: Expired', 'tone' => 'amber', 'date' => '2026-01-30',
+        ]],
+        'fit and marked Online' => ['marked_online', [
+            'stage' => 'calling', 'stage_label' => 'Calling / Work Permit', 'status' => 'waiting', 'status_label' => 'Ready (Online)',
+            'text' => 'Ready for Calling (Online)', 'tone' => 'amber', 'date' => '2026-03-30',
         ]],
     ]);
 
@@ -99,13 +106,13 @@ describe('latest status', function () {
             'workflow.tones.waiting' => 'blue',
             'workflow.tones.unfit' => null,
         ]);
-        overviewPassport('fit');
+        overviewPassport('marked_online');
         overviewPassport('unfit');
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $statuses = collect(overview('medical_status=all')->json('data.*.latest_status'))->keyBy('status');
 
-        expect($statuses['waiting'])->toMatchArray(['text' => 'Calling: Waiting', 'stage_label' => 'Calling', 'tone' => 'blue'])
+        expect($statuses['waiting'])->toMatchArray(['text' => 'Ready for Calling (Online)', 'stage_label' => 'Calling', 'tone' => 'blue'])
             ->and($statuses['unfit']['tone'])->toBe('gray');
     });
 
@@ -113,7 +120,7 @@ describe('latest status', function () {
         $passport = overviewPassport('fit');
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        expect(overview()->json('data.0.latest_status'))->toMatchArray(['text' => 'Calling / Work Permit: Waiting', 'date' => '2026-03-30']);
+        expect(overview()->json('data.0.latest_status'))->toMatchArray(['text' => 'Medical fit - mark Online', 'date' => '2026-03-30']);
 
         // valid_until is 2026-06-30: 00:30 on 1 July in Dhaka is still 30 June in UTC.
         Carbon::setTestNow(Carbon::parse('2026-07-01 00:30', 'Asia/Dhaka')->utc());

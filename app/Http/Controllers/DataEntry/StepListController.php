@@ -27,6 +27,8 @@ class StepListController extends Controller
         $rows = StepListResource::collection($page);
         $rows->collection->each->forStep($step);
 
-        return $rows;
+        // Each tab's total with the same search, for the tab badges (the same
+        // tab definition as the rows and /workflow/summary).
+        return $rows->additional(['tab_counts' => $list->tabCounts($step, $request->validated())]);
     }
 }

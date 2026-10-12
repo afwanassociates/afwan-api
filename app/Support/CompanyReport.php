@@ -127,7 +127,8 @@ class CompanyReport
         $steps = $this->workflow->recordStepKeys();
         $sums = [
             'count(*) as total',
-            "sum(current_stage not in ('".Workflow::PASSPORT."', 'medical')) as medical_fit",
+            // Past medical, or fit at medical waiting for its Online mark.
+            "sum(current_stage not in ('".Workflow::PASSPORT."', 'medical') or (current_stage = 'medical' and stage_status = 'fit')) as medical_fit",
             "sum(current_stage = 'medical' and stage_status = 'unfit') as medical_unfit",
             "sum(current_stage = 'medical' and stage_status = 'pending') as medical_pending",
             "sum(current_stage = '".Workflow::PASSPORT."') as not_started",

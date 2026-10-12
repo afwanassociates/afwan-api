@@ -101,7 +101,15 @@ class MedicalDataSeeder extends Seeder
             // The medical date first, then the result (remarks are added after).
             foreach ($records as [$actor, $data]) {
                 $medicals->updateMedicalDate($passport, $data['medical_date'], $actor);
-                $record = $medicals->recordResult($passport, $data['result'], $actor);
+                // A fit result's dates as printed on it: issued on the medical
+                // date, valid for the usual period.
+                $record = $medicals->recordResult(
+                    $passport,
+                    $data['result'],
+                    $actor,
+                    $data['medical_date'],
+                    MedicalService::validUntil($data['medical_date'], $data['result']),
+                );
 
                 if (isset($data['remarks'])) {
                     $medicals->update($record, ['remarks' => $data['remarks']], $actor);
