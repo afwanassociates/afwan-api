@@ -90,19 +90,22 @@ class PassportStepRecordFactory extends Factory
     }
 
     /**
-     * A flight record departing on the given date (Y-m-d).
+     * A flight record booked for $bookingDate (Y-m-d), dated by it; a
+     * completed one is confirmed on $confirmedDate (the booking date when
+     * not given) and dated by that. Call it after status().
      */
-    public function flight(string $departureDate): static
+    public function flight(string $bookingDate, ?string $confirmedDate = null): static
     {
-        return $this->state(fn (array $attributes) => [
-            'step_key' => 'flight',
-            'reference_no' => null,
-            'details' => [
-                'airline' => 'Sample Air',
-                'flight_no' => 'SA'.fake()->numerify('###'),
-                'departure_date' => $departureDate,
-            ],
-        ]);
+        return $this->state(function (array $attributes) use ($bookingDate, $confirmedDate) {
+            $confirmed = $attributes['status'] === StepStatus::Completed ? ($confirmedDate ?? $bookingDate) : null;
+
+            return [
+                'step_key' => 'flight',
+                'reference_no' => null,
+                'step_date' => $confirmed ?? $bookingDate,
+                'details' => array_filter(['booking_date' => $bookingDate, 'confirmed_date' => $confirmed]),
+            ];
+        });
     }
 
     /**

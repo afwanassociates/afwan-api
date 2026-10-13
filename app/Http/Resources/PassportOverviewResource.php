@@ -25,7 +25,8 @@ class PassportOverviewResource extends JsonResource
      *
      * @var list<string>
      */
-    public const RELATIONS = ['country', 'reference', 'company.country', 'creator', 'currentMedical'];
+    // stepRecords: the status line reads the flight booking while BMET is open.
+    public const RELATIONS = ['country', 'reference', 'company.country', 'creator', 'currentMedical', 'stepRecords'];
 
     /**
      * Transform the resource into an array.

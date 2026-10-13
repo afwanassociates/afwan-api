@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Enums\StepStatus;
 use App\Models\PassportEntry;
 use App\Models\PassportStepRecord;
 use App\Support\StepList;
@@ -64,6 +65,28 @@ class StepListResource extends JsonResource
             'previous_step_completed_on' => app(StepList::class)->previousCompletedOn($this->resource, $this->step),
         ];
 
+        // The step's list_extras (BMET and flight: the visa dates, the BMET
+        // milestone dates, the flight date).
+        $visa = $latest->get('visa');
+        $bmet = $latest->get('bmet');
+        $bmetDates = [
+            'training_date' => $bmet?->detail('training_certificate_date'),
+            'finger_date' => $bmet?->detail('finger_date'),
+            'clearance_date' => $bmet?->status === StepStatus::Completed ? $workflow->completedOn($bmet) : null,
+        ];
+
+        foreach ($workflow->step($this->step)['list_extras'] ?? [] as $extra) {
+            $row = [...$row, ...match ($extra) {
+                'visa_issue_date' => [$extra => $visa?->status === StepStatus::Completed ? ($visa->detail('issue_date') ?? $workflow->completedOn($visa)) : null],
+                'visa_valid_until' => [$extra => $visa?->valid_until?->toDateString()],
+                // training_date, finger_date and clearance_date on the row itself.
+                'bmet_dates' => $bmetDates,
+                // BMET and the booking side by side, and whether Flight confirm can be done.
+                'flight_status' => $this->flightStatus($record, $bmet, $bmetDates['clearance_date']),
+                default => [$extra => null],
+            }];
+        }
+
         // The step's list_hidden fields (calling: entry_mode and step_date).
         foreach (['record', 'previous_record', 'next_record'] as $key) {
             if (is_array($row[$key]) && $row[$key]['step_key'] === $this->step) {
@@ -72,6 +95,32 @@ class StepListResource extends JsonResource
         }
 
         return array_diff_key($row, array_flip($hidden));
+    }
+
+    /**
+     * The flight row: BMET cleared (and when), the booking and confirmed
+     * dates, and what is still missing before Flight confirm (bmet,
+     * booking_date).
+     *
+     * @return array{bmet_cleared: bool, clearance_date: string|null, booking_date: string|null, confirmed_date: string|null, can_confirm: bool, missing: list<string>}
+     */
+    protected function flightStatus(?PassportStepRecord $flight, ?PassportStepRecord $bmet, ?string $clearanceDate): array
+    {
+        $confirmed = $flight?->status === StepStatus::Completed;
+        $bookingDate = $flight?->detail('booking_date');
+        $missing = $confirmed ? [] : [
+            ...($bmet?->status === StepStatus::Completed ? [] : ['bmet']),
+            ...($bookingDate === null ? ['booking_date'] : []),
+        ];
+
+        return [
+            'bmet_cleared' => $bmet?->status === StepStatus::Completed,
+            'clearance_date' => $clearanceDate,
+            'booking_date' => $bookingDate,
+            'confirmed_date' => $confirmed ? ($flight->detail('confirmed_date') ?? $flight->step_date->toDateString()) : null,
+            'can_confirm' => ! $confirmed && $missing === [],
+            'missing' => $missing,
+        ];
     }
 
     /**

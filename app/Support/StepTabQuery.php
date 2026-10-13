@@ -17,7 +17,8 @@ use Illuminate\Database\Eloquent\Builder;
  * - waiting: the earlier steps are completed and this step has no record yet;
  * - in_process / rejected: this step's latest record has that status;
  * - completed: the passport is past this step;
- * - next_waiting: completed, and the next step has no record yet.
+ * - next_waiting: completed, and the next step has no record yet;
+ * - previous_open: still at the step before, in any state.
  *
  * For the first step after medical (calling) every at-step state also needs
  * a fit medical still valid today (Dhaka). Soft-deleted passports are never
@@ -41,6 +42,8 @@ class StepTabQuery
         $later = array_slice($stages, (int) array_search($step, $stages, true) + 1);
         $atStep = array_values(array_intersect($states, ['waiting', 'in_process', 'rejected']));
         $isFirst = $step === ($this->workflow->recordStepKeys()[0] ?? null);
+        $previous = $this->workflow->recordStepsBefore($step);
+        $previous = $previous === [] ? null : end($previous);
         $today = LocalDate::today()->toDateString();
 
         return PassportEntry::query()
@@ -53,7 +56,9 @@ class StepTabQuery
                 ->when(in_array('completed', $states, true), fn (Builder $query) => $query->orWhereIn('passport_entries.current_stage', $later))
                 ->when(in_array('next_waiting', $states, true) && isset($later[0]), fn (Builder $query) => $query->orWhere(fn (Builder $query) => $query
                     ->where('passport_entries.current_stage', $later[0])
-                    ->where('passport_entries.stage_status', 'waiting'))));
+                    ->where('passport_entries.stage_status', 'waiting')))
+                // Still at the step before, in any state (e.g. Flight Pending while BMET is open).
+                ->when(in_array('previous_open', $states, true) && $previous !== null, fn (Builder $query) => $query->orWhere('passport_entries.current_stage', $previous)));
     }
 
     /**

@@ -41,8 +41,11 @@ class WorkflowService
      * - fit (even if its validity has ended): walk the record steps in order
      *   by their latest record. Completed moves on; in_process or rejected
      *   stops there (that record's step date); no record stops there as
-     *   waiting (dated when the step before was completed);
-     * - every step completed: completed (the flight's departure date).
+     *   waiting (dated when the step before was completed). So with steps
+     *   running side by side (BMET and flight) the stage is the earliest one
+     *   not completed;
+     * - every step completed: completed (when the last step was completed,
+     *   e.g. the day the flight was confirmed).
      */
     public function recompute(PassportEntry $passport): PassportEntry
     {
@@ -214,9 +217,11 @@ class WorkflowService
 
     /**
      * Check the passport's records are still in order: records after medical
-     * need a fit current medical, and a step may only have records when every
-     * earlier step's latest record is completed. Call inside the transaction
-     * of a change, so a violation rolls it back.
+     * need a fit current medical; a step may only have records when the steps
+     * it starts after are completed (every earlier step, except that flight
+     * runs alongside BMET), and may only be completed when every earlier step
+     * is. Call inside the transaction of a change, so a violation rolls it
+     * back.
      *
      * @throws WorkflowException
      */
@@ -232,15 +237,21 @@ class WorkflowService
             throw WorkflowException::laterStepsNeedFitMedical();
         }
 
-        $open = null;
-
         foreach ($this->workflow->recordStepKeys() as $key) {
-            if ($open !== null && $latest->has($key)) {
-                throw WorkflowException::orderViolation($this->workflow->label($open));
+            $record = $latest->get($key);
+
+            if ($record === null) {
+                continue;
             }
 
-            if ($open === null && $latest->get($key)?->status !== StepStatus::Completed) {
-                $open = $key;
+            $needed = $record->status === StepStatus::Completed
+                ? $this->workflow->recordStepsBefore($key)
+                : $this->workflow->stepsToStart($key);
+
+            foreach ($needed as $earlier) {
+                if ($latest->get($earlier)?->status !== StepStatus::Completed) {
+                    throw WorkflowException::orderViolation($this->workflow->label($earlier));
+                }
             }
         }
     }
@@ -299,37 +310,55 @@ class WorkflowService
     }
 
     /**
-     * Complete the first step after medical in one go (calling: the permit
-     * dates). Creates the completed record, or completes an older in-process
-     * one (its calling date is kept in details.calling_date). A completed step
-     * can no longer change. A new record needs the passport marked Online; an
-     * older in-process one started before marks existed.
+     * Complete a single-update step in one go (calling: the permit dates).
+     * Creates the completed record, or completes an
+     * older in-process one (its own date is kept in details under the step's
+     * keep_date_as). A completed step can no longer change. The earlier steps
+     * must be completed; the first step also needs a valid fit medical and,
+     * for a new record, the Online mark (older records started before marks).
      *
      * @param  array<string, mixed>  $data  status, step_date, details, valid_until
      *
      * @throws WorkflowException
      */
-    public function saveFirstStep(PassportEntry $passport, array $data, User $actor): PassportStepRecord
+    public function saveSingleUpdateStep(PassportEntry $passport, string $step, array $data, User $actor): PassportStepRecord
     {
-        return DB::transaction(function () use ($passport, $data, $actor) {
+        return DB::transaction(function () use ($passport, $step, $data, $actor) {
             $locked = $this->lock($passport);
-            $step = (string) ($this->workflow->recordStepKeys()[0] ?? '');
-            $open = $this->latestRecords($locked->id)->get($step);
+            $latest = $this->latestRecords($locked->id);
+            $open = $latest->get($step);
+            $isFirst = $step === ($this->workflow->recordStepKeys()[0] ?? null);
 
             if ($open?->status === StepStatus::Completed) {
                 throw WorkflowException::stepAlreadyCompleted($this->workflow->label($step));
             }
 
-            if ($open?->status === StepStatus::InProcess) {
-                $this->ensureMedicalForFirstStep($locked);
+            foreach ($this->workflow->recordStepsBefore($step) as $earlier) {
+                if ($latest->get($earlier)?->status !== StepStatus::Completed) {
+                    throw WorkflowException::previousStepIncomplete($this->workflow->label($earlier));
+                }
+            }
 
-                $data['details'] = [
-                    ...($data['details'] ?? []),
-                    'calling_date' => $open->detail('calling_date') ?? $open->step_date->toDateString(),
-                ];
+            if ($open?->status === StepStatus::InProcess) {
+                if ($isFirst) {
+                    $this->ensureMedicalForFirstStep($locked);
+                }
+
+                $keepAs = $this->workflow->step($step)['keep_date_as'] ?? null;
+
+                if ($keepAs !== null) {
+                    $data['details'] = [
+                        ...($open->details ?? []),
+                        ...($data['details'] ?? []),
+                        $keepAs => $open->detail($keepAs) ?? $open->step_date->toDateString(),
+                    ];
+                }
+
                 $record = $this->updateStep($open, $data, $actor);
             } else {
-                $this->ensureReadyForFirstStep($locked);
+                if ($isFirst) {
+                    $this->ensureReadyForFirstStep($locked);
+                }
 
                 $record = new PassportStepRecord($data);
                 $record->passport_entry_id = $locked->id;
@@ -337,6 +366,313 @@ class WorkflowService
                 $record->created_by = $actor->id;
                 $record->updated_by = $actor->id;
                 $record->save();
+            }
+
+            $this->recompute($passport);
+
+            return $record;
+        });
+    }
+
+    /**
+     * Save the booking date of a step that runs alongside the ones before it
+     * (flight: allowed once the visa is issued, BMET cleared or not). Creates
+     * the in-process record or changes its date; refused once confirmed.
+     * The date goes into the step's date_from details key (booking_date).
+     *
+     * @throws WorkflowException
+     */
+    public function saveBooking(PassportEntry $passport, string $step, string $date, User $actor): PassportStepRecord
+    {
+        return DB::transaction(function () use ($passport, $step, $date, $actor) {
+            $locked = $this->lock($passport);
+            $latest = $this->latestRecords($locked->id);
+            $open = $latest->get($step);
+            $key = $this->bookingKey($step);
+
+            $this->ensureCompleted($latest, $this->workflow->stepsToStart($step));
+
+            if ($open?->status === StepStatus::Completed) {
+                throw WorkflowException::stepAlreadyCompleted($this->workflow->label($step));
+            }
+
+            if ($open !== null) {
+                $record = $this->updateStep($open, ['step_date' => $date, 'details' => [...($open->details ?? []), $key => $date]], $actor);
+            } else {
+                $record = new PassportStepRecord(['status' => StepStatus::InProcess, 'step_date' => $date, 'details' => [$key => $date]]);
+                $record->passport_entry_id = $locked->id;
+                $record->step_key = $step;
+                $record->created_by = $actor->id;
+                $record->updated_by = $actor->id;
+                $record->save();
+
+                $this->ensureInOrder($locked);
+            }
+
+            $this->recompute($passport);
+
+            return $record;
+        });
+    }
+
+    /**
+     * Clear the booking date: the in-process record is soft deleted (it stays
+     * in the history), so the passport is Pending without a booking. Refused
+     * once confirmed.
+     *
+     * @throws WorkflowException
+     */
+    public function clearBooking(PassportEntry $passport, string $step, User $actor): PassportEntry
+    {
+        return DB::transaction(function () use ($passport, $step, $actor) {
+            $locked = $this->lock($passport);
+            $open = $this->latestRecords($locked->id)->get($step);
+
+            if ($open?->status === StepStatus::Completed) {
+                throw WorkflowException::stepAlreadyCompleted($this->workflow->label($step));
+            }
+
+            if ($open === null || $open->detail($this->bookingKey($step)) === null) {
+                throw WorkflowException::bookingNotSet();
+            }
+
+            $open->deleted_by = $actor->id;
+            $open->save();
+            $open->delete();
+
+            return $this->recompute($passport);
+        });
+    }
+
+    /**
+     * Confirm the step (flight): needs every earlier step completed (BMET
+     * cleared) and a booking date. Completes the record, dated today in Dhaka
+     * (kept in the result_date_from key, confirmed_date); the booking date
+     * stays.
+     *
+     * @throws WorkflowException with the missing items (a step key, booking_date)
+     */
+    public function confirm(PassportEntry $passport, string $step, User $actor): PassportStepRecord
+    {
+        return DB::transaction(function () use ($passport, $step, $actor) {
+            $locked = $this->lock($passport);
+            $latest = $this->latestRecords($locked->id);
+            $open = $latest->get($step);
+
+            $this->ensureCompleted($latest, $this->workflow->stepsToStart($step));
+
+            if ($open?->status === StepStatus::Completed) {
+                throw WorkflowException::stepAlreadyCompleted($this->workflow->label($step));
+            }
+
+            $missing = [
+                ...array_filter($this->workflow->parallelSteps($step), fn (string $key) => $latest->get($key)?->status !== StepStatus::Completed),
+                ...($open?->detail($this->bookingKey($step)) === null ? [$this->bookingKey($step)] : []),
+            ];
+
+            if ($missing !== []) {
+                $messages = $this->workflow->step($step)['confirm_messages'] ?? [];
+                $message = count($missing) > 1 ? ($messages['both'] ?? null) : ($messages[$missing[0]] ?? null);
+
+                throw WorkflowException::confirmRequirementsMissing($message ?? 'Complete the earlier steps before confirming.', array_values($missing));
+            }
+
+            $today = LocalDate::today()->toDateString();
+            $confirmedKey = $this->workflow->step($step)['result_date_from'] ?? 'confirmed_date';
+
+            $record = $this->updateStep($open, [
+                'status' => StepStatus::Completed,
+                'step_date' => $today,
+                'details' => [...($open->details ?? []), $confirmedKey => $today],
+            ], $actor);
+
+            $this->recompute($passport);
+
+            return $record;
+        });
+    }
+
+    /**
+     * Take back the confirmation: the record goes back to booked (in
+     * process), dated by its booking date again, so the passport returns to
+     * the step's Pending tab with its booking date.
+     *
+     * @throws WorkflowException when the step is not completed
+     */
+    public function undoConfirmation(PassportEntry $passport, string $step, User $actor): PassportStepRecord
+    {
+        return DB::transaction(function () use ($passport, $step, $actor) {
+            $locked = $this->lock($passport);
+            $record = $this->latestRecords($locked->id)->get($step);
+
+            if ($record?->status !== StepStatus::Completed) {
+                throw WorkflowException::notCompleted($this->workflow->label($step));
+            }
+
+            $details = $record->details ?? [];
+            unset($details[$this->workflow->step($step)['result_date_from'] ?? 'confirmed_date']);
+            $details[$this->bookingKey($step)] ??= $record->step_date->toDateString();
+
+            $record = $this->updateStep($record, [
+                'status' => StepStatus::InProcess,
+                'step_date' => $details[$this->bookingKey($step)],
+                'details' => $details,
+            ], $actor);
+
+            $this->recompute($passport);
+
+            return $record;
+        });
+    }
+
+    /**
+     * The details key holding a step's booking date (its date_from).
+     */
+    protected function bookingKey(string $step): string
+    {
+        return (string) ($this->workflow->step($step)['date_from'] ?? 'booking_date');
+    }
+
+    /**
+     * @param  Collection<string, PassportStepRecord>  $latest
+     * @param  list<string>  $steps
+     *
+     * @throws WorkflowException naming the first step not completed
+     */
+    protected function ensureCompleted(Collection $latest, array $steps): void
+    {
+        foreach ($steps as $earlier) {
+            if ($latest->get($earlier)?->status !== StepStatus::Completed) {
+                throw WorkflowException::previousStepIncomplete($this->workflow->label($earlier));
+            }
+        }
+    }
+
+    /**
+     * Mark a milestone step's action done on $date (BMET: training, finger
+     * in any order, then clearance). The first milestone creates the
+     * in-process record; each stores its date in its details field. The
+     * complete action needs every milestone and completes the record, dated
+     * $date (the date it was started is kept in details.start_date). The
+     * earlier steps must be completed; a completed step can no longer change.
+     *
+     * @throws WorkflowException
+     */
+    public function markMilestone(PassportEntry $passport, string $step, string $action, string $date, User $actor): PassportStepRecord
+    {
+        return DB::transaction(function () use ($passport, $step, $action, $date, $actor) {
+            $locked = $this->lock($passport);
+            $latest = $this->latestRecords($locked->id);
+            $open = $latest->get($step);
+            $label = $this->workflow->label($step);
+
+            foreach ($this->workflow->recordStepsBefore($step) as $earlier) {
+                if ($latest->get($earlier)?->status !== StepStatus::Completed) {
+                    throw WorkflowException::previousStepIncomplete($this->workflow->label($earlier));
+                }
+            }
+
+            if ($open?->status === StepStatus::Completed) {
+                throw WorkflowException::stepAlreadyCompleted($label);
+            }
+
+            $milestone = $this->workflow->milestone($step, $action);
+
+            if ($milestone === null) {
+                $missing = array_values(array_filter(
+                    $this->workflow->step($step)['milestones'],
+                    fn (array $milestone) => $open?->detail($milestone['field']) === null,
+                ));
+
+                if ($open === null || $missing !== []) {
+                    throw WorkflowException::milestonesIncomplete($this->workflow->step($step)['complete_action']['label'], array_column($missing, 'label'));
+                }
+
+                $record = $this->updateStep($open, [
+                    'status' => StepStatus::Completed,
+                    'step_date' => $date,
+                    'details' => [...($open->details ?? []), 'start_date' => $open->detail('start_date') ?? $open->step_date->toDateString()],
+                ], $actor);
+            } elseif ($open === null) {
+                $record = new PassportStepRecord([
+                    'status' => StepStatus::InProcess,
+                    'step_date' => $date,
+                    'details' => [$milestone['field'] => $date],
+                ]);
+                $record->passport_entry_id = $locked->id;
+                $record->step_key = $step;
+                $record->created_by = $actor->id;
+                $record->updated_by = $actor->id;
+                $record->save();
+            } else {
+                // Marking again changes the date; the record is dated by its earliest milestone.
+                $record = $this->updateStep($open, [
+                    'step_date' => min($open->step_date->toDateString(), $date),
+                    'details' => [...($open->details ?? []), $milestone['field'] => $date],
+                ], $actor);
+            }
+
+            $this->recompute($passport);
+
+            return $record;
+        });
+    }
+
+    /**
+     * Undo a milestone step's action. A milestone cannot be undone once the
+     * step is completed; undoing the last one removes the in-process record
+     * (soft deleted, so it stays in the history). Undoing the complete action
+     * puts the record back in process with its start date, refused while
+     * the next step is completed.
+     *
+     * @throws WorkflowException
+     */
+    public function undoMilestone(PassportEntry $passport, string $step, string $action, User $actor): ?PassportStepRecord
+    {
+        return DB::transaction(function () use ($passport, $step, $action, $actor) {
+            $locked = $this->lock($passport);
+            $latest = $this->latestRecords($locked->id);
+            $open = $latest->get($step);
+            $label = $this->workflow->label($step);
+            $milestone = $this->workflow->milestone($step, $action);
+
+            if ($milestone === null) {
+                if ($open?->status !== StepStatus::Completed) {
+                    throw WorkflowException::notCompleted($label);
+                }
+
+                $next = $this->workflow->recordStepsAfter($step)[0] ?? null;
+
+                if ($next !== null && $latest->get($next)?->status === StepStatus::Completed) {
+                    throw WorkflowException::laterStepCompleted($this->workflow->label($next));
+                }
+
+                $details = $open->details ?? [];
+                $startDate = $details['start_date'] ?? $open->step_date->toDateString();
+                unset($details['start_date']);
+
+                $record = $this->updateStep($open, ['status' => StepStatus::InProcess, 'step_date' => $startDate, 'details' => $details], $actor);
+            } else {
+                if ($open?->status === StepStatus::Completed) {
+                    throw WorkflowException::milestoneLocked($milestone['label'], $label);
+                }
+
+                if ($open?->detail($milestone['field']) === null) {
+                    throw WorkflowException::milestoneNotMarked($milestone['label']);
+                }
+
+                $details = $open->details ?? [];
+                unset($details[$milestone['field']]);
+                $remaining = array_filter(array_map(fn (array $other) => $details[$other['field']] ?? null, $this->workflow->step($step)['milestones']));
+
+                if ($remaining === []) {
+                    $open->deleted_by = $actor->id;
+                    $open->save();
+                    $open->delete();
+                    $record = null;
+                } else {
+                    $record = $this->updateStep($open, ['details' => $details], $actor);
+                }
             }
 
             $this->recompute($passport);
@@ -388,11 +724,7 @@ class WorkflowService
             $last = $record;
         }
 
-        return [
-            Workflow::COMPLETED,
-            null,
-            $this->workflow->departureDate($last)?->toDateString() ?? $previousDate,
-        ];
+        return [Workflow::COMPLETED, null, $previousDate];
     }
 
     /**

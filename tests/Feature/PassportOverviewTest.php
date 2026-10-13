@@ -336,8 +336,8 @@ describe('overview list', function () {
         }
 
         // count + page + country + reference + company + company country
-        // + creator + current medical.
-        expect($countQueries())->toBe($few)->toBe(8);
+        // + creator + current medical + step records.
+        expect($countQueries())->toBe($few)->toBe(9);
     });
 
     it('rejects the accounts role and unauthenticated requests', function () {

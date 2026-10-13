@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
@@ -18,28 +19,52 @@ use Tests\TestCase;
 |
 */
 
+/*
+| Safety check: the tests wipe the database, so refuse to run unless they point
+| at a database whose name ends with "_test". This runs before setUp(), so
+| before any migration. A cached config would make Laravel ignore the
+| phpunit.xml values, so refuse that as well.
+*/
+function refuseUnsafeTestDatabase(): void
+{
+    $database = (string) ($_ENV['DB_DATABASE'] ?? getenv('DB_DATABASE'));
+
+    if (! str_ends_with($database, '_test')) {
+        throw new RuntimeException("Refusing to run tests: DB_DATABASE \"{$database}\" does not end with \"_test\".");
+    }
+
+    if (file_exists(dirname(__DIR__).'/bootstrap/cache/config.php')) {
+        throw new RuntimeException('Refusing to run tests: configuration is cached. Run "php artisan config:clear" first.');
+    }
+}
+
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
-    ->beforeAll(function () {
-        /*
-        | Safety check: RefreshDatabase wipes the database, so refuse to run unless the
-        | tests point at a database whose name ends with "_test". This runs before
-        | setUp(), so before any migration. A cached config would make Laravel
-        | ignore the phpunit.xml values, so refuse that as well.
-        */
-        $database = (string) ($_ENV['DB_DATABASE'] ?? getenv('DB_DATABASE'));
-
-        if (! str_ends_with($database, '_test')) {
-            throw new RuntimeException("Refusing to run tests: DB_DATABASE \"{$database}\" does not end with \"_test\".");
-        }
-
-        if (file_exists(dirname(__DIR__).'/bootstrap/cache/config.php')) {
-            throw new RuntimeException('Refusing to run tests: configuration is cached. Run "php artisan config:clear" first.');
-        }
-    })
+    ->beforeAll(fn () => refuseUnsafeTestDatabase())
     // Uploads (passport scans) go to a temporary fake disk, never storage/app/private.
     ->beforeEach(fn () => Storage::fake('local'))
     ->in('Feature');
+
+/*
+| Console commands that TRUNCATE tables: MySQL commits the open transaction on
+| TRUNCATE, so RefreshDatabase cannot roll these tests back. Each test starts
+| from and ends with a freshly migrated database (with the rows the migrations
+| seed) instead; files still go to the fake disk.
+*/
+pest()->extend(TestCase::class)
+    ->beforeAll(fn () => refuseUnsafeTestDatabase())
+    ->beforeEach(function () {
+        Storage::fake('local');
+        // Feature tests roll back, so a migrated database is still fresh.
+        if (! RefreshDatabaseState::$migrated) {
+            $this->artisan('migrate:fresh', ['--force' => true])->assertSuccessful();
+            RefreshDatabaseState::$migrated = true;
+        }
+    })
+    ->afterEach(function () {
+        $this->artisan('migrate:fresh', ['--force' => true])->assertSuccessful();
+    })
+    ->in('Console');
 
 /*
 |--------------------------------------------------------------------------

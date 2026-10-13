@@ -118,8 +118,8 @@ it('gives the same counts in the list, its tab counts and the summary, for every
         expect($summary['stages'][$step])->toBe(['total' => $tabCounts['pending'], 'waiting' => $tabCounts['pending']], "{$step}: stage counts");
     }
 
-    // Calling 2 tabs, Visa 3, BMET 4, Flight 4.
-    expect($checked)->toBe(13)
+    // Calling 2 tabs, Visa 3, BMET 2, Flight 2.
+    expect($checked)->toBe(9)
         ->and($summary['step3']['ready'])->toBe($summary['step_tabs']['calling']['pending'])
         // The calling cases above, on top of the seeded data: the ready one, the
         // older calling-date record, the unmarked older record and the old

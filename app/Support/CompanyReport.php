@@ -120,7 +120,7 @@ class CompanyReport
      *   since expired); medical_unfit and medical_pending: still at medical
      *   (pending means the slip date is in); not_started: no slip date yet;
      * - <step>_done: the stage is past that step (completed counts for all);
-     * - in_process: not departed and not unfit.
+     * - in_process: flight not confirmed and not unfit.
      */
     protected function passportCounts(): QueryBuilder
     {

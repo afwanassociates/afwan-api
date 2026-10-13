@@ -4,7 +4,7 @@ namespace App\Http\Controllers\DataEntry;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\DataEntry\ListLookupRequest;
-use App\Http\Requests\DataEntry\StoreCompanyRequest;
+use App\Http\Requests\DataEntry\QuickAddCompanyRequest;
 use App\Http\Resources\CompanyResource;
 use App\Models\Company;
 use App\Support\Like;
@@ -42,14 +42,15 @@ class CompanyController extends Controller
     }
 
     /**
-     * Quick Add a company from the passport form (any data-entry user): only
-     * its name and country. Admins manage the other fields under /admin/companies.
+     * Quick Add a company from the passport form (any data-entry user): its
+     * name, quota and country, plus the optional agent and agency fields.
+     * Admins manage every field under /admin/companies.
      */
-    public function store(StoreCompanyRequest $request): CompanyResource
+    public function store(QuickAddCompanyRequest $request): CompanyResource
     {
         Gate::authorize('create', Company::class);
 
-        $company = new Company($request->safe()->only(['name', 'country_code']));
+        $company = new Company($request->safe()->only(['name', 'quota', 'country_code', 'agent_name', 'agent_phone', 'agent_email', 'bd_agency_name']));
         $company->is_active = true;
         $company->created_by = $request->user()->id;
         $company->save();

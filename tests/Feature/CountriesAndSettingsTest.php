@@ -113,7 +113,7 @@ describe('company country', function () {
         Country::whereKey('FR')->update(['is_active' => false]);
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        $this->postJson('/api/data-entry/companies', ['name' => 'New Employer', ...$payload])
+        $this->postJson('/api/data-entry/companies', ['name' => 'New Employer', 'quota' => 10, ...$payload])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('country_code');
     })->with([
@@ -126,7 +126,7 @@ describe('company country', function () {
     it('creates a company with its country, accepting the code in any case', function () {
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        $this->postJson('/api/data-entry/companies', ['name' => 'Riyadh Builders', 'country_code' => ' sa '])
+        $this->postJson('/api/data-entry/companies', ['name' => 'Riyadh Builders', 'quota' => 10, 'country_code' => ' sa '])
             ->assertCreated()
             ->assertJsonPath('data.country', ['code' => 'SA', 'name' => 'Saudi Arabia']);
 

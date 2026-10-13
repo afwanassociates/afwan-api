@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\DataEntry;
 
+use App\Enums\StepStatus;
 use App\Support\LocalDate;
 use App\Support\Workflow;
 use Illuminate\Foundation\Http\FormRequest;
@@ -75,12 +76,10 @@ class StoreStepRecordRequest extends FormRequest
             'status.in' => 'This status is not available for this step.',
             'details.receive_date.after_or_equal' => 'The calling receive date cannot be before the calling date.',
             'details.receive_date.before_or_equal' => 'The calling receive date cannot be in the future.',
-            'details.issue_date.before_or_equal' => 'The issued date cannot be in the future.',
+            'details.issue_date.before_or_equal' => 'The '.strtolower(collect($this->fields())->firstWhere('name', 'issue_date')['label'] ?? 'issued date').' cannot be in the future.',
             'valid_until.before_or_equal' => 'The valid until date cannot be more than 5 years ahead.',
-            'details.departure_date.before_or_equal' => 'A flight can only be marked departed on or after its departure date.',
             'details.training_certificate_date.before_or_equal' => 'The training certificate date cannot be in the future.',
             'details.finger_date.before_or_equal' => 'The finger date cannot be in the future.',
-            'details.flight_no.regex' => 'The flight number may only contain letters and digits.',
         ];
     }
 
@@ -149,6 +148,13 @@ class StoreStepRecordRequest extends FormRequest
 
         if ($dateFrom !== null && ! array_key_exists('step_date', $data) && ($data[$dateFrom] ?? $details[$dateFrom] ?? null) !== null) {
             $data['step_date'] = $data[$dateFrom] ?? $details[$dateFrom];
+        }
+
+        // A completed result dated by one of its fields (visa: the issue date).
+        $resultDateFrom = app(Workflow::class)->step($this->stepKey())['result_date_from'] ?? null;
+
+        if ($resultDateFrom !== null && $data['status'] === StepStatus::Completed->value && ($details[$resultDateFrom] ?? null) !== null) {
+            $data['step_date'] = $details[$resultDateFrom];
         }
 
         return $data;

@@ -20,6 +20,7 @@ use App\Http\Controllers\DataEntry\PassportScanController;
 use App\Http\Controllers\DataEntry\ReferenceController;
 use App\Http\Controllers\DataEntry\StepActionController;
 use App\Http\Controllers\DataEntry\StepListController;
+use App\Http\Controllers\DataEntry\StepMilestoneController;
 use App\Http\Controllers\DataEntry\StepRecordController;
 use App\Http\Controllers\DataEntry\WorkflowConfigController;
 use App\Http\Controllers\DataEntry\WorkflowSummaryController;
@@ -113,6 +114,24 @@ Route::middleware('auth:sanctum')->group(function () {
         // Calling is saved with one update instead (config single_update).
         Route::post('/passports/{passport}/steps/calling/update', [StepActionController::class, 'updateCalling'])
             ->name('passports.steps.calling.update');
+        // Flight: the booking date (alongside BMET), then confirm (needs both).
+        Route::post('/passports/{passport}/steps/flight/booking', [StepActionController::class, 'bookFlight'])
+            ->name('passports.steps.flight.booking');
+        Route::delete('/passports/{passport}/steps/flight/booking', [StepActionController::class, 'clearFlightBooking'])
+            ->name('passports.steps.flight.booking.clear');
+        Route::post('/passports/{passport}/steps/flight/confirm', [StepActionController::class, 'confirmFlight'])
+            ->name('passports.steps.flight.confirm');
+        Route::delete('/passports/{passport}/steps/flight/confirm', [StepActionController::class, 'undoFlight'])
+            ->name('passports.steps.flight.undo');
+        // BMET: Training done, Finger done (any order), then BMET clearance done.
+        Route::post('/passports/{passport}/steps/{step}/{action}', [StepMilestoneController::class, 'store'])
+            ->whereIn('step', app(Workflow::class)->milestoneStepKeys())
+            ->whereIn('action', app(Workflow::class)->milestoneActionKeys())
+            ->name('passports.steps.milestones.store');
+        Route::delete('/passports/{passport}/steps/{step}/{action}', [StepMilestoneController::class, 'destroy'])
+            ->whereIn('step', app(Workflow::class)->milestoneStepKeys())
+            ->whereIn('action', app(Workflow::class)->milestoneActionKeys())
+            ->name('passports.steps.milestones.destroy');
         Route::match(['post', 'patch'], '/passports/{passport}/steps/{step}/start', [StepActionController::class, 'start'])
             ->whereIn('step', app(Workflow::class)->startResultStepKeys())
             ->name('passports.steps.start');

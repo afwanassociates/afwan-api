@@ -12,7 +12,10 @@ use Illuminate\Http\JsonResponse;
  */
 class WorkflowException extends Exception
 {
-    public function __construct(public readonly string $reason, string $message)
+    /**
+     * @param  array<string, mixed>  $context  extra machine-readable fields for the response
+     */
+    public function __construct(public readonly string $reason, string $message, public readonly array $context = [])
     {
         parent::__construct($message);
     }
@@ -47,6 +50,47 @@ class WorkflowException extends Exception
         return new self('step_not_started', "The {$stepLabel} step has no record in process: start it before recording its result.");
     }
 
+    public static function notCompleted(string $stepLabel): self
+    {
+        return new self('step_not_completed', "The {$stepLabel} step is not completed, so there is nothing to undo.");
+    }
+
+    /**
+     * @param  list<string>  $missing  the milestone labels still to do
+     */
+    public static function milestonesIncomplete(string $actionLabel, array $missing): self
+    {
+        return new self('milestones_incomplete', 'Mark '.implode(' and ', $missing)." before {$actionLabel}.");
+    }
+
+    public static function milestoneNotMarked(string $milestoneLabel): self
+    {
+        return new self('milestone_not_marked', "{$milestoneLabel} is not marked, so there is nothing to undo.");
+    }
+
+    public static function milestoneLocked(string $milestoneLabel, string $stepLabel): self
+    {
+        return new self('milestone_locked', "{$milestoneLabel} cannot be undone once the {$stepLabel} step is completed.");
+    }
+
+    public static function laterStepCompleted(string $stepLabel): self
+    {
+        return new self('later_step_completed', "Undo the {$stepLabel} step first.");
+    }
+
+    /**
+     * @param  list<string>  $missing  e.g. ["bmet", "booking_date"]
+     */
+    public static function confirmRequirementsMissing(string $message, array $missing): self
+    {
+        return new self('confirm_requirements_missing', $message, ['missing' => $missing]);
+    }
+
+    public static function bookingNotSet(): self
+    {
+        return new self('booking_not_set', 'There is no flight booking date to clear.');
+    }
+
     public static function laterStepExists(): self
     {
         return new self('later_step_exists', 'A later step already has records. Remove those records first.');
@@ -67,7 +111,7 @@ class WorkflowException extends Exception
      */
     public function render(): JsonResponse
     {
-        return response()->json(['message' => $this->getMessage(), 'code' => $this->reason], 422);
+        return response()->json(['message' => $this->getMessage(), 'code' => $this->reason, ...$this->context], 422);
     }
 
     /**

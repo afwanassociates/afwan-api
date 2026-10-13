@@ -5,7 +5,7 @@ namespace App\Enums;
 /**
  * The status of a workflow step record (calling, visa, BMET, flight). Each
  * step names its statuses itself in config/workflow.php, e.g. a completed
- * flight is "Departed".
+ * flight is "Flight confirmed".
  */
 enum StepStatus: string
 {

@@ -59,7 +59,15 @@ class Workflow
             'single_update' => (bool) ($step['single_update'] ?? false),
             'date_from' => $step['date_from'] ?? null,
             'list_hidden' => $step['list_hidden'] ?? [],
+            'list_extras' => $step['list_extras'] ?? [],
+            'keep_date_as' => $step['keep_date_as'] ?? null,
+            'milestones' => $step['milestones'] ?? [],
+            'complete_action' => $step['complete_action'] ?? null,
+            'result_date_from' => $step['result_date_from'] ?? null,
             'status_texts' => $step['status_texts'] ?? [],
+            'starts_after' => $step['starts_after'] ?? null,
+            'parallel_texts' => $step['parallel_texts'] ?? [],
+            'confirm_messages' => $step['confirm_messages'] ?? [],
         ], array_values(config('workflow.steps', [])), array_keys(array_values(config('workflow.steps', [])))));
     }
 
@@ -180,13 +188,84 @@ class Workflow
     }
 
     /**
-     * Record steps saved through start / result (not single_update ones).
+     * Record steps saved through start / result (not single_update or
+     * milestone ones).
      *
      * @return list<string>
      */
     public function startResultStepKeys(): array
     {
-        return array_values(array_filter($this->recordStepKeys(), fn (string $key) => ! ($this->step($key)['single_update'] ?? false)));
+        return array_values(array_filter(
+            $this->recordStepKeys(),
+            fn (string $key) => ! ($this->step($key)['single_update'] ?? false) && ! $this->hasMilestones($key),
+        ));
+    }
+
+    /**
+     * The steps that must be completed before $key may have records: up to
+     * its starts_after step (flight: calling and visa, so it runs alongside
+     * BMET), or every earlier step.
+     *
+     * @return list<string>
+     */
+    public function stepsToStart(string $key): array
+    {
+        $before = $this->recordStepsBefore($key);
+        $after = $this->step($key)['starts_after'] ?? null;
+        $index = $after === null ? false : array_search($after, $before, true);
+
+        return $index === false ? $before : array_slice($before, 0, $index + 1);
+    }
+
+    /**
+     * The steps $key runs alongside: between its starts_after step and itself
+     * (flight: BMET). They must be completed before $key is.
+     *
+     * @return list<string>
+     */
+    public function parallelSteps(string $key): array
+    {
+        return array_values(array_diff($this->recordStepsBefore($key), $this->stepsToStart($key)));
+    }
+
+    /**
+     * Record steps saved through milestone actions (BMET).
+     *
+     * @return list<string>
+     */
+    public function milestoneStepKeys(): array
+    {
+        return array_values(array_filter($this->recordStepKeys(), fn (string $key) => $this->hasMilestones($key)));
+    }
+
+    public function hasMilestones(string $key): bool
+    {
+        return ($this->step($key)['milestones'] ?? []) !== [] && isset($this->step($key)['complete_action']['key']);
+    }
+
+    /**
+     * Every milestone action key of the milestone steps, the complete actions
+     * included (training, finger, clearance).
+     *
+     * @return list<string>
+     */
+    public function milestoneActionKeys(): array
+    {
+        return array_values(array_unique(array_merge(...array_map(
+            fn (string $key) => [...array_column($this->step($key)['milestones'], 'key'), $this->step($key)['complete_action']['key']],
+            $this->milestoneStepKeys(),
+        ) ?: [[]])));
+    }
+
+    /**
+     * The milestone (key, label, field) of a step, or null for an unknown
+     * action or the complete action.
+     *
+     * @return array{key: string, label: string, field: string}|null
+     */
+    public function milestone(string $step, string $action): ?array
+    {
+        return collect($this->step($step)['milestones'] ?? [])->firstWhere('key', $action);
     }
 
     /**
@@ -380,7 +459,7 @@ class Workflow
             if ($expiry->lt($departure->addMonthsNoOverflow($months))) {
                 $warnings[] = [
                     'code' => 'passport_expires_soon_after_departure',
-                    'message' => "The passport expires less than {$months} months after the flight departure date.",
+                    'message' => "The passport expires less than {$months} months after the flight booking date.",
                 ];
             }
         } elseif ($expiry !== null && ($latest->has('visa') || $latest->has('bmet')) && $expiry->lt($today->addMonthsNoOverflow($months))) {
@@ -417,7 +496,7 @@ class Workflow
         if ($visaValidUntil !== null && $departure !== null && LocalDate::parse($visaValidUntil)->lt($departure)) {
             $warnings[] = [
                 'code' => 'visa_expires_before_departure',
-                'message' => 'The visa is valid only until before the flight departure date.',
+                'message' => 'The visa expires before the flight booking date.',
             ];
         }
 
@@ -433,11 +512,13 @@ class Workflow
     }
 
     /**
-     * The flight's departure date, from its details.
+     * The flight's booking date (an older record's departure date), from its
+     * details.
      */
     public function departureDate(?PassportStepRecord $flight): ?CarbonImmutable
     {
-        $date = $flight?->detail('departure_date');
+        // The booking date (older records: their departure date).
+        $date = $flight?->detail('booking_date') ?? $flight?->detail('departure_date');
 
         return is_string($date) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) ? LocalDate::parse($date) : null;
     }
@@ -445,7 +526,7 @@ class Workflow
     /**
      * One "latest status" for the All Passports overview, from the stored
      * stage: "<step label>: <status label>" (e.g. "Visa: Submitted"), and
-     * "Completed: Departed" at the end. Only "Medical: Expired" (a fit medical
+     * "Flight confirmed (DD-MM-YYYY)" at the end. Only "Medical: Expired" (a fit medical
      * that ran out while waiting for calling) is worked out today, never
      * stored. Load currentMedical first to avoid a query.
      *
@@ -461,9 +542,10 @@ class Workflow
         $mode = $passport->entry_mode;
 
         if ($stage === self::COMPLETED) {
+            // e.g. "Flight confirmed (21-05-2026)".
             $status = StepStatus::Completed->value;
             $statusLabel = $lastStep ? StepStatus::Completed->label($lastStep) : $this->statusLabel($status);
-            $text = $this->statusLabel(self::COMPLETED).": {$statusLabel}";
+            $text = $statusLabel.($passport->stage_status_date ? ' ('.$passport->stage_status_date->format('d-m-Y').')' : '');
         } elseif ($waitingForFirst && $passport->medicalStatus() === MedicalStatus::Expired) {
             $status = 'expired';
             $statusLabel = $this->statusLabel($status);
@@ -475,6 +557,11 @@ class Workflow
         } elseif ($stage === $first && $status === 'waiting' && $mode instanceof EntryMode) {
             $statusLabel = "Ready ({$mode->label()})";
             $text = 'Ready for '.($this->step($first)['short_label'] ?? $this->label($first))." ({$mode->label()})";
+        } elseif (($parallel = $this->parallelText($passport, $stage)) !== null) {
+            // BMET and the flight side by side, e.g. "Ready to confirm flight".
+            $stepStatus = StepStatus::tryFrom($status);
+            $statusLabel = $stepStatus ? $stepStatus->label($stage) : $this->statusLabel($status);
+            $text = $parallel;
         } elseif (isset($this->step($stage)['status_texts'][$status])) {
             // The step's own status line, e.g. "Visa submitted".
             $stepStatus = StepStatus::tryFrom($status);
@@ -495,6 +582,36 @@ class Workflow
             'tone' => $this->tone($status),
             'date' => $passport->stage_status_date?->toDateString(),
         ];
+    }
+
+    /**
+     * The status line while a step with starts_after (flight) runs alongside
+     * the steps before it (BMET), or null when the stage is not one of them.
+     * Reads the step's record from stepRecords (eager load them).
+     */
+    protected function parallelText(PassportEntry $passport, string $stage): ?string
+    {
+        foreach ($this->recordStepKeys() as $key) {
+            $texts = $this->step($key)['parallel_texts'] ?? [];
+            $parallel = $this->parallelSteps($key);
+
+            if ($texts === [] || ! in_array($stage, [...$parallel, $key], true)) {
+                continue;
+            }
+
+            $record = $this->latestRecords($passport)->get($key);
+            $booked = $record?->status === StepStatus::InProcess ? $this->departureDate($record) : null;
+            $text = match (true) {
+                $stage !== $key && $booked === null => $texts['pending'] ?? null,
+                $stage !== $key => $texts['booked'] ?? null,
+                $booked === null => $texts['cleared'] ?? null,
+                default => $texts['ready'] ?? null,
+            };
+
+            return $text === null ? null : str_replace(':date', $booked?->format('d-m-Y') ?? '', $text);
+        }
+
+        return null;
     }
 
     /**
@@ -549,6 +666,11 @@ class Workflow
                     'after' => $field['after'] ?? null,
                 ], $step['fields']),
                 'warning_days' => $step['warning_days'],
+                // Milestone steps (BMET): one action per milestone, then the complete action.
+                'actions' => $step['milestones'] === [] ? [] : [
+                    ...array_map(fn (array $milestone) => ['key' => $milestone['key'], 'label' => $milestone['label'], 'field' => $milestone['field']], $step['milestones']),
+                    ...($step['complete_action'] ? [['key' => $step['complete_action']['key'], 'label' => $step['complete_action']['label'], 'field' => 'step_date']] : []),
+                ],
                 'tabs' => in_array($step['key'], $this->recordStepKeys(), true)
                     ? array_map(fn (array $tab) => ['key' => $tab['key'], 'label' => $tab['label']], $this->tabs($step['key']))
                     : [],

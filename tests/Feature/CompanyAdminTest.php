@@ -87,7 +87,7 @@ describe('company admin CRUD', function () {
 });
 
 describe('data entry quick add', function () {
-    it('keeps search and Quick Add for data entry, with only a name and country', function () {
+    it('keeps search and Quick Add for data entry, with the name, quota and country', function () {
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson('/api/data-entry/companies', [
@@ -98,8 +98,9 @@ describe('data entry quick add', function () {
         ])
             ->assertCreated()
             ->assertJsonPath('data.name', 'Quick Co')
-            ->assertJsonPath('data.quota', null)
-            ->assertJsonPath('data.agent_name', null);
+            ->assertJsonPath('data.quota', 50)
+            ->assertJsonPath('data.agent_name', 'Someone')
+            ->assertJsonPath('data.is_active', true);
 
         $this->getJson('/api/data-entry/companies?q=quick')
             ->assertOk()

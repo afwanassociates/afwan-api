@@ -375,7 +375,7 @@ describe('visa', function () {
             ->and($this->getJson('/api/data-entry/steps/visa/passports')->json('tab_counts'))->toBe(['pending' => 1, 'issued' => 1, 'rejected' => 1]);
 
         // The visa result keeps its endpoint and labels.
-        $this->postJson("/api/data-entry/passports/{$submitted->id}/steps/visa/result", ['result' => 'completed', 'reference_no' => 'V-2'])
+        $this->postJson("/api/data-entry/passports/{$submitted->id}/steps/visa/result", ['result' => 'completed', 'issue_date' => '2026-04-25', 'valid_until' => '2026-10-25'])
             ->assertOk()
             ->assertJsonPath('data.status_label', 'Visa issued');
 

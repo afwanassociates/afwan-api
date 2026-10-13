@@ -124,9 +124,10 @@ describe('BMET dates', function () {
         $fields = collect($this->getJson('/api/data-entry/workflow/config')->assertOk()->json('data.steps'))
             ->firstWhere('key', 'bmet')['fields'];
 
-        expect(array_column($fields, 'name'))->toBe(['reference_no', 'step_date', 'training_certificate_date', 'finger_date'])
-            ->and($fields[2])->toBe(['name' => 'training_certificate_date', 'label' => 'Training certificate date', 'type' => 'date', 'max' => null, 'in_details' => true, 'required_for' => [], 'phase' => 'start', 'after' => null])
-            ->and($fields[3]['label'])->toBe('Finger date');
+        expect(array_column($fields, 'name'))->toBe(['training_certificate_date', 'finger_date', 'step_date'])
+            ->and($fields[0])->toBe(['name' => 'training_certificate_date', 'label' => 'Training date', 'type' => 'date', 'max' => null, 'in_details' => true, 'required_for' => [], 'phase' => 'training', 'after' => null])
+            ->and($fields[1]['label'])->toBe('Finger date')
+            ->and($fields[2]['label'])->toBe('Clearance date');
     });
 
     it('saves both dates and shows them on the passport and its timeline', function () {

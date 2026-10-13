@@ -114,7 +114,8 @@ describe('company fields', function () {
         $existing = Company::factory()->create();
         Sanctum::actingAs(User::factory()->admin()->create());
 
-        $this->postJson('/api/data-entry/companies', ['name' => 'Plain Company', 'country_code' => 'MY'])
+        // The admin CRUD keeps them optional (Quick Add requires the quota).
+        $this->postJson('/api/admin/companies', ['name' => 'Plain Company', 'country_code' => 'MY'])
             ->assertCreated()
             ->assertJsonPath('data.quota', null)
             ->assertJsonPath('data.agent_name', null);
@@ -165,7 +166,7 @@ describe('company report', function () {
                 'visa_done' => 2,
                 'bmet_done' => 2,
                 'flight_done' => 1,
-                // Not departed and not unfit.
+                // Flight not confirmed and not unfit.
                 'in_process' => 5,
                 'balance' => 2,
             ])
@@ -245,8 +246,8 @@ describe('company passports', function () {
             ->and(collect($response->json('data.*.latest_status.text'))->countBy()->all())->toMatchArray([
                 'Medical: Unfit' => 2,
                 'Medical: Pending' => 1,
-                'Completed: Departed' => 1,
-                'Flight: Waiting' => 1,
+                'Flight confirmed (30-04-2026)' => 1,
+                'BMET cleared - flight booking date pending' => 1,
             ])
             ->and($response->json('data.0.workflow.steps'))->toHaveCount(6)
             ->and($response->json('data.0'))->toHaveKeys(['current_stage', 'stage_status', 'medical_status', 'current_medical', 'warnings'])

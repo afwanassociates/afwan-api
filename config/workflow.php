@@ -30,6 +30,23 @@ return [
     | - date_from (optional): the field the record's date (step_date) is taken
     |   from, for a step without a date field of its own.
     | - list_hidden (optional): row fields this step's list leaves out.
+    | - list_extras (optional): extra row fields on this step's list
+    |   (visa_issue_date, visa_valid_until, bmet_dates = training_date,
+    |   finger_date and clearance_date, flight_status = bmet_cleared,
+    |   clearance_date, booking_date, confirmed_date, can_confirm, missing).
+    | - starts_after (optional): the step may have records once this earlier
+    |   step is completed, alongside the steps in between (flight runs with
+    |   BMET after the visa); completing it still needs every earlier step.
+    |   parallel_texts give the status line meanwhile.
+    | - milestones / complete_action (optional): the step is saved with one
+    |   action per milestone, each storing its date in "field", then the
+    |   complete action (needs every milestone) instead of start / result.
+    |   A field's phase is then the action that asks for it.
+    | - result_date_from (optional): a completed result takes the record's
+    |   date from this field (visa: the issue date).
+    | - keep_date_as (optional): when an older in-process record is completed
+    |   by a single update, its own date is kept in this details key.
+    | - Tab state previous_open: still at the step before (any status).
     | - status_texts (optional): the passport's status line for a stage status
     |   at this step (e.g. "Visa submitted").
     | - A field's "after" names the field its date must follow (valid_until
@@ -66,7 +83,7 @@ return [
             'fields' => [
                 ['name' => 'receive_date', 'label' => 'Calling receive date', 'phase' => 'result', 'type' => 'date', 'in_details' => true, 'required_for' => ['completed'], 'not_future_for' => ['completed']],
                 ['name' => 'issue_date', 'label' => 'Issued date', 'phase' => 'result', 'type' => 'date', 'in_details' => true, 'required_for' => ['completed'], 'not_future_for' => ['completed']],
-                ['name' => 'valid_until', 'label' => 'Expiry date', 'phase' => 'result', 'type' => 'date', 'required_for' => ['completed'], 'after' => 'details.issue_date'],
+                ['name' => 'valid_until', 'label' => 'Calling expiry', 'phase' => 'result', 'type' => 'date', 'required_for' => ['completed'], 'after' => 'details.issue_date'],
             ],
             // The step page's tabs, by record state: Permitted until the visa
             // submitted date is entered (next_waiting = done, next step not started).
@@ -80,6 +97,7 @@ return [
             'single_update' => true,
             // The record's date is the calling receive date.
             'date_from' => 'receive_date',
+            'keep_date_as' => 'calling_date',
             // Left out of this step's list rows.
             'list_hidden' => ['entry_mode', 'step_date', 'submitted_date'],
             'status_texts' => [
@@ -97,11 +115,16 @@ return [
                 'completed' => 'Visa issued',
                 'rejected' => 'Rejected',
             ],
+            // The Visa issued form: issue date, expired date, then the
+            // optional visa number.
             'fields' => [
-                ['name' => 'reference_no', 'label' => 'Visa number', 'phase' => 'result', 'type' => 'text', 'max' => 100, 'required_for' => ['completed']],
                 ['name' => 'step_date', 'label' => 'Visa submitted date', 'phase' => 'start', 'type' => 'date', 'required_for' => ['in_process', 'completed', 'rejected']],
-                ['name' => 'valid_until', 'label' => 'Valid until', 'phase' => 'result', 'type' => 'date', 'required_for' => []],
+                ['name' => 'issue_date', 'label' => 'Issue date', 'phase' => 'result', 'type' => 'date', 'in_details' => true, 'required_for' => ['completed'], 'not_future_for' => ['completed']],
+                ['name' => 'valid_until', 'label' => 'Expired date', 'phase' => 'result', 'type' => 'date', 'required_for' => ['completed'], 'after' => 'details.issue_date'],
+                ['name' => 'reference_no', 'label' => 'Visa number', 'phase' => 'result', 'type' => 'text', 'max' => 50, 'required_for' => []],
             ],
+            // An issued visa's record date is its issue date.
+            'result_date_from' => 'issue_date',
             // Not started yet shows under Calling's Permitted tab; the visa page starts
             // at the visa submitted date.
             'tabs' => [
@@ -113,6 +136,7 @@ return [
                 'waiting' => 'Permitted - enter visa submitted date',
                 'in_process' => 'Visa submitted',
             ],
+            'list_hidden' => ['entry_mode'],
             'warning_days' => 30,
         ],
         [
@@ -120,17 +144,29 @@ return [
             'label' => 'BMET Clearance',
             'short_label' => 'BMET',
             'enabled' => true,
+            // No rejected path: Training done and Finger done (any order), then
+            // BMET clearance done. Older submitted records stay in Pending;
+            // rejected ones are history only.
             'statuses' => [
-                'in_process' => 'Submitted',
-                'completed' => 'Cleared',
-                'rejected' => 'Rejected',
+                'in_process' => 'In progress',
+                'completed' => 'BMET cleared',
             ],
             'fields' => [
-                ['name' => 'reference_no', 'label' => 'Clearance number', 'phase' => 'result', 'type' => 'text', 'max' => 100, 'required_for' => ['completed']],
-                ['name' => 'step_date', 'label' => 'Date', 'phase' => 'start', 'type' => 'date', 'required_for' => ['in_process', 'completed', 'rejected']],
-                ['name' => 'training_certificate_date', 'label' => 'Training certificate date', 'phase' => 'start', 'type' => 'date', 'in_details' => true, 'required_for' => [], 'not_future_for' => ['in_process', 'completed', 'rejected']],
-                ['name' => 'finger_date', 'label' => 'Finger date', 'phase' => 'start', 'type' => 'date', 'in_details' => true, 'required_for' => [], 'not_future_for' => ['in_process', 'completed', 'rejected']],
+                ['name' => 'training_certificate_date', 'label' => 'Training date', 'phase' => 'training', 'type' => 'date', 'in_details' => true, 'required_for' => [], 'not_future_for' => ['in_process', 'completed']],
+                ['name' => 'finger_date', 'label' => 'Finger date', 'phase' => 'finger', 'type' => 'date', 'in_details' => true, 'required_for' => [], 'not_future_for' => ['in_process', 'completed']],
+                ['name' => 'step_date', 'label' => 'Clearance date', 'phase' => 'clearance', 'type' => 'date', 'required_for' => ['in_process', 'completed']],
             ],
+            // One action per milestone (POST / DELETE .../steps/bmet/{action}).
+            'milestones' => [
+                ['key' => 'training', 'label' => 'Training done', 'field' => 'training_certificate_date'],
+                ['key' => 'finger', 'label' => 'Finger done', 'field' => 'finger_date'],
+            ],
+            'complete_action' => ['key' => 'clearance', 'label' => 'BMET clearance done'],
+            'tabs' => [
+                ['key' => 'pending', 'label' => 'Pending', 'states' => ['waiting', 'in_process'], 'order' => 'waiting_asc'],
+                ['key' => 'cleared', 'label' => 'BMET cleared', 'states' => ['completed'], 'order' => 'completed_desc'],
+            ],
+            'list_extras' => ['visa_issue_date', 'visa_valid_until', 'bmet_dates'],
             'warning_days' => 30,
         ],
         [
@@ -138,18 +174,48 @@ return [
             'label' => 'Flight',
             'short_label' => 'Flight',
             'enabled' => true,
+            // Runs alongside BMET once the visa is issued: the booking date can
+            // be saved before BMET is cleared; confirming needs both.
+            'starts_after' => 'visa',
+            // Booked (in process), then Flight confirmed (final). Cancelled
+            // flights are history only.
             'statuses' => [
-                'in_process' => 'Ticket booked',
-                'completed' => 'Departed',
-                'rejected' => 'Cancelled',
+                'in_process' => 'Booked',
+                'completed' => 'Flight confirmed',
             ],
             'fields' => [
-                ['name' => 'step_date', 'label' => 'Booking date', 'phase' => 'start', 'type' => 'date', 'required_for' => ['in_process', 'completed', 'rejected']],
-                ['name' => 'airline', 'label' => 'Airline', 'phase' => 'start', 'type' => 'text', 'max' => 100, 'in_details' => true, 'required_for' => ['in_process', 'completed']],
-                ['name' => 'flight_no', 'label' => 'Flight number', 'phase' => 'start', 'type' => 'text', 'max' => 20, 'in_details' => true, 'required_for' => ['in_process', 'completed'], 'rules' => ['regex:/^[A-Za-z0-9]+$/']],
-                ['name' => 'departure_date', 'label' => 'Departure date', 'phase' => 'start', 'type' => 'date', 'in_details' => true, 'required_for' => ['in_process', 'completed'], 'not_future_for' => ['completed']],
-                ['name' => 'ticket_pnr', 'label' => 'Ticket PNR', 'phase' => 'start', 'type' => 'text', 'max' => 20, 'in_details' => true, 'required_for' => []],
+                // The booking date may be today or later (not before the visa issue date).
+                ['name' => 'booking_date', 'label' => 'Flight booking date', 'phase' => 'booking', 'type' => 'date', 'in_details' => true, 'required_for' => ['in_process', 'completed']],
+                ['name' => 'confirmed_date', 'label' => 'Confirmed date', 'phase' => 'confirm', 'type' => 'date', 'in_details' => true, 'required_for' => [], 'not_future_for' => ['completed']],
             ],
+            // Pending: visa issued and not confirmed, BMET cleared or not
+            // (previous_open = still at BMET).
+            'tabs' => [
+                ['key' => 'pending', 'label' => 'Pending', 'states' => ['previous_open', 'waiting', 'in_process'], 'order' => 'waiting_asc'],
+                ['key' => 'confirmed', 'label' => 'Flight confirmed', 'states' => ['completed'], 'order' => 'completed_desc'],
+            ],
+            // Saved with its own actions (POST .../steps/flight/booking and
+            // .../confirm), not start / result.
+            'single_update' => true,
+            // A booked record is dated by its booking date, a confirmed one by
+            // the day it was confirmed.
+            'date_from' => 'booking_date',
+            'result_date_from' => 'confirmed_date',
+            // The status line while BMET and the flight run side by side
+            // (:date = the booking date).
+            'parallel_texts' => [
+                'pending' => 'Visa issued - BMET and flight pending',
+                'booked' => 'Flight booked (:date) - BMET pending',
+                'cleared' => 'BMET cleared - flight booking date pending',
+                'ready' => 'Ready to confirm flight',
+            ],
+            // Why Flight confirm is refused (missing: bmet, booking_date, or both).
+            'confirm_messages' => [
+                'bmet' => 'BMET clearance must be done before confirming the flight',
+                'booking_date' => 'Enter the flight booking date before confirming the flight',
+                'both' => 'BMET clearance and the flight booking date are required before confirming the flight',
+            ],
+            'list_extras' => ['visa_valid_until', 'flight_status'],
             'warning_days' => 30,
         ],
     ],
@@ -187,9 +253,7 @@ return [
         'expired' => 'Expired',
         'in_process' => 'In Process',
         'rejected' => 'Rejected',
-        'cancelled' => 'Cancelled',
         'completed' => 'Completed',
-        'departed' => 'Departed',
     ],
 
     'tones' => [
@@ -197,13 +261,11 @@ return [
         'fit' => 'amber',
         'unfit' => 'red',
         'rejected' => 'red',
-        'cancelled' => 'red',
         'pending' => 'amber',
         'waiting' => 'amber',
         'expired' => 'amber',
         'in_process' => 'blue',
         'completed' => 'green',
-        'departed' => 'green',
     ],
 
     'default_tone' => 'gray',

@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\DataEntry;
 
+use App\Enums\StepStatus;
 use App\Models\PassportStepRecord;
+use App\Support\Workflow;
 
 /**
  * PATCH: fields not sent keep the record's current values, and the result is
@@ -31,9 +33,18 @@ class UpdateStepRecordRequest extends StoreStepRecordRequest
             }
         }
 
+        // An older completed record dated by its result field (visa issued
+        // before the issue date was asked for) has that date as its own.
+        $resultDateFrom = app(Workflow::class)->step($record->step_key)['result_date_from'] ?? null;
+        $existing = $record->details ?? [];
+
+        if ($resultDateFrom !== null && $record->status === StepStatus::Completed && ($existing[$resultDateFrom] ?? null) === null) {
+            $existing[$resultDateFrom] = $record->step_date->toDateString();
+        }
+
         $details = $this->input('details');
         $this->merge(['details' => is_array($details) || $details === null
-            ? array_merge($record->details ?? [], $details ?? [])
+            ? array_merge($existing, $details ?? [])
             : $details]);
     }
 
