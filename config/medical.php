@@ -13,7 +13,7 @@ return [
     |
     */
 
-    'validity_months' => 3,
+    'validity_days' => 90,
 
     'expiring_soon_days' => 14,
 

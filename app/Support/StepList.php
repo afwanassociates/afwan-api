@@ -28,23 +28,35 @@ class StepList
     }
 
     /**
-     * The search, company and reference filters.
+     * The search, company, reference, receive date and booking date filters.
      *
      * @param  Builder<PassportEntry>  $query
-     * @param  array{search?: string|null, company?: string|null, reference?: string|null}  $filters
+     * @param  array{search?: string|null, company?: string|null, reference?: string|null, receive_date_from?: string|null, receive_date_to?: string|null, booking_date_from?: string|null, booking_date_to?: string|null}  $filters
      */
     protected function filter(Builder $query, array $filters): void
     {
         $search = trim((string) ($filters['search'] ?? ''));
         $company = trim((string) ($filters['company'] ?? ''));
         $reference = trim((string) ($filters['reference'] ?? ''));
+        $receiveDateFrom = trim((string) ($filters['receive_date_from'] ?? ''));
+        $receiveDateTo = trim((string) ($filters['receive_date_to'] ?? ''));
+        $bookingDateFrom = trim((string) ($filters['booking_date_from'] ?? ''));
+        $bookingDateTo = trim((string) ($filters['booking_date_to'] ?? ''));
 
         $query
             ->when($search !== '', fn (Builder $query) => $query->where(fn (Builder $query) => $query
                 ->where('passport_entries.passport_name', 'like', Like::contains($search))
                 ->orWhere('passport_entries.passport_number', 'like', Like::contains((string) Normalize::passportNumber($search)))))
             ->when($company !== '', fn (Builder $query) => $query->whereHas('company', fn (Builder $query) => $query->where('name', 'like', Like::contains($company))))
-            ->when($reference !== '', fn (Builder $query) => $query->whereHas('reference', fn (Builder $query) => $query->where('name', 'like', Like::contains($reference))));
+            ->when($reference !== '', fn (Builder $query) => $query->whereHas('reference', fn (Builder $query) => $query->where('name', 'like', Like::contains($reference))))
+            ->when($receiveDateFrom !== '', fn (Builder $query) => $query->whereHas('stepRecords', fn (Builder $query) => $query
+                ->whereRaw("json_unquote(json_extract(details, '$.receive_date')) >= ?", [$receiveDateFrom])))
+            ->when($receiveDateTo !== '', fn (Builder $query) => $query->whereHas('stepRecords', fn (Builder $query) => $query
+                ->whereRaw("json_unquote(json_extract(details, '$.receive_date')) <= ?", [$receiveDateTo])))
+            ->when($bookingDateFrom !== '', fn (Builder $query) => $query->whereHas('stepRecords', fn (Builder $query) => $query
+                ->whereRaw("json_unquote(json_extract(details, '$.booking_date')) >= ?", [$bookingDateFrom])))
+            ->when($bookingDateTo !== '', fn (Builder $query) => $query->whereHas('stepRecords', fn (Builder $query) => $query
+                ->whereRaw("json_unquote(json_extract(details, '$.booking_date')) <= ?", [$bookingDateTo])));
     }
 
     /**

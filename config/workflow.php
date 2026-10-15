@@ -181,18 +181,18 @@ return [
             // flights are history only.
             'statuses' => [
                 'in_process' => 'Booked',
-                'completed' => 'Flight confirmed',
+                'completed' => 'Flight done',
             ],
             'fields' => [
                 // The booking date may be today or later (not before the visa issue date).
-                ['name' => 'booking_date', 'label' => 'Flight booking date', 'phase' => 'booking', 'type' => 'date', 'in_details' => true, 'required_for' => ['in_process', 'completed']],
+                ['name' => 'booking_date', 'label' => 'Flight date', 'phase' => 'booking', 'type' => 'date', 'in_details' => true, 'required_for' => ['in_process', 'completed']],
                 ['name' => 'confirmed_date', 'label' => 'Confirmed date', 'phase' => 'confirm', 'type' => 'date', 'in_details' => true, 'required_for' => [], 'not_future_for' => ['completed']],
             ],
             // Pending: visa issued and not confirmed, BMET cleared or not
             // (previous_open = still at BMET).
             'tabs' => [
                 ['key' => 'pending', 'label' => 'Pending', 'states' => ['previous_open', 'waiting', 'in_process'], 'order' => 'waiting_asc'],
-                ['key' => 'confirmed', 'label' => 'Flight confirmed', 'states' => ['completed'], 'order' => 'completed_desc'],
+                ['key' => 'confirmed', 'label' => 'Flight done', 'states' => ['completed'], 'order' => 'completed_desc'],
             ],
             // Saved with its own actions (POST .../steps/flight/booking and
             // .../confirm), not start / result.

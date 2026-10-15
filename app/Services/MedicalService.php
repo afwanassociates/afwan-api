@@ -219,7 +219,7 @@ class MedicalService
 
     /**
      * The usual expiry of a fit result: the date plus config
-     * medical.validity_months (month ends never overflow); null for unfit.
+     * medical.validity_days; null for unfit.
      * Only a suggestion for prefilling forms and for sample data: a recorded
      * result keeps the expiry date entered for it.
      */
@@ -230,7 +230,7 @@ class MedicalService
         }
 
         return LocalDate::parse($medicalDate)
-            ->addMonthsNoOverflow((int) config('medical.validity_months'))
+            ->addDays((int) config('medical.validity_days'))
             ->toDateString();
     }
 

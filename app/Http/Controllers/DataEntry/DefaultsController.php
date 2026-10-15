@@ -24,8 +24,8 @@ class DefaultsController extends Controller
             // The bare codes, as before.
             'default_company_country_code' => $countries['default_company_country']['code'] ?? null,
             'default_passport_country_code' => $countries['default_passport_country']['code'] ?? null,
-            // For prefilling a fit result's expiry date (issue date + months).
-            'medical_validity_months' => (int) config('medical.validity_months'),
+            // For prefilling a fit result's expiry date (issue date + days).
+            'medical_validity_days' => (int) config('medical.validity_days'),
             'medical_expiring_soon_days' => (int) config('medical.expiring_soon_days'),
         ]]);
     }
