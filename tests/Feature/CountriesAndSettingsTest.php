@@ -192,7 +192,25 @@ describe('passport entries', function () {
         'birth date today' => [['date_of_birth' => 'today'], 'date_of_birth'],
         'expiry missing' => [['passport_expiry_date' => null], 'passport_expiry_date'],
         'expiry before received' => [['passport_received_date' => '2026-01-10', 'passport_expiry_date' => '2026-01-09'], 'passport_expiry_date'],
+        'expiry under 18 months after received' => [['passport_received_date' => '2026-01-10', 'passport_expiry_date' => '2027-07-09'], 'passport_expiry_date'],
     ]);
+
+    it('needs the passport valid for at least 18 months after the received date', function () {
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        $this->postJson('/api/data-entry/passports', passportPayload(['passport_received_date' => '2026-01-10', 'passport_expiry_date' => '2027-07-09']))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['passport_expiry_date' => 'The passport must be valid for at least 18 months after the received date.']);
+
+        // Exactly 18 months is enough.
+        $this->postJson('/api/data-entry/passports', passportPayload(['passport_received_date' => '2026-01-10', 'passport_expiry_date' => '2027-07-10']))
+            ->assertCreated();
+
+        // No month overflow: 31 Aug + 18 months is 29 Feb (2028 is a leap year).
+        $this->postJson('/api/data-entry/passports', passportPayload(['passport_number' => 'B7654321', 'passport_received_date' => '2026-08-31', 'passport_expiry_date' => '2028-02-28']))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('passport_expiry_date');
+    });
 
     it('compares an edited expiry date with the entry\'s saved received date', function () {
         $clerk = User::factory()->dataEntry()->create();
@@ -200,6 +218,10 @@ describe('passport entries', function () {
         Sanctum::actingAs($clerk);
 
         $this->patchJson("/api/data-entry/passports/{$entry->id}", ['passport_expiry_date' => '2026-02-01'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('passport_expiry_date');
+        // Less than 18 months after the saved received date.
+        $this->patchJson("/api/data-entry/passports/{$entry->id}", ['passport_expiry_date' => '2027-08-31'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('passport_expiry_date');
         $this->patchJson("/api/data-entry/passports/{$entry->id}", ['passport_expiry_date' => '2031-02-01'])

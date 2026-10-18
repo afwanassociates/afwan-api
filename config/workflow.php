@@ -129,7 +129,8 @@ return [
             // at the visa submitted date.
             'tabs' => [
                 ['key' => 'pending', 'label' => 'Pending', 'states' => ['in_process'], 'order' => 'status_date_asc'],
-                ['key' => 'issued', 'states' => ['completed'], 'order' => 'completed_desc'],
+                // Leaves once the flight is confirmed (the passport is done).
+                ['key' => 'issued', 'states' => ['completed'], 'order' => 'completed_desc', 'drop_when_flight_done' => true],
                 ['key' => 'rejected', 'states' => ['rejected'], 'order' => 'status_date_desc'],
             ],
             'status_texts' => [
@@ -164,7 +165,8 @@ return [
             'complete_action' => ['key' => 'clearance', 'label' => 'BMET clearance done'],
             'tabs' => [
                 ['key' => 'pending', 'label' => 'Pending', 'states' => ['waiting', 'in_process'], 'order' => 'waiting_asc'],
-                ['key' => 'cleared', 'label' => 'BMET cleared', 'states' => ['completed'], 'order' => 'completed_desc'],
+                // Leaves once the flight is confirmed (the passport is done).
+                ['key' => 'cleared', 'label' => 'BMET cleared', 'states' => ['completed'], 'order' => 'completed_desc', 'drop_when_flight_done' => true],
             ],
             'list_extras' => ['visa_issue_date', 'visa_valid_until', 'bmet_dates'],
             'warning_days' => 30,

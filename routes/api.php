@@ -16,6 +16,7 @@ use App\Http\Controllers\DataEntry\MedicalQueueController;
 use App\Http\Controllers\DataEntry\MedicalRecordController;
 use App\Http\Controllers\DataEntry\MedicalSlipController;
 use App\Http\Controllers\DataEntry\PassportEntryController;
+use App\Http\Controllers\DataEntry\PassportHistoryController;
 use App\Http\Controllers\DataEntry\PassportScanController;
 use App\Http\Controllers\DataEntry\ReferenceController;
 use App\Http\Controllers\DataEntry\StepActionController;
@@ -25,6 +26,8 @@ use App\Http\Controllers\DataEntry\StepRecordController;
 use App\Http\Controllers\DataEntry\WorkflowConfigController;
 use App\Http\Controllers\DataEntry\WorkflowSummaryController;
 use App\Http\Controllers\Reports\CompanyReportController;
+use App\Http\Controllers\Reports\ReferenceOptionsController;
+use App\Http\Controllers\Reports\SummaryReportController;
 use App\Http\Controllers\RoleController;
 use App\Support\Workflow;
 use Illuminate\Http\Request;
@@ -107,6 +110,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // write goes through App\Services\WorkflowService.
         Route::get('/workflow/config', WorkflowConfigController::class)->name('workflow.config');
         Route::get('/passports/{passport}/steps', [StepRecordController::class, 'index'])->name('passports.steps.index');
+        Route::get('/passports/{passport}/history', PassportHistoryController::class)->name('passports.history');
         Route::post('/passports/{passport}/steps/{stepKey}', [StepRecordController::class, 'store'])
             ->whereIn('stepKey', app(Workflow::class)->recordStepKeys())
             ->name('passports.steps.store');
@@ -160,8 +164,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Read-only reports for data entry and accounts (admin and super_admin pass too).
     Route::prefix('reports')->name('reports.')->middleware('role:data_entry,accounts')->group(function () {
+        // Passport counts over every passport, for the dashboard cards.
+        Route::get('/summary', SummaryReportController::class)->name('summary');
         Route::get('/companies', [CompanyReportController::class, 'index'])->name('companies.index');
         Route::get('/companies/{company}/passports', [CompanyReportController::class, 'passports'])->name('companies.passports');
+        // The All Passports overview (lean, read only; same filters as view=overview).
+        Route::get('/passports', [PassportEntryController::class, 'index'])->name('passports');
+        // Options of the company report's "Filter by reference" dropdown.
+        Route::get('/references', ReferenceOptionsController::class)->name('references.index');
     });
 
     Route::prefix('accounts')->name('accounts.')->middleware('role:accounts')->group(function () {

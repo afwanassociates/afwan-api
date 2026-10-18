@@ -25,11 +25,16 @@ class ListStepPassportsRequest extends FormRequest
             'search' => ['sometimes', 'nullable', 'string', 'max:100'],
             'company' => ['sometimes', 'nullable', 'string', 'max:100'],
             'reference' => ['sometimes', 'nullable', 'string', 'max:100'],
+            // The Filter by company / Filter by reference dropdowns.
+            'company_id' => ['sometimes', 'nullable', 'integer', 'exists:companies,id'],
+            'reference_id' => ['sometimes', 'nullable', 'integer', 'exists:references,id'],
             'receive_date_from' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'receive_date_to' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'booking_date_from' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'booking_date_to' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            // The whole tab (same filters, every page) as a CSV download.
+            'export' => ['sometimes', 'nullable', Rule::in(['csv'])],
             'sort' => ['exclude'],
             'direction' => ['exclude'],
         ];

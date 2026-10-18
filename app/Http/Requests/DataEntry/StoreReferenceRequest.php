@@ -12,12 +12,18 @@ use Illuminate\Validation\Rule;
 class StoreReferenceRequest extends FormRequest
 {
     /**
-     * Normalize the name before the uniqueness check.
+     * Normalize the name before the uniqueness check. The passport form has a single
+     * Reference field without a person/agency choice, so a new reference without a
+     * type is stored as a person.
      */
     protected function prepareForValidation(): void
     {
         if (is_string($this->input('name'))) {
             $this->merge(['name' => Normalize::name($this->input('name'))]);
+        }
+
+        if ($this->reference() === null && ! $this->filled('type')) {
+            $this->merge(['type' => ReferenceType::Person->value]);
         }
     }
 
@@ -51,7 +57,7 @@ class StoreReferenceRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'name.unique' => 'A reference of this type with this name already exists.',
+            'name.unique' => 'A reference with this name already exists.',
         ];
     }
 

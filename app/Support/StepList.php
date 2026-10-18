@@ -28,10 +28,11 @@ class StepList
     }
 
     /**
-     * The search, company, reference, receive date and booking date filters.
+     * The search, company, reference, receive date and booking date filters
+     * (company_id and reference_id: the Filter by dropdowns).
      *
      * @param  Builder<PassportEntry>  $query
-     * @param  array{search?: string|null, company?: string|null, reference?: string|null, receive_date_from?: string|null, receive_date_to?: string|null, booking_date_from?: string|null, booking_date_to?: string|null}  $filters
+     * @param  array{search?: string|null, company?: string|null, reference?: string|null, company_id?: int|string|null, reference_id?: int|string|null, receive_date_from?: string|null, receive_date_to?: string|null, booking_date_from?: string|null, booking_date_to?: string|null}  $filters
      */
     protected function filter(Builder $query, array $filters): void
     {
@@ -49,6 +50,8 @@ class StepList
                 ->orWhere('passport_entries.passport_number', 'like', Like::contains((string) Normalize::passportNumber($search)))))
             ->when($company !== '', fn (Builder $query) => $query->whereHas('company', fn (Builder $query) => $query->where('name', 'like', Like::contains($company))))
             ->when($reference !== '', fn (Builder $query) => $query->whereHas('reference', fn (Builder $query) => $query->where('name', 'like', Like::contains($reference))))
+            ->when($filters['company_id'] ?? null, fn (Builder $query, int|string $id) => $query->where('passport_entries.company_id', (int) $id))
+            ->when($filters['reference_id'] ?? null, fn (Builder $query, int|string $id) => $query->where('passport_entries.reference_id', (int) $id))
             ->when($receiveDateFrom !== '', fn (Builder $query) => $query->whereHas('stepRecords', fn (Builder $query) => $query
                 ->whereRaw("json_unquote(json_extract(details, '$.receive_date')) >= ?", [$receiveDateFrom])))
             ->when($receiveDateTo !== '', fn (Builder $query) => $query->whereHas('stepRecords', fn (Builder $query) => $query

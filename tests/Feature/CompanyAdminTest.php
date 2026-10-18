@@ -13,17 +13,15 @@ describe('company admin CRUD', function () {
         $id = $this->postJson('/api/admin/companies', [
             'name' => 'Desert Rose Construction',
             'country_code' => 'my',
-            'agent_name' => 'Ahmad Faiz',
-            'agent_phone' => '+60 12-345 6789',
-            'agent_email' => 'faiz@example.com',
-            'bd_agency_name' => 'Sea Star Overseas',
             'quota' => 25,
+            // Ignored: new companies are always active.
             'is_active' => false,
         ])
             ->assertCreated()
             ->assertJsonPath('data.country.code', 'MY')
             ->assertJsonPath('data.quota', 25)
-            ->assertJsonPath('data.is_active', false)
+            ->assertJsonPath('data.is_active', true)
+            ->assertJsonMissingPath('data.agent_name')
             ->assertJsonPath('data.passports_count', 0)
             ->json('data.id');
 
@@ -31,18 +29,17 @@ describe('company admin CRUD', function () {
 
         $this->getJson("/api/admin/companies/{$id}")
             ->assertOk()
-            ->assertJsonPath('data.agent_email', 'faiz@example.com');
+            ->assertJsonPath('data.quota', 25);
 
-        $this->getJson('/api/admin/companies?is_active=0&q=sea star')
-            ->assertOk()
-            ->assertJsonPath('data.*.id', [$id]);
-
-        $this->patchJson("/api/admin/companies/{$id}", ['quota' => 30, 'is_active' => true, 'agent_phone' => null])
+        $this->patchJson("/api/admin/companies/{$id}", ['quota' => 30, 'is_active' => false])
             ->assertOk()
             ->assertJsonPath('data.quota', 30)
-            ->assertJsonPath('data.is_active', true)
-            ->assertJsonPath('data.agent_phone', null)
+            ->assertJsonPath('data.is_active', false)
             ->assertJsonPath('data.name', 'Desert Rose Construction');
+
+        $this->getJson('/api/admin/companies?is_active=0&q=desert rose')
+            ->assertOk()
+            ->assertJsonPath('data.*.id', [$id]);
 
         $this->deleteJson("/api/admin/companies/{$id}")->assertNoContent();
 
@@ -76,7 +73,7 @@ describe('company admin CRUD', function () {
 
         $this->getJson('/api/admin/companies')->assertForbidden();
         $this->getJson("/api/admin/companies/{$company->id}")->assertForbidden();
-        $this->postJson('/api/admin/companies', ['name' => 'X Co', 'country_code' => 'MY'])->assertForbidden();
+        $this->postJson('/api/admin/companies', ['name' => 'X Co', 'country_code' => 'MY', 'quota' => 1])->assertForbidden();
         $this->patchJson("/api/admin/companies/{$company->id}", ['quota' => 5])->assertForbidden();
         $this->deleteJson("/api/admin/companies/{$company->id}")->assertForbidden();
     })->with(['dataEntry', 'accounts']);
@@ -94,12 +91,10 @@ describe('data entry quick add', function () {
             'name' => 'Quick Co',
             'country_code' => 'MY',
             'quota' => 50,
-            'agent_name' => 'Someone',
         ])
             ->assertCreated()
             ->assertJsonPath('data.name', 'Quick Co')
             ->assertJsonPath('data.quota', 50)
-            ->assertJsonPath('data.agent_name', 'Someone')
             ->assertJsonPath('data.is_active', true);
 
         $this->getJson('/api/data-entry/companies?q=quick')

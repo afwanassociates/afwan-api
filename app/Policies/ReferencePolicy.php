@@ -17,6 +17,14 @@ class ReferencePolicy
         return $user->hasRole(UserRole::DataEntry, UserRole::Admin, UserRole::SuperAdmin);
     }
 
+    /**
+     * Search references in the reports' filters (accounts included, read only).
+     */
+    public function viewReport(User $user): bool
+    {
+        return $user->hasRole(UserRole::DataEntry, UserRole::Accounts, UserRole::Admin, UserRole::SuperAdmin);
+    }
+
     public function create(User $user): bool
     {
         return $this->viewAny($user);

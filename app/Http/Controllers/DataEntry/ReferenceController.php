@@ -17,7 +17,8 @@ use Illuminate\Support\Facades\Gate;
 class ReferenceController extends Controller
 {
     /**
-     * Up to 20 active references for the search dropdown. Admins may pass
+     * Up to 20 active references for the search dropdown; with company_id,
+     * only references that have passports of that company. Admins may pass
      * all=1 for the full paginated list, inactive references included.
      */
     public function index(ListLookupRequest $request): AnonymousResourceCollection
@@ -35,6 +36,8 @@ class ReferenceController extends Controller
         $references = Reference::query()
             ->unless($all, fn (Builder $query) => $query->where('is_active', true))
             ->when($request->has('type'), fn (Builder $query) => $query->where('type', $request->validated('type')))
+            ->when($request->validated('company_id'), fn (Builder $query, int|string $companyId) => $query
+                ->whereHas('passportEntries', fn (Builder $query) => $query->where('company_id', $companyId)))
             ->when($search !== '', fn (Builder $query) => $query->where('name', 'like', Like::contains($search)))
             ->orderBy('name');
 

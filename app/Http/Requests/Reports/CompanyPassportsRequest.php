@@ -20,6 +20,8 @@ class CompanyPassportsRequest extends FormRequest
             'stage' => ['sometimes', Rule::in(app(Workflow::class)->stages())],
             'stage_status' => ['sometimes', Rule::in(Workflow::STAGE_STATUSES)],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            // Every passport of the company (same filters) as a CSV download.
+            'export' => ['sometimes', 'nullable', Rule::in(['csv'])],
         ];
     }
 }

@@ -29,7 +29,19 @@ describe('references', function () {
 
         $this->postJson('/api/data-entry/references', ['type' => 'person', 'name' => 'KARIM  uddin'])
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['name' => 'A reference of this type with this name already exists.']);
+            ->assertJsonValidationErrors(['name' => 'A reference with this name already exists.']);
+    });
+
+    it('stores a reference created without a type as a person', function () {
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        $this->postJson('/api/data-entry/references', ['name' => 'New Agent', 'phone' => null])
+            ->assertCreated()
+            ->assertJsonPath('data.type', 'person');
+
+        $this->postJson('/api/data-entry/references', ['name' => 'new  AGENT'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['name' => 'A reference with this name already exists.']);
     });
 
     it('rejects an unknown type', function () {

@@ -7,13 +7,17 @@ use App\Http\Requests\Reports\CompanyPassportsRequest;
 use App\Http\Requests\Reports\CompanyReportRequest;
 use App\Http\Resources\CompanyPassportResource;
 use App\Http\Resources\PassportEntryResource;
+use App\Http\Resources\PassportOverviewResource;
 use App\Models\Company;
+use App\Models\Reference;
 use App\Support\CompanyReport;
 use App\Support\LocalDate;
+use App\Support\PassportOverviewCsv;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CompanyReportController extends Controller
@@ -39,6 +43,11 @@ class CompanyReportController extends Controller
         return response()->json([
             'data' => $page->getCollection()->map(fn (Company $company) => $this->report->row($company))->all(),
             'totals' => $this->report->totals($this->report->query($request->validated())),
+            // The chosen company / reference, so the filters can show their names after a reload.
+            'filters' => [
+                'company' => $this->filterCompany($request->validated('company_id')),
+                'reference' => $this->filterReference($request->validated('reference_id')),
+            ],
             'meta' => [
                 'current_page' => $page->currentPage(),
                 'last_page' => $page->lastPage(),
@@ -50,18 +59,27 @@ class CompanyReportController extends Controller
 
     /**
      * A company's passports, every medical status included (paginated), in
-     * the passport list's shape with latest_status.
+     * the passport list's shape with latest_status. export=csv downloads every
+     * one of them (same filters) in the All Passports CSV's columns.
      */
-    public function passports(CompanyPassportsRequest $request, Company $company): AnonymousResourceCollection
+    public function passports(CompanyPassportsRequest $request, Company $company, PassportOverviewCsv $csv): AnonymousResourceCollection|StreamedResponse
     {
         Gate::authorize('viewReport', Company::class);
 
+        $export = $request->validated('export') === 'csv';
+
         $passports = $company->passportEntries()
-            ->with(PassportEntryResource::RELATIONS)
+            ->with($export ? PassportOverviewResource::RELATIONS : PassportEntryResource::RELATIONS)
             ->when($request->has('stage'), fn (Builder $query) => $query->where('current_stage', $request->validated('stage')))
             ->when($request->has('stage_status'), fn (Builder $query) => $query->where('stage_status', $request->validated('stage_status')))
             ->orderByDesc('created_at')
-            ->orderByDesc('id')
+            ->orderByDesc('id');
+
+        if ($export) {
+            return $csv->download($passports, 'company-'.(Str::slug($company->name) ?: $company->id).'-passports');
+        }
+
+        $passports = $passports
             ->paginate($request->integer('per_page', 15))
             ->withQueryString();
 
@@ -85,7 +103,7 @@ class CompanyReportController extends Controller
             fwrite($out, "\xEF\xBB\xBF");
 
             fputcsv($out, [
-                'ID', 'Company', 'Country', 'Agent', 'BD agency', 'Quota',
+                'ID', 'Company', 'Country', 'Quota',
                 ...array_map(fn (string $column) => str($column)->replace('_', ' ')->ucfirst()->toString(), $countColumns),
                 'Balance',
             ], escape: '');
@@ -97,8 +115,6 @@ class CompanyReportController extends Controller
                     $row['id'],
                     $this->cell($row['name']),
                     $row['country_code'],
-                    $this->cell($row['agent_name']),
-                    $this->cell($row['bd_agency_name']),
                     $row['quota'],
                     ...array_map(fn (string $column) => $row[$column], $countColumns),
                     $row['balance'],
@@ -106,13 +122,39 @@ class CompanyReportController extends Controller
             }
 
             fputcsv($out, [
-                'Total', '', '', '', '', $totals['quota'],
+                'Total', '', '', $totals['quota'],
                 ...array_map(fn (string $column) => $totals[$column], $countColumns),
                 $totals['balance'],
             ], escape: '');
 
             fclose($out);
         }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    /**
+     * @return array{id: int, name: string, country_code: string}|null
+     */
+    protected function filterCompany(int|string|null $id): ?array
+    {
+        $company = $id === null ? null : Company::withTrashed()->find($id);
+
+        return $company === null ? null : ['id' => $company->id, 'name' => $company->name, 'country_code' => $company->country_code];
+    }
+
+    /**
+     * @return array{id: int, name: string, type: string, type_label: string, phone: string|null}|null
+     */
+    protected function filterReference(int|string|null $id): ?array
+    {
+        $reference = $id === null ? null : Reference::withTrashed()->find($id);
+
+        return $reference === null ? null : [
+            'id' => $reference->id,
+            'name' => $reference->name,
+            'type' => $reference->type->value,
+            'type_label' => $reference->type->label(),
+            'phone' => $reference->phone,
+        ];
     }
 
     /**

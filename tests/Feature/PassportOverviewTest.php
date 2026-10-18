@@ -340,11 +340,35 @@ describe('overview list', function () {
         expect($countQueries())->toBe($few)->toBe(9);
     });
 
-    it('rejects the accounts role and unauthenticated requests', function () {
+    it('keeps the data-entry list closed to accounts and guests', function () {
         $this->getJson('/api/data-entry/passports?view=overview')->assertUnauthorized();
+        $this->getJson('/api/reports/passports')->assertUnauthorized();
 
         Sanctum::actingAs(User::factory()->accounts()->create());
         $this->getJson('/api/data-entry/passports?view=overview')->assertForbidden();
+    });
+
+    it('serves the read-only overview at /reports/passports to every staff role, accounts included', function (string $role) {
+        overviewPassport('unfit');
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $item = $this->getJson('/api/reports/passports?medical_status=all')->assertOk()->json('data.0');
+
+        expect($item['latest_status']['text'])->toBe('Medical: Unfit')
+            ->and($item)->not->toHaveKeys(['current_medical', 'workflow', 'can']);
+    })->with(['dataEntry', 'accounts', 'admin', 'superAdmin']);
+
+    it('always returns the overview at /reports/passports, even without view', function () {
+        overviewPassport('fit');
+        Sanctum::actingAs(User::factory()->accounts()->create());
+
+        $this->getJson('/api/reports/passports')
+            ->assertOk()
+            ->assertJsonStructure(['data' => [['latest_status']]])
+            ->assertJsonMissingPath('data.0.can');
+        // Write routes stay closed to accounts.
+        $this->postJson('/api/reports/passports', [])->assertMethodNotAllowed();
+        $this->postJson('/api/data-entry/passports', [])->assertForbidden();
     });
 
     it('is available to data entry, admin and super admin', function (string $role) {

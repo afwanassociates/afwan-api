@@ -32,6 +32,9 @@ class CompanyReportRequest extends FormRequest
 
         return [
             'search' => ['sometimes', 'nullable', 'string', 'max:100'],
+            // Filter by company / by reference (soft-deleted references included).
+            'company_id' => ['sometimes', 'nullable', 'integer', 'exists:companies,id'],
+            'reference_id' => ['sometimes', 'nullable', 'integer', 'exists:references,id'],
             'country_code' => ['sometimes', 'nullable', 'string', 'size:2'],
             'sort' => ['sometimes', 'nullable', Rule::in([...$sortable, ...array_map(fn (string $column) => "-{$column}", $sortable)])],
             'export' => ['sometimes', 'nullable', Rule::in(['csv'])],

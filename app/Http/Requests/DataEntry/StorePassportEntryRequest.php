@@ -10,6 +10,7 @@ use App\Support\Normalize;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Exists;
 use Illuminate\Validation\Rules\Unique;
@@ -46,7 +47,8 @@ class StorePassportEntryRequest extends FormRequest
             'reference_id' => ['required', 'integer', $this->selectable('references', $this->entry()?->reference_id)],
             'company_id' => ['required', 'integer', $this->selectable('companies', $this->entry()?->company_id)],
             'passport_received_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
-            'passport_expiry_date' => ['required', 'date_format:Y-m-d', $this->afterReceivedDate()],
+            // Valid for at least 18 months after the passport is received.
+            'passport_expiry_date' => ['required', 'date_format:Y-m-d', $this->minimumValidity()],
             // The passport scan copy (multipart): JPG, PNG or PDF up to 5 MB.
             'scan' => PassportScanFile::rules(required: true),
         ];
@@ -71,6 +73,7 @@ class StorePassportEntryRequest extends FormRequest
             'passport_received_date.before_or_equal' => 'The passport received date cannot be in the future.',
             'date_of_birth.before' => 'The date of birth must be in the past.',
             'passport_expiry_date.after' => 'The passport expiry date must be after the passport received date.',
+            'passport_expiry_date.after_or_equal' => 'The passport must be valid for at least '.self::MIN_VALIDITY_MONTHS.' months after the received date.',
         ];
     }
 
@@ -102,16 +105,24 @@ class StorePassportEntryRequest extends FormRequest
     }
 
     /**
-     * Compare with the received date being sent, or (when editing without
-     * sending it) the entry's current one.
+     * The passport must be valid for at least this many months after it is received.
      */
-    protected function afterReceivedDate(): string
+    public const MIN_VALIDITY_MONTHS = 18;
+
+    /**
+     * On or after the received date + 18 months (no overflow: 31 Aug + 18
+     * months = 28/29 Feb). Uses the received date being sent, or (when editing
+     * without sending it) the entry's current one.
+     */
+    protected function minimumValidity(): string
     {
         $received = $this->input('passport_received_date', $this->entry()?->passport_received_date?->toDateString());
 
-        return is_string($received) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $received)
-            ? "after:{$received}"
-            : 'after:passport_received_date';
+        if (! is_string($received) || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $received) || ! strtotime($received)) {
+            return 'after:passport_received_date';
+        }
+
+        return 'after_or_equal:'.Carbon::parse($received)->addMonthsNoOverflow(self::MIN_VALIDITY_MONTHS)->toDateString();
     }
 
     /**

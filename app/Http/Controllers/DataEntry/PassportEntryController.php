@@ -15,12 +15,14 @@ use App\Services\PassportScanService;
 use App\Services\WorkflowService;
 use App\Support\Like;
 use App\Support\Normalize;
+use App\Support\PassportOverviewCsv;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PassportEntryController extends Controller
 {
@@ -31,9 +33,10 @@ class PassportEntryController extends Controller
      * mode=medical shows one Medical page tab (medical_status), Pending by slip
      * date oldest first and the other tabs newest first, ignoring sort.
      */
-    public function index(ListPassportEntriesRequest $request): AnonymousResourceCollection
+    public function index(ListPassportEntriesRequest $request, PassportOverviewCsv $csv): AnonymousResourceCollection|StreamedResponse
     {
-        Gate::authorize('viewAny', PassportEntry::class);
+        // The read-only overview is open to accounts too; every other list is not.
+        Gate::authorize($request->isOverview() ? 'viewOverview' : 'viewAny', PassportEntry::class);
 
         $search = trim((string) $request->validated('q'));
         $reference = trim((string) $request->validated('reference'));
@@ -50,7 +53,7 @@ class PassportEntryController extends Controller
             ListPassportEntriesRequest::MEDICAL => $request->validated('medical_status', MedicalStatus::Pending->value),
             default => $request->validated('medical_status'),
         };
-        $overview = $request->validated('view') === ListPassportEntriesRequest::OVERVIEW;
+        $overview = $request->isOverview();
 
         // Columns are qualified: the current medical record is joined in.
         $sortColumn = match ($sort) {
@@ -101,7 +104,14 @@ class PassportEntryController extends Controller
 
         $entries = $entries
             ->orderBy($sortColumn, $direction)
-            ->orderBy('passport_entries.id', $direction)
+            ->orderBy('passport_entries.id', $direction);
+
+        // All Passports: export=csv downloads every row with the same searches.
+        if ($overview && $request->validated('export') === 'csv') {
+            return $csv->download($entries);
+        }
+
+        $entries = $entries
             ->paginate($request->integer('per_page', 15))
             ->withQueryString();
 

@@ -14,7 +14,7 @@ it('creates a company from Quick Add with its name, quota and country', function
         ->assertJsonPath('data.name', 'Desert Rose Construction')
         ->assertJsonPath('data.quota', 12)
         ->assertJsonPath('data.country.code', 'MY')
-        ->assertJsonPath('data.agent_name', null);
+        ->assertJsonMissingPath('data.agent_name');
 
     expect(Company::sole())->created_by->toBe($clerk->id)->is_active->toBeTrue();
 });
@@ -41,14 +41,17 @@ it('requires the name, a quota of at least 1 and an active country, with clear m
     'unknown country' => [['country_code' => 'QQ'], 'country_code', 'The selected country does not exist or is inactive.'],
 ]);
 
-it('keeps the admin Companies CRUD and existing companies without a quota valid', function () {
+it('requires the quota in the admin Companies CRUD too, but keeps existing companies without one valid', function () {
     $existing = Company::factory()->create(['quota' => null]);
     Sanctum::actingAs(User::factory()->admin()->create());
 
     $this->postJson('/api/admin/companies', ['name' => 'Admin Made Co', 'country_code' => 'MY'])
-        ->assertCreated()
-        ->assertJsonPath('data.quota', null);
-    $this->patchJson("/api/admin/companies/{$existing->id}", ['agent_name' => 'New Agent'])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['quota' => 'Enter the quota (the number of workers the company needs).']);
+    $this->patchJson("/api/admin/companies/{$existing->id}", ['quota' => null])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('quota');
+    $this->patchJson("/api/admin/companies/{$existing->id}", ['is_active' => false])
         ->assertOk()
         ->assertJsonPath('data.quota', null);
     $this->patchJson("/api/data-entry/companies/{$existing->id}", ['name' => 'Renamed Existing'])

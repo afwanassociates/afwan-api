@@ -20,6 +20,9 @@ use Illuminate\Database\Eloquent\Builder;
  * - next_waiting: completed, and the next step has no record yet;
  * - previous_open: still at the step before, in any state.
  *
+ * A tab with drop_when_flight_done (Visa issued, BMET cleared) leaves out
+ * passports whose workflow is completed (flight confirmed).
+ *
  * For the first step after medical (calling) every at-step state also needs
  * a fit medical still valid today (Dhaka). Soft-deleted passports are never
  * included, and unfit passports never reach a record step.
@@ -58,7 +61,8 @@ class StepTabQuery
                     ->where('passport_entries.current_stage', $later[0])
                     ->where('passport_entries.stage_status', 'waiting')))
                 // Still at the step before, in any state (e.g. Flight Pending while BMET is open).
-                ->when(in_array('previous_open', $states, true) && $previous !== null, fn (Builder $query) => $query->orWhere('passport_entries.current_stage', $previous)));
+                ->when(in_array('previous_open', $states, true) && $previous !== null, fn (Builder $query) => $query->orWhere('passport_entries.current_stage', $previous)))
+            ->when($definition['drop_when_flight_done'], fn (Builder $query) => $query->where('passport_entries.current_stage', '<>', Workflow::COMPLETED));
     }
 
     /**

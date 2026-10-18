@@ -141,7 +141,8 @@ describe('tabs', function () {
         expect($counts)->toBe(['pending' => 6, 'confirmed' => 1])
             ->and($summary['step_tabs']['flight'])->toBe($counts)
             ->and($summary['stages']['flight'])->toBe(['total' => 6, 'waiting' => 6])
-            ->and($summary['step_tabs']['bmet'])->toBe(['pending' => 3, 'cleared' => 4])
+            // The confirmed flight's passport has left BMET cleared.
+            ->and($summary['step_tabs']['bmet'])->toBe(['pending' => 3, 'cleared' => 3])
             ->and($summary['stages']['bmet'])->toBe(['total' => 3, 'waiting' => 3]);
 
         foreach ($counts as $tab => $count) {

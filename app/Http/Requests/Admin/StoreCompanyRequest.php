@@ -2,24 +2,10 @@
 
 namespace App\Http\Requests\Admin;
 
-use App\Http\Requests\DataEntry\StoreCompanyRequest as QuickAddCompanyRequest;
-use Illuminate\Contracts\Validation\ValidationRule;
+use App\Http\Requests\DataEntry\StoreCompanyRequest as BaseStoreCompanyRequest;
 
 /**
- * An admin creates a company with every field, and may create it inactive.
+ * An admin creates a company with its name, country and quota. New companies
+ * are always active; they are deactivated from the list.
  */
-class StoreCompanyRequest extends QuickAddCompanyRequest
-{
-    /**
-     * Get the validation rules that apply to the request.
-     *
-     * @return array<string, array<int, ValidationRule|string>>
-     */
-    public function rules(): array
-    {
-        return [
-            ...parent::rules(),
-            'is_active' => ['sometimes', 'boolean'],
-        ];
-    }
-}
+class StoreCompanyRequest extends BaseStoreCompanyRequest {}

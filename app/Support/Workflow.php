@@ -102,6 +102,8 @@ class Workflow
             'label' => (string) ($tab['label'] ?? $statuses[$tab['states'][0] ?? ''] ?? str($tab['key'])->replace('_', ' ')->title()),
             'states' => array_values($tab['states']),
             'order' => (string) ($tab['order'] ?? 'status_date_desc'),
+            // The passport leaves the tab once the whole workflow is completed (flight confirmed).
+            'drop_when_flight_done' => (bool) ($tab['drop_when_flight_done'] ?? false),
         ], $tabs);
     }
 

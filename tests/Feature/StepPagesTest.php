@@ -470,7 +470,8 @@ describe('summary', function () {
             // Pending: 2 fit, the calling date entered, and the old rejected one.
             // Permitted: calling done and no visa record yet.
             ->and($tabs['calling'])->toBe(['pending' => 4, 'permitted' => 1])
-            ->and($tabs['visa'])->toBe(['pending' => 1, 'issued' => 3, 'rejected' => 0])
+            // Issued: the confirmed flight's passport has left the tab.
+            ->and($tabs['visa'])->toBe(['pending' => 1, 'issued' => 2, 'rejected' => 0])
             ->and(array_keys($tabs['bmet']))->toBe(['pending', 'cleared'])
             ->and(array_keys($tabs['flight']))->toBe(['pending', 'confirmed']);
 

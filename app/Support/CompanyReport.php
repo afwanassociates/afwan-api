@@ -45,29 +45,44 @@ class CompanyReport
     }
 
     /**
-     * Companies with their counts, filtered and sorted.
+     * Companies with their counts, filtered and sorted. `company_id` keeps one
+     * company; `reference_id` counts only that reference's passports and keeps
+     * only companies that have some (the balance still uses every passport).
      *
-     * @param  array{search?: string|null, country_code?: string|null, sort?: string|null}  $filters
+     * @param  array{search?: string|null, country_code?: string|null, company_id?: int|string|null, reference_id?: int|string|null, sort?: string|null}  $filters
      * @return Builder<Company>
      */
     public function query(array $filters = []): Builder
     {
         $search = trim((string) ($filters['search'] ?? ''));
+        $referenceId = isset($filters['reference_id']) ? (int) $filters['reference_id'] : null;
         $sort = (string) ($filters['sort'] ?? 'name');
         $direction = str_starts_with($sort, '-') ? 'desc' : 'asc';
         $sort = ltrim($sort, '-');
 
         $counts = array_map(fn (string $column) => "coalesce(stats.{$column}, 0) as {$column}", $this->countColumns());
 
-        return Company::query()
-            ->leftJoinSub($this->passportCounts(), 'stats', 'stats.company_id', '=', 'companies.id')
-            ->select(['companies.id', 'companies.name', 'companies.country_code', 'companies.agent_name', 'companies.bd_agency_name', 'companies.quota'])
+        if ($referenceId === null) {
+            $query = Company::query()
+                ->leftJoinSub($this->passportCounts('company_id'), 'stats', 'stats.company_id', '=', 'companies.id');
+            $allTotal = 'stats.total';
+        } else {
+            // Inner join: companies without passports from this reference drop out.
+            $query = Company::query()
+                ->joinSub($this->passportCounts('company_id', $referenceId), 'stats', 'stats.company_id', '=', 'companies.id')
+                ->leftJoinSub(
+                    PassportEntry::query()->toBase()->select('company_id')->selectRaw('count(*) as total')->groupBy('company_id'),
+                    'all_stats', 'all_stats.company_id', '=', 'companies.id',
+                );
+            $allTotal = 'all_stats.total';
+        }
+
+        return $query
+            ->select(['companies.id', 'companies.name', 'companies.country_code', 'companies.quota'])
             ->selectRaw(implode(', ', $counts))
-            ->selectRaw('case when companies.quota is null then null else cast(companies.quota as signed) - coalesce(stats.total, 0) end as balance')
-            ->when($search !== '', fn (Builder $query) => $query->where(fn (Builder $query) => $query
-                ->where('companies.name', 'like', Like::contains($search))
-                ->orWhere('companies.agent_name', 'like', Like::contains($search))
-                ->orWhere('companies.bd_agency_name', 'like', Like::contains($search))))
+            ->selectRaw("case when companies.quota is null then null else cast(companies.quota as signed) - coalesce({$allTotal}, 0) end as balance")
+            ->when($search !== '', fn (Builder $query) => $query->where('companies.name', 'like', Like::contains($search)))
+            ->when($filters['company_id'] ?? null, fn (Builder $query, int|string $id) => $query->where('companies.id', (int) $id))
             ->when($filters['country_code'] ?? null, fn (Builder $query, string $code) => $query->where('companies.country_code', $code))
             ->orderBy(in_array($sort, ['name', 'quota'], true) ? "companies.{$sort}" : $sort, $direction)
             ->orderBy('companies.id');
@@ -106,8 +121,6 @@ class CompanyReport
             'id' => $company->id,
             'name' => $company->name,
             'country_code' => $company->country_code,
-            'agent_name' => $company->agent_name,
-            'bd_agency_name' => $company->bd_agency_name,
             'quota' => $company->quota,
             ...collect($this->countColumns())->mapWithKeys(fn (string $column) => [$column => (int) $company->getAttribute($column)])->all(),
             'balance' => $company->getAttribute('balance') === null ? null : (int) $company->getAttribute('balance'),
@@ -115,14 +128,45 @@ class CompanyReport
     }
 
     /**
-     * Per-company passport counts (soft-deleted passports left out):
+     * Passport counts per company (or per reference, by `$groupBy`), soft-deleted passports left out,
+     * optionally only the passports of one reference (`$referenceId`):
      * - medical_fit: past the medical step (a fit medical, even if it has
      *   since expired); medical_unfit and medical_pending: still at medical
      *   (pending means the slip date is in); not_started: no slip date yet;
      * - <step>_done: the stage is past that step (completed counts for all);
      * - in_process: flight not confirmed and not unfit.
      */
-    protected function passportCounts(): QueryBuilder
+    public function passportCounts(string $groupBy, ?int $referenceId = null): QueryBuilder
+    {
+        return PassportEntry::query()
+            ->when($referenceId !== null, fn (Builder $query) => $query->where('reference_id', $referenceId))
+            ->toBase()
+            ->select($groupBy)
+            ->selectRaw(implode(', ', $this->countSums()))
+            ->groupBy($groupBy);
+    }
+
+    /**
+     * The same counts over every passport (with or without a company), for
+     * the dashboard summary.
+     *
+     * @return array<string, int>
+     */
+    public function overallCounts(): array
+    {
+        $row = PassportEntry::query()->toBase()->selectRaw(implode(', ', $this->countSums()))->first();
+
+        return collect($this->countColumns())
+            ->mapWithKeys(fn (string $column) => [$column => (int) ($row->{$column} ?? 0)])
+            ->all();
+    }
+
+    /**
+     * The SQL aggregates behind every count column (see passportCounts()).
+     *
+     * @return list<string>
+     */
+    protected function countSums(): array
     {
         $steps = $this->workflow->recordStepKeys();
         $sums = [
@@ -141,10 +185,6 @@ class CompanyReport
 
         $sums[] = "sum(current_stage <> '".Workflow::COMPLETED."' and not (current_stage = 'medical' and stage_status = 'unfit')) as in_process";
 
-        return PassportEntry::query()
-            ->toBase()
-            ->select('company_id')
-            ->selectRaw(implode(', ', $sums))
-            ->groupBy('company_id');
+        return $sums;
     }
 }

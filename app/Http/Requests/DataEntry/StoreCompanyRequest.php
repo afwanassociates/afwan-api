@@ -12,8 +12,7 @@ use Illuminate\Validation\Rule;
 class StoreCompanyRequest extends FormRequest
 {
     /**
-     * Normalize the name before the uniqueness check, the country code and
-     * the agent and agency names.
+     * Normalize the name before the uniqueness check, and the country code.
      */
     protected function prepareForValidation(): void
     {
@@ -23,12 +22,6 @@ class StoreCompanyRequest extends FormRequest
 
         if (is_string($this->input('country_code'))) {
             $this->merge(['country_code' => Normalize::countryCode($this->input('country_code'))]);
-        }
-
-        foreach (['agent_name', 'bd_agency_name'] as $field) {
-            if (is_string($this->input($field))) {
-                $this->merge([$field => Normalize::name($this->input($field))]);
-            }
         }
     }
 
@@ -44,13 +37,8 @@ class StoreCompanyRequest extends FormRequest
             'name' => ['required', 'string', 'max:150', Rule::unique('companies', 'name')->ignore($this->company())],
             // Where the employer is. When editing, the current country stays valid even if deactivated.
             'country_code' => ['required', 'string', 'size:2', new ActiveCountry($this->company()?->country_code)],
-            // The company's agent and the Bangladeshi recruiting agency (all optional).
-            'agent_name' => ['nullable', 'string', 'max:150'],
-            'agent_phone' => ['nullable', 'string', 'max:30', 'regex:/^[0-9+\-\s()]+$/'],
-            'agent_email' => ['nullable', 'string', 'email', 'max:150'],
-            'bd_agency_name' => ['nullable', 'string', 'max:150'],
             // Workers the company asked for; the company report shows the balance.
-            'quota' => ['nullable', 'integer', 'min:0', 'max:4294967295'],
+            'quota' => ['required', 'integer', 'min:1', 'max:4294967295'],
         ];
     }
 
@@ -62,8 +50,12 @@ class StoreCompanyRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'name.required' => 'Enter the company name.',
             'name.unique' => 'A company with this name already exists.',
-            'agent_phone.regex' => 'The agent phone may only contain digits, spaces, +, - and brackets.',
+            'country_code.required' => 'Choose the company country.',
+            'quota.required' => 'Enter the quota (the number of workers the company needs).',
+            'quota.integer' => 'The quota must be a whole number.',
+            'quota.min' => 'The quota must be at least 1.',
         ];
     }
 

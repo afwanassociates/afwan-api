@@ -111,6 +111,8 @@ class ListPassportEntriesRequest extends FormRequest
             'direction' => $overview || $this->isMedicalMode() ? ['exclude'] : ['sometimes', Rule::in(['asc', 'desc'])],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
             'view' => ['sometimes', 'nullable', Rule::in([self::OVERVIEW])],
+            // The overview only: the whole list (same searches) as a CSV download.
+            'export' => $overview ? ['sometimes', 'nullable', Rule::in(['csv'])] : ['exclude'],
         ];
     }
 
@@ -135,6 +137,7 @@ class ListPassportEntriesRequest extends FormRequest
      */
     public function isOverview(): bool
     {
-        return $this->input('view') === self::OVERVIEW;
+        // GET /reports/passports (accounts included) only ever serves the overview.
+        return $this->routeIs('reports.passports') || $this->input('view') === self::OVERVIEW;
     }
 }

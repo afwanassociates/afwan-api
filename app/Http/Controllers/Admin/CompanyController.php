@@ -33,10 +33,7 @@ class CompanyController extends Controller
         $companies = Company::query()
             ->with('country')
             ->withCount('passportEntries')
-            ->when($search !== '', fn (Builder $query) => $query->where(fn (Builder $query) => $query
-                ->where('name', 'like', Like::contains($search))
-                ->orWhere('agent_name', 'like', Like::contains($search))
-                ->orWhere('bd_agency_name', 'like', Like::contains($search))))
+            ->when($search !== '', fn (Builder $query) => $query->where('name', 'like', Like::contains($search)))
             ->when($request->validated('country_code'), fn (Builder $query, string $code) => $query->where('country_code', $code))
             ->when($request->has('is_active'), fn (Builder $query) => $query->where('is_active', $request->boolean('is_active')))
             ->orderBy('name')
@@ -57,14 +54,14 @@ class CompanyController extends Controller
     }
 
     /**
-     * Create a company with every field. Active unless is_active=false.
+     * Create a company (name, country and quota). New companies are active.
      */
     public function store(StoreCompanyRequest $request): CompanyResource
     {
         Gate::authorize('manage', Company::class);
 
-        $company = new Company($request->safe()->except('is_active'));
-        $company->is_active = $request->boolean('is_active', true);
+        $company = new Company($request->validated());
+        $company->is_active = true;
         $company->created_by = $request->user()->id;
         $company->save();
 

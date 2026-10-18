@@ -66,7 +66,7 @@ function companyPassport(Company $company, string $state): PassportEntry
  */
 function reportCompanies(): array
 {
-    $a = Company::factory()->create(['name' => 'Alpha Builders', 'country_code' => 'MY', 'quota' => 10, 'agent_name' => 'Rahim Uddin', 'bd_agency_name' => 'Sea Star Overseas']);
+    $a = Company::factory()->create(['name' => 'Alpha Builders', 'country_code' => 'MY', 'quota' => 10]);
     $b = Company::factory()->create(['name' => 'Beta Foods', 'country_code' => 'SA']);
     $c = Company::factory()->create(['name' => 'Gamma Care', 'country_code' => 'MY', 'quota' => 3]);
 
@@ -90,35 +90,23 @@ function csvRows(string $body): array
 }
 
 describe('company fields', function () {
-    it('saves and returns the agent, BD agency and quota', function () {
+    it('saves only the name, country and quota (other fields are ignored)', function () {
         Sanctum::actingAs(User::factory()->admin()->create());
 
         $this->postJson('/api/admin/companies', [
             'name' => 'Desert Rose Construction',
             'country_code' => 'my',
-            'agent_name' => '  Ahmad   Faiz ',
-            'agent_phone' => '+60 12-345 6789',
-            'agent_email' => 'faiz@example.com',
-            'bd_agency_name' => 'Green Field Recruiting Agency',
             'quota' => 25,
+            'agent_name' => 'Ahmad Faiz',
         ])
             ->assertCreated()
-            ->assertJsonPath('data.agent_name', 'Ahmad Faiz')
-            ->assertJsonPath('data.agent_phone', '+60 12-345 6789')
-            ->assertJsonPath('data.agent_email', 'faiz@example.com')
-            ->assertJsonPath('data.bd_agency_name', 'Green Field Recruiting Agency')
-            ->assertJsonPath('data.quota', 25);
+            ->assertJsonPath('data.quota', 25)
+            ->assertJsonMissingPath('data.agent_name');
     });
 
-    it('keeps them optional and leaves existing companies untouched', function () {
+    it('edits the quota of an existing company', function () {
         $existing = Company::factory()->create();
         Sanctum::actingAs(User::factory()->admin()->create());
-
-        // The admin CRUD keeps them optional (Quick Add requires the quota).
-        $this->postJson('/api/admin/companies', ['name' => 'Plain Company', 'country_code' => 'MY'])
-            ->assertCreated()
-            ->assertJsonPath('data.quota', null)
-            ->assertJsonPath('data.agent_name', null);
 
         $this->patchJson("/api/data-entry/companies/{$existing->id}", ['quota' => 5])
             ->assertOk()
@@ -129,15 +117,17 @@ describe('company fields', function () {
     it('rejects bad values', function (array $payload, string $field) {
         Sanctum::actingAs(User::factory()->admin()->create());
 
-        $this->postJson('/api/admin/companies', ['name' => 'Some Company', 'country_code' => 'MY', ...$payload])
+        $this->postJson('/api/admin/companies', ['name' => 'Some Company', 'country_code' => 'MY', 'quota' => 5, ...$payload])
             ->assertUnprocessable()
             ->assertJsonValidationErrors($field);
     })->with([
-        'bad email' => [['agent_email' => 'not-an-email'], 'agent_email'],
-        'bad phone' => [['agent_phone' => 'call me'], 'agent_phone'],
+        'no name' => [['name' => ''], 'name'],
+        'no country' => [['country_code' => null], 'country_code'],
+        'no quota' => [['quota' => null], 'quota'],
+        'quota 0' => [['quota' => 0], 'quota'],
         'negative quota' => [['quota' => -1], 'quota'],
         'fractional quota' => [['quota' => 2.5], 'quota'],
-        'agent name too long' => [['agent_name' => str_repeat('a', 151)], 'agent_name'],
+        'name too long' => [['name' => str_repeat('a', 151)], 'name'],
     ]);
 });
 
@@ -153,8 +143,6 @@ describe('company report', function () {
                 'id' => $a->id,
                 'name' => 'Alpha Builders',
                 'country_code' => 'MY',
-                'agent_name' => 'Rahim Uddin',
-                'bd_agency_name' => 'Sea Star Overseas',
                 'quota' => 10,
                 'total' => 8,
                 // Unfit passports count only as unfit.
@@ -183,8 +171,7 @@ describe('company report', function () {
         ['a' => $a, 'b' => $b, 'c' => $c] = reportCompanies();
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        expect($this->getJson('/api/reports/companies?search=sea star')->json('data.*.id'))->toBe([$a->id])
-            ->and($this->getJson('/api/reports/companies?search=rahim')->json('data.*.id'))->toBe([$a->id])
+        expect($this->getJson('/api/reports/companies?search=alpha')->json('data.*.id'))->toBe([$a->id])
             ->and($this->getJson('/api/reports/companies?country_code=my')->json('data.*.id'))->toBe([$a->id, $c->id])
             ->and($this->getJson('/api/reports/companies?country_code=MY')->json('totals.total'))->toBe(8)
             ->and($this->getJson('/api/reports/companies?sort=-total')->json('data.*.id'))->toBe([$a->id, $b->id, $c->id])
@@ -215,7 +202,7 @@ describe('company report', function () {
 
     it('exports UTF-8 CSV with a BOM, the date in the file name and a totals row', function () {
         ['a' => $a] = reportCompanies();
-        $a->forceFill(['agent_name' => '=HYPERLINK("x")'])->save();
+        $a->forceFill(['name' => '=HYPERLINK("x")'])->save();
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $response = $this->get('/api/reports/companies?export=csv&sort=name')->assertOk();
@@ -226,11 +213,11 @@ describe('company report', function () {
             ->and($response->headers->get('Content-Type'))->toContain('text/csv')
             // 1 May 2026 in Dhaka (still 30 April in UTC).
             ->and($response->headers->get('Content-Disposition'))->toContain('company-report-01-05-2026.csv')
-            ->and($rows[0])->toBe(['ID', 'Company', 'Country', 'Agent', 'BD agency', 'Quota', 'Total', 'Medical fit', 'Medical unfit', 'Medical pending', 'Not started', 'Calling done', 'Visa done', 'Bmet done', 'Flight done', 'In process', 'Balance'])
+            ->and($rows[0])->toBe(['ID', 'Company', 'Country', 'Quota', 'Total', 'Medical fit', 'Medical unfit', 'Medical pending', 'Not started', 'Calling done', 'Visa done', 'Bmet done', 'Flight done', 'In process', 'Balance'])
             ->and($rows)->toHaveCount(5)
-            ->and($rows[1])->toBe([(string) $a->id, 'Alpha Builders', 'MY', '\'=HYPERLINK("x")', 'Sea Star Overseas', '10', '8', '5', '2', '1', '0', '3', '2', '2', '1', '5', '2'])
-            ->and($rows[2][16])->toBe('')
-            ->and($rows[4])->toBe(['Total', '', '', '', '', '13', '9', '5', '2', '2', '0', '3', '2', '2', '1', '6', '5']);
+            ->and($rows[1])->toBe([(string) $a->id, '\'=HYPERLINK("x")', 'MY', '10', '8', '5', '2', '1', '0', '3', '2', '2', '1', '5', '2'])
+            ->and($rows[2][14])->toBe('')
+            ->and($rows[4])->toBe(['Total', '', '', '13', '9', '5', '2', '2', '0', '3', '2', '2', '1', '6', '5']);
     });
 });
 

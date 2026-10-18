@@ -17,6 +17,14 @@ class PassportEntryPolicy
         return $user->hasRole(UserRole::DataEntry, UserRole::Admin, UserRole::SuperAdmin);
     }
 
+    /**
+     * Read the All Passports overview (accounts included, read only).
+     */
+    public function viewOverview(User $user): bool
+    {
+        return $user->hasRole(UserRole::DataEntry, UserRole::Accounts, UserRole::Admin, UserRole::SuperAdmin);
+    }
+
     public function view(User $user, PassportEntry $entry): bool
     {
         return $this->viewAny($user);

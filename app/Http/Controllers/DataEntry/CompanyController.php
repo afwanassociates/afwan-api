@@ -43,14 +43,13 @@ class CompanyController extends Controller
 
     /**
      * Quick Add a company from the passport form (any data-entry user): its
-     * name, quota and country, plus the optional agent and agency fields.
-     * Admins manage every field under /admin/companies.
+     * name, quota and country. Admins manage companies under /admin/companies.
      */
     public function store(QuickAddCompanyRequest $request): CompanyResource
     {
         Gate::authorize('create', Company::class);
 
-        $company = new Company($request->safe()->only(['name', 'quota', 'country_code', 'agent_name', 'agent_phone', 'agent_email', 'bd_agency_name']));
+        $company = new Company($request->safe()->only(['name', 'quota', 'country_code']));
         $company->is_active = true;
         $company->created_by = $request->user()->id;
         $company->save();
