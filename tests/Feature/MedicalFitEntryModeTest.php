@@ -166,6 +166,10 @@ describe('Online mark', function () {
             ->and($this->getJson('/api/data-entry/steps/calling/passports')->json('data.0'))->not->toHaveKey('entry_mode')
             ->and($this->getJson("/api/data-entry/passports/{$passport->id}")->json('data.entry_mode'))->toBe(['value' => $mode, 'label' => $label]);
 
+        // Clearing the mark is an undo: data entry may not, admin may.
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => null])->assertForbidden();
+        Sanctum::actingAs(User::factory()->admin()->create());
+
         // Cleared again before Calling starts: back to the Medical Fit tab.
         $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => null])
             ->assertOk()
@@ -312,6 +316,8 @@ describe('medical list', function () {
         expect(idsOf($fitTab))->toBe([])
             ->and(idsOf('/api/data-entry/steps/calling/passports'))->toBe([$passport->id]);
 
+        // Undo (clearing the mark) is for admins.
+        Sanctum::actingAs(User::factory()->admin()->create());
         $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => null])
             ->assertOk()
             ->assertJsonPath('data.latest_status.text', 'Medical fit - mark Online');

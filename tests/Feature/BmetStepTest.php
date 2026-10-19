@@ -172,9 +172,10 @@ describe('milestones', function () {
 });
 
 describe('undo', function () {
+    // Undo is for admin and super admin only (see the roles tests).
     it('undoes a milestone; undoing the last one removes the record', function () {
         $passport = bmetPassport();
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        Sanctum::actingAs(User::factory()->admin()->create());
         $this->postJson(bmetUrl($passport, 'training'), ['date' => '2026-04-20'])->assertCreated();
         $this->postJson(bmetUrl($passport, 'finger'), ['date' => '2026-04-21'])->assertOk();
 
@@ -196,7 +197,7 @@ describe('undo', function () {
 
     it('refuses to undo a milestone that is not marked', function () {
         $passport = bmetPassport(StepStatus::InProcess, ['training_certificate_date' => '2026-04-10']);
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        Sanctum::actingAs(User::factory()->admin()->create());
 
         $this->deleteJson(bmetUrl($passport, 'finger'))
             ->assertUnprocessable()
@@ -208,7 +209,7 @@ describe('undo', function () {
 
     it('refuses to undo training or finger once BMET is cleared', function (string $action) {
         $passport = bmetPassport(StepStatus::Completed, ['training_certificate_date' => '2026-04-08', 'finger_date' => '2026-04-09']);
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        Sanctum::actingAs(User::factory()->admin()->create());
 
         $this->deleteJson(bmetUrl($passport, $action))
             ->assertUnprocessable()
@@ -217,7 +218,7 @@ describe('undo', function () {
 
     it('undoes the clearance back to Pending with its milestones', function () {
         $passport = bmetPassport();
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        Sanctum::actingAs(User::factory()->admin()->create());
         $this->postJson(bmetUrl($passport, 'training'), ['date' => '2026-04-20']);
         $this->postJson(bmetUrl($passport, 'finger'), ['date' => '2026-04-21']);
         $this->postJson(bmetUrl($passport, 'clearance'), ['date' => '2026-04-22'])->assertOk();
@@ -242,7 +243,7 @@ describe('undo', function () {
 
     it('refuses to undo the clearance once the flight is confirmed', function () {
         $passport = bmetPassport(StepStatus::Completed, ['training_certificate_date' => '2026-04-08', 'finger_date' => '2026-04-09']);
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        Sanctum::actingAs(User::factory()->admin()->create());
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/flight/booking", ['booking_date' => '2026-05-20'])->assertCreated();
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/flight/confirm")->assertOk();
 
@@ -328,16 +329,16 @@ describe('tabs', function () {
 });
 
 describe('roles', function () {
-    it('lets data entry, admin and super admin mark and undo', function (string $role) {
+    it('lets data entry, admin and super admin mark; only admin and super admin undo', function (string $role, bool $canUndo) {
         $passport = bmetPassport();
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
         $this->postJson(bmetUrl($passport, 'training'))->assertCreated();
         $this->postJson(bmetUrl($passport, 'finger'))->assertOk();
         $this->postJson(bmetUrl($passport, 'clearance'))->assertOk();
-        $this->deleteJson(bmetUrl($passport, 'clearance'))->assertOk();
-        $this->deleteJson(bmetUrl($passport, 'finger'))->assertOk();
-    })->with(['dataEntry', 'admin', 'superAdmin']);
+        $this->deleteJson(bmetUrl($passport, 'clearance'))->assertStatus($canUndo ? 200 : 403);
+        $this->deleteJson(bmetUrl($passport, 'finger'))->assertStatus($canUndo ? 200 : 403);
+    })->with([['dataEntry', false], ['admin', true], ['superAdmin', true]]);
 
     it('lets accounts read the BMET list but not act', function () {
         $passport = bmetPassport(StepStatus::InProcess, ['training_certificate_date' => '2026-04-10']);

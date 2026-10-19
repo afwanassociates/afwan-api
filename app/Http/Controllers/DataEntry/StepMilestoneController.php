@@ -39,12 +39,12 @@ class StepMilestoneController extends Controller
     }
 
     /**
-     * Undo the action. Undoing the last milestone removes the record, so the
-     * response then has data null.
+     * Undo the action (admins only). Undoing the last milestone removes the
+     * record, so the response then has data null.
      */
     public function destroy(Request $request, PassportEntry $passport, string $step, string $action): JsonResponse
     {
-        Gate::authorize('create', [PassportStepRecord::class, $passport]);
+        Gate::authorize('undo', PassportStepRecord::class);
         $this->ensureAction($step, $action);
 
         $record = $this->service->undoMilestone($passport, $step, $action, $request->user());

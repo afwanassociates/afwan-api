@@ -92,7 +92,7 @@ describe('create', function () {
 
         $this->postJson('/api/data-entry/passports', passportPayload(['passport_number' => 'ab 1234 567']))
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['passport_number' => 'This passport number is already entered (it is in the Passport list).']);
+            ->assertJsonValidationErrors(['passport_number' => 'This passport number is already entered (it is in the Passport Entry List).']);
     });
 
     it('rejects the passport number of a soft-deleted entry', function () {
@@ -195,7 +195,7 @@ describe('edit and delete', function () {
 
         $this->patchJson("/api/data-entry/passports/{$entry->id}", ['passport_number' => 'taken 1234'])
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['passport_number' => 'This passport number is already entered (it is in the Passport list).']);
+            ->assertJsonValidationErrors(['passport_number' => 'This passport number is already entered (it is in the Passport Entry List).']);
     });
 
     it('forbids data entry from deleting, even their own entry', function () {

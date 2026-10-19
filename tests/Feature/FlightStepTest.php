@@ -255,7 +255,7 @@ describe('booking', function () {
 
     it('refuses to change or clear the booking once the flight is confirmed', function () {
         $passport = flightPassport(flightCleared(['flight' => StepStatus::Completed]));
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        Sanctum::actingAs(User::factory()->admin()->create());
 
         $this->postJson(flightUrl($passport, 'booking'), ['booking_date' => '2026-06-15'])
             ->assertUnprocessable()
@@ -269,7 +269,7 @@ describe('booking', function () {
 
     it('clears the booking date, keeping it in the history', function () {
         $passport = flightPassport(['visa' => StepStatus::Completed, 'flight' => StepStatus::InProcess]);
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        Sanctum::actingAs(User::factory()->admin()->create());
 
         $this->deleteJson(flightUrl($passport, 'booking'))
             ->assertOk()
@@ -364,7 +364,7 @@ describe('confirm', function () {
 describe('undo', function () {
     it('returns a confirmed flight to Pending, keeping its booking date', function () {
         $passport = flightPassport(flightCleared());
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        Sanctum::actingAs(User::factory()->admin()->create());
         $this->postJson(flightUrl($passport, 'booking'), ['booking_date' => '2026-06-15'])->assertCreated();
         $this->postJson(flightUrl($passport, 'confirm'))->assertOk();
 
@@ -402,7 +402,7 @@ describe('undo', function () {
     it('refuses to undo the BMET clearance once the flight is confirmed, not while only booked', function () {
         $confirmed = flightPassport(flightCleared(['flight' => StepStatus::Completed]));
         $booked = flightPassport(flightCleared(['flight' => StepStatus::InProcess]));
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        Sanctum::actingAs(User::factory()->admin()->create());
 
         $this->deleteJson("/api/data-entry/passports/{$confirmed->id}/steps/bmet/clearance")
             ->assertUnprocessable()
@@ -419,7 +419,7 @@ describe('undo', function () {
 describe('legacy records', function () {
     it('keeps a cancelled flight in the history and the passport in Pending', function () {
         $passport = flightPassport(flightCleared(['flight' => StepStatus::Rejected]));
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        Sanctum::actingAs(User::factory()->admin()->create());
 
         expect(flightTab('pending'))->toBe([$passport->id])
             ->and(flightRow($passport)['missing'])->toBe(['booking_date'])
@@ -438,16 +438,22 @@ describe('legacy records', function () {
 });
 
 describe('roles', function () {
-    it('lets data entry, admin and super admin book, confirm and undo', function (string $role) {
+    it('lets data entry, admin and super admin book and confirm; only admin and super admin undo', function (string $role, bool $canUndo) {
         $passport = flightPassport(flightCleared());
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
         $this->postJson(flightUrl($passport, 'booking'), ['booking_date' => '2026-06-15'])->assertCreated();
         $this->postJson(flightUrl($passport, 'confirm'))->assertOk();
-        $this->deleteJson(flightUrl($passport, 'confirm'))->assertOk();
-        $this->deleteJson(flightUrl($passport, 'booking'))->assertOk();
+        // Undo the confirmation, then clear the booking date: both are undos.
+        $this->deleteJson(flightUrl($passport, 'confirm'))->assertStatus($canUndo ? 200 : 403);
+        if ($canUndo) {
+            $this->deleteJson(flightUrl($passport, 'booking'))->assertOk();
+        } else {
+            expect($passport->fresh()->current_stage)->toBe('completed');
+            $this->deleteJson(flightUrl(flightPassport(flightCleared(['flight' => StepStatus::InProcess])), 'booking'))->assertForbidden();
+        }
         $this->getJson('/api/data-entry/steps/flight/passports')->assertOk();
-    })->with(['dataEntry', 'admin', 'superAdmin']);
+    })->with([['dataEntry', false], ['admin', true], ['superAdmin', true]]);
 
     it('lets accounts read the Flight list but not act', function () {
         $passport = flightPassport(flightCleared(['flight' => StepStatus::InProcess]));

@@ -94,7 +94,10 @@ class PassportEntryController extends Controller
             ->when($request->has('company_id'), fn (Builder $query) => $query->where('company_id', $request->integer('company_id')))
             ->when($request->has('company_country_code'), fn (Builder $query) => $query->whereHas('company', fn (Builder $query) => $query->where('country_code', $request->validated('company_country_code'))))
             ->when($request->has('received_from'), fn (Builder $query) => $query->whereDate('passport_received_date', '>=', $request->validated('received_from')))
-            ->when($request->has('received_to'), fn (Builder $query) => $query->whereDate('passport_received_date', '<=', $request->validated('received_to')));
+            ->when($request->has('received_to'), fn (Builder $query) => $query->whereDate('passport_received_date', '<=', $request->validated('received_to')))
+            // The current step's status date (All Passports' date filter).
+            ->when($request->has('status_date_from'), fn (Builder $query) => $query->where('passport_entries.stage_status_date', '>=', $request->validated('status_date_from')))
+            ->when($request->has('status_date_to'), fn (Builder $query) => $query->where('passport_entries.stage_status_date', '<=', $request->validated('status_date_to')));
 
         // The Medical page's Fit and Expiring soon tabs hold only passports not
         // yet marked Online; once marked they move to Calling pending.

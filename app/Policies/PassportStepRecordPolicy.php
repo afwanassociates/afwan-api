@@ -11,7 +11,9 @@ use App\Support\Workflow;
 /**
  * data_entry records steps and edits its own records until a later step has
  * records. admin and super_admin edit any record and are the only ones who
- * delete. The step order itself is enforced by App\Services\WorkflowService.
+ * delete or undo (any step: the Online mark, BMET actions, the flight booking
+ * and confirmation). The step order itself is enforced by
+ * App\Services\WorkflowService.
  */
 class PassportStepRecordPolicy
 {
@@ -48,6 +50,15 @@ class PassportStepRecordPolicy
     }
 
     public function delete(User $user, PassportStepRecord $record): bool
+    {
+        return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin);
+    }
+
+    /**
+     * Undo a step: clear the Online mark, a BMET action, the flight booking or
+     * the flight confirmation (admin and super_admin only).
+     */
+    public function undo(User $user): bool
     {
         return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin);
     }

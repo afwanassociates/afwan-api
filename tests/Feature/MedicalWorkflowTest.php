@@ -323,8 +323,8 @@ describe('duplicate passport numbers', function () {
             ->assertJsonValidationErrors(['passport_number' => "This passport number is already entered ({$location})."]);
     })->with([
         'unfit' => ['unfit', 'it is in the Unfit list'],
-        'pending' => ['pending', 'it is in the Passport list'],
-        'expired medical' => ['expired', 'it is in the Passport list'],
+        'pending' => ['pending', 'it is in the Passport Entry List'],
+        'expired medical' => ['expired', 'it is in the Passport Entry List'],
     ]);
 });
 

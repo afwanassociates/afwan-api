@@ -96,7 +96,7 @@ class StorePassportEntryRequest extends FormRequest
             $existing === null => null,
             $existing->trashed() => 'it is in the deleted records',
             $existing->medicalStatus() === MedicalStatus::Unfit => 'it is in the Unfit list',
-            default => 'it is in the Passport list',
+            default => 'it is in the Passport Entry List',
         };
 
         return $location === null

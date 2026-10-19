@@ -101,11 +101,15 @@ class ListPassportEntriesRequest extends FormRequest
             // Named list modes: passport_entered ignores medical_status; medical
             // takes it as the tab.
             'mode' => ['sometimes', 'nullable', Rule::in([self::PASSPORT_ENTERED, self::MEDICAL])],
-            // Where the passport is in the workflow (stored by WorkflowService).
-            // The overview (All Passports) offers no "completed" stage filter.
-            'stage' => ['sometimes', Rule::in($overview ? array_values(array_diff($stages, [Workflow::COMPLETED])) : $stages)],
+            // Where the passport is in the workflow (stored by WorkflowService),
+            // "completed" included (All Passports filters by any step).
+            'stage' => ['sometimes', Rule::in($stages)],
             'stage_status' => ['sometimes', Rule::in(Workflow::STAGE_STATUSES)],
             'received_to' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:received_from'],
+            // The date of the passport's current step status (stage_status_date),
+            // e.g. All Passports' Today / This week / This month.
+            'status_date_from' => ['sometimes', 'date_format:Y-m-d'],
+            'status_date_to' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:status_date_from'],
             // The overview and the Medical page ignore sorting (fixed order).
             'sort' => $overview || $this->isMedicalMode() ? ['exclude'] : ['sometimes', Rule::in(self::SORTABLE)],
             'direction' => $overview || $this->isMedicalMode() ? ['exclude'] : ['sometimes', Rule::in(['asc', 'desc'])],

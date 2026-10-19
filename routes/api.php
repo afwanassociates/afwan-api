@@ -20,6 +20,7 @@ use App\Http\Controllers\DataEntry\PassportHistoryController;
 use App\Http\Controllers\DataEntry\PassportScanController;
 use App\Http\Controllers\DataEntry\ReferenceController;
 use App\Http\Controllers\DataEntry\StepActionController;
+use App\Http\Controllers\DataEntry\StepBulkController;
 use App\Http\Controllers\DataEntry\StepListController;
 use App\Http\Controllers\DataEntry\StepMilestoneController;
 use App\Http\Controllers\DataEntry\StepRecordController;
@@ -136,6 +137,10 @@ Route::middleware('auth:sanctum')->group(function () {
             ->whereIn('step', app(Workflow::class)->milestoneStepKeys())
             ->whereIn('action', app(Workflow::class)->milestoneActionKeys())
             ->name('passports.steps.milestones.destroy');
+        // Bulk: one action for many passports (each checked as its single button is).
+        Route::post('/steps/{step}/bulk', StepBulkController::class)
+            ->whereIn('step', app(Workflow::class)->recordStepKeys())
+            ->name('steps.bulk');
         Route::match(['post', 'patch'], '/passports/{passport}/steps/{step}/start', [StepActionController::class, 'start'])
             ->whereIn('step', app(Workflow::class)->startResultStepKeys())
             ->name('passports.steps.start');

@@ -301,14 +301,38 @@ describe('overview list', function () {
         $this->getJson('/api/data-entry/passports?sort=bogus')->assertUnprocessable()->assertJsonValidationErrors('sort');
     });
 
-    it('offers no completed stage in the overview, only in the other modes', function () {
+    it('filters the overview by any step, completed included', function () {
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        $this->getJson('/api/data-entry/passports?view=overview&stage=completed')
+        $this->getJson('/api/data-entry/passports?view=overview&stage=completed')->assertOk();
+        $this->getJson('/api/data-entry/passports?view=overview&stage=calling')->assertOk();
+        $this->getJson('/api/data-entry/passports?view=overview&stage=bogus')
             ->assertUnprocessable()
             ->assertJsonValidationErrors('stage');
-        $this->getJson('/api/data-entry/passports?view=overview&stage=calling')->assertOk();
-        $this->getJson('/api/data-entry/passports?stage=completed')->assertOk();
+    });
+
+    it('filters by the current step status date (status_date_from / status_date_to)', function () {
+        $old = overviewPassport('pending');
+        $week = overviewPassport('pending');
+        $today = overviewPassport('pending');
+        foreach ([[$old, '2026-03-01'], [$week, '2026-04-27'], [$today, '2026-05-01']] as [$passport, $date]) {
+            PassportEntry::query()->whereKey($passport->id)->toBase()->update(['stage_status_date' => $date]);
+        }
+        Sanctum::actingAs(User::factory()->accounts()->create());
+
+        $ids = fn (string $query) => collect($this->getJson("/api/reports/passports?view=overview&medical_status=all&{$query}")->assertOk()->json('data.*.id'))->sort()->values()->all();
+
+        expect($ids('status_date_from=2026-05-01&status_date_to=2026-05-01'))->toBe([$today->id])
+            ->and($ids('status_date_from=2026-04-25&status_date_to=2026-05-01'))->toBe([$week->id, $today->id])
+            ->and($ids('status_date_from=2026-04-01'))->toBe([$week->id, $today->id])
+            ->and($ids('status_date_to=2026-04-30'))->toBe([$old->id, $week->id])
+            // With a step: both must match.
+            ->and($ids('stage=medical&status_date_from=2026-05-01'))->toBe([$today->id])
+            ->and($ids('stage=calling&status_date_from=2026-05-01'))->toBe([]);
+
+        $this->getJson('/api/reports/passports?view=overview&status_date_from=2026-05-02&status_date_to=2026-05-01')
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('status_date_to');
     });
 
     it('runs a fixed number of queries however many passports are listed', function () {

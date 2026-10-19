@@ -70,11 +70,11 @@ class StepActionController extends Controller
 
     /**
      * Clear the flight booking date (refused once confirmed). The booking
-     * stays in the history, so data is null.
+     * stays in the history, so data is null. An undo: admins only.
      */
     public function clearFlightBooking(Request $request, PassportEntry $passport): JsonResponse
     {
-        Gate::authorize('create', [PassportStepRecord::class, $passport]);
+        Gate::authorize('undo', PassportStepRecord::class);
 
         $this->service->clearBooking($passport, 'flight', $request->user());
 
@@ -97,11 +97,11 @@ class StepActionController extends Controller
 
     /**
      * Undo the flight confirmation: back to Flight Pending with its booking
-     * date.
+     * date. Admins only.
      */
     public function undoFlight(Request $request, PassportEntry $passport): JsonResponse
     {
-        Gate::authorize('create', [PassportStepRecord::class, $passport]);
+        Gate::authorize('undo', PassportStepRecord::class);
 
         $record = $this->service->undoConfirmation($passport, 'flight', $request->user());
 
