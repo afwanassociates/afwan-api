@@ -23,7 +23,7 @@ class CompanyPolicy
      */
     public function viewReport(User $user): bool
     {
-        return $user->hasRole(UserRole::DataEntry, UserRole::Accounts, UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(UserRole::DataEntry, UserRole::Accounts, UserRole::AccountsHead, UserRole::Admin, UserRole::SuperAdmin);
     }
 
     public function create(User $user): bool

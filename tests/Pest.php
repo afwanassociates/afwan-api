@@ -4,6 +4,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
@@ -126,4 +127,15 @@ function recordMedical(int $passportId, string $medicalDate, string $result): Te
         : [];
 
     return test()->postJson("/api/data-entry/passports/{$passportId}/medical-result", ['result' => $result, ...$dates]);
+}
+
+/**
+ * Approve every accounts entry, as the accounts head would (the approval rules
+ * themselves are covered by tests/Feature/ApprovalTest.php).
+ */
+function approveAllAccountsEntries(): void
+{
+    foreach (['cash_receipts', 'cash_payments', 'cash_transfers', 'party_transactions'] as $table) {
+        DB::table($table)->update(['status' => 'approved', 'approved_at' => now()]);
+    }
 }

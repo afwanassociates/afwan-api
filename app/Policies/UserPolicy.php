@@ -7,7 +7,7 @@ use App\Models\User;
 use Illuminate\Auth\Access\Response;
 
 /**
- * Staff management rules, based on role rank (see UserRole::canManage()).
+ * Staff management rules, from the hierarchy in UserRole::manages().
  */
 class UserPolicy
 {
@@ -54,7 +54,7 @@ class UserPolicy
     }
 
     /**
-     * Only users of a strictly lower rank may be managed, never oneself.
+     * Only users of a role this role manages, never oneself.
      */
     protected function manage(User $user, User $target): Response
     {

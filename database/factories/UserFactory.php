@@ -89,6 +89,14 @@ class UserFactory extends Factory
     }
 
     /**
+     * Indicate that the user is the accounts & finance head (approves accounts entries).
+     */
+    public function accountsHead(): static
+    {
+        return $this->role(UserRole::AccountsHead);
+    }
+
+    /**
      * Indicate that the user account is deactivated.
      */
     public function inactive(): static

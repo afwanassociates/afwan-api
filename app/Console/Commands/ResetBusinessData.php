@@ -50,6 +50,13 @@ class ResetBusinessData extends Command
         'countries',
         'app_settings',
         'medical_centers',
+        // Accounts: financial records are never wiped by a passport reset.
+        'parties',
+        'cash_receipts',
+        'party_transactions',
+        'cash_payments',
+        'cash_transfers',
+        'cash_settings',
     ];
 
     /**

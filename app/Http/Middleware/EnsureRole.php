@@ -11,9 +11,9 @@ use Symfony\Component\HttpFoundation\Response;
 class EnsureRole
 {
     /**
-     * Allow the request when the user is active and has one of the given roles,
-     * or a role that outranks one of them (admin passes "role:data_entry",
-     * super_admin passes "role:admin"). With no roles, any active user passes.
+     * Allow the request when the user is active and may enter one of the given
+     * work areas (UserRole::areas(): admin passes "role:data_entry",
+     * accounts_head passes "role:accounts"). With no roles, any active user passes.
      *
      * Usage: ->middleware('role:accounts') or ->middleware('role:data_entry,accounts')
      */
@@ -37,7 +37,7 @@ class EnsureRole
         foreach ($roles as $role) {
             $required = UserRole::from($role);
 
-            if ($user->role === $required || $user->role->canManage($required)) {
+            if ($user->role->canEnter($required)) {
                 return $next($request);
             }
         }

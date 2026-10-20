@@ -1,5 +1,13 @@
 <?php
 
+use App\Http\Controllers\Accounts\ApprovalController;
+use App\Http\Controllers\Accounts\CashBookController;
+use App\Http\Controllers\Accounts\CashPaymentController;
+use App\Http\Controllers\Accounts\CashReceiptController;
+use App\Http\Controllers\Accounts\CashTransferController;
+use App\Http\Controllers\Accounts\PartyController;
+use App\Http\Controllers\Accounts\PartyLedgerController;
+use App\Http\Controllers\Accounts\PartyTransactionController;
 use App\Http\Controllers\Admin\CompanyController as AdminCompanyController;
 use App\Http\Controllers\Admin\CountryController;
 use App\Http\Controllers\Admin\MedicalCenterController;
@@ -67,11 +75,6 @@ Route::middleware('auth:sanctum')->group(function () {
             'message' => "Welcome, {$request->user()->name}.",
         ]))->name('dashboard');
 
-        Route::get('/users', [UserController::class, 'index'])->name('users.index');
-        Route::post('/users', [UserController::class, 'store'])->name('users.store');
-        Route::patch('/users/{user}', [UserController::class, 'update'])->name('users.update');
-        Route::post('/users/{user}/reset-password', [UserController::class, 'resetPassword'])->name('users.reset-password');
-
         // Countries are only ever added or deactivated, never deleted.
         Route::apiResource('countries', CountryController::class)->only(['index', 'store', 'update']);
         Route::apiResource('medical-centers', MedicalCenterController::class)->except('show');
@@ -79,6 +82,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('companies', AdminCompanyController::class);
         Route::get('/settings', [SettingsController::class, 'show'])->name('settings.show');
         Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
+    });
+
+    // Staff accounts: admins manage accounts heads, accounts and data entry users;
+    // an accounts head manages accounts users (App\Policies\UserPolicy).
+    Route::prefix('admin')->name('admin.')->middleware('role:admin,accounts_head')->group(function () {
+        Route::get('/users', [UserController::class, 'index'])->name('users.index');
+        Route::post('/users', [UserController::class, 'store'])->name('users.store');
+        Route::patch('/users/{user}', [UserController::class, 'update'])->name('users.update');
+        Route::post('/users/{user}/reset-password', [UserController::class, 'resetPassword'])->name('users.reset-password');
     });
 
     Route::prefix('data-entry')->name('data-entry.')->middleware('role:data_entry')->group(function () {
@@ -179,10 +191,44 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/references', ReferenceOptionsController::class)->name('references.index');
     });
 
+    Route::prefix('accounts-head')->name('accounts-head.')->middleware('role:accounts_head')->group(function () {
+        Route::get('/dashboard', fn (Request $request) => response()->json([
+            'area' => 'accounts-head',
+            'message' => "Welcome, {$request->user()->name}.",
+        ]))->name('dashboard');
+    });
+
     Route::prefix('accounts')->name('accounts.')->middleware('role:accounts')->group(function () {
         Route::get('/dashboard', fn (Request $request) => response()->json([
             'area' => 'accounts',
             'message' => "Welcome, {$request->user()->name}.",
         ]))->name('dashboard');
+
+        // Party / client management (clients and owners) and their ledgers.
+        Route::apiResource('parties', PartyController::class);
+        Route::get('/parties/{party}/ledger', PartyLedgerController::class)->name('parties.ledger');
+        // Receivable and refund lines entered by hand (payments come from cash receipts).
+        Route::post('/parties/{party}/transactions', [PartyTransactionController::class, 'store'])->name('parties.transactions.store');
+        Route::patch('/party-transactions/{transaction}', [PartyTransactionController::class, 'update'])->name('party-transactions.update');
+        Route::delete('/party-transactions/{transaction}', [PartyTransactionController::class, 'destroy'])->name('party-transactions.destroy');
+
+        // Cash management. Every cash write runs through App\Services\CashBook, so cash in
+        // hand never goes negative on any day.
+        Route::apiResource('cash-receipts', CashReceiptController::class);
+        Route::apiResource('cash-payments', CashPaymentController::class);
+        Route::apiResource('cash-transfers', CashTransferController::class);
+        Route::get('/cash-book', [CashBookController::class, 'index'])->name('cash-book');
+        // The opening cash in hand (set by admin and super_admin) and today's balance.
+        Route::get('/cash-settings', [CashBookController::class, 'show'])->name('cash-settings.show');
+        Route::put('/cash-settings', [CashBookController::class, 'update'])->name('cash-settings.update');
+
+        // Approval (Prepared → Approved): only approved entries count in the books.
+        // Approvers are the accounts head, admin and super admin (App\Policies\AccountsEntryPolicy).
+        Route::get('/approvals', [ApprovalController::class, 'index'])->name('approvals.index');
+        Route::get('/approvals/summary', [ApprovalController::class, 'summary'])->name('approvals.summary');
+        Route::post('/approvals/{type}/{id}/approve', [ApprovalController::class, 'approve'])
+            ->where(['type' => 'cash-receipts|cash-payments|cash-transfers|party-transactions', 'id' => '[0-9]+'])->name('approvals.approve');
+        Route::post('/approvals/{type}/{id}/return', [ApprovalController::class, 'sendBack'])
+            ->where(['type' => 'cash-receipts|cash-payments|cash-transfers|party-transactions', 'id' => '[0-9]+'])->name('approvals.return');
     });
 });
