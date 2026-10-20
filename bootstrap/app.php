@@ -1,9 +1,9 @@
 <?php
 
 use App\Exceptions\DuplicateEntry;
+use App\Foundation\Application;
 use App\Http\Middleware\EnsureRole;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;

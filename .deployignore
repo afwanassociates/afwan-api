@@ -1,0 +1,62 @@
+# Left out of the "deploy" branch built by .github/workflows/deploy.yml.
+# One rsync pattern per line ("/x" = only at the project root).
+
+# Git and CI
+/.git/
+/.github/
+/.deployignore
+
+# composer.json / composer.lock: Hostinger runs "composer install" whenever it finds them, and that
+# fails on the server (proc_open is disabled). vendor/ is already built by CI. Laravel does not need
+# composer.json at runtime here: the package manifest is prebuilt in bootstrap/cache, and the
+# app uses no event discovery or Blade components (the two runtime readers of composer.json).
+/composer.json
+/composer.lock
+
+# Secrets and local data: never deploy them
+# (.env.example stays: it is the template for the server's .env)
+/.env
+/.env.backup
+/.env.local
+/.env.production
+/.env.testing
+/*.sql
+/auth.json
+
+# Development and test only
+/tests/
+/node_modules/
+/docker/
+/nginx/
+/postman/
+/Dockerfile
+/docker-compose.yml
+/.dockerignore
+/phpunit.xml
+/.phpunit.cache/
+/.phpunit.result.cache
+/package.json
+/package-lock.json
+/.npmrc
+/vite.config.js
+/boost.json
+/.mcp.json
+/AGENTS.md
+/CLAUDE.md
+/.claude/
+/.junie/
+/.codex/
+/.cursor/
+/.idea/
+/.vscode/
+/.zed/
+.DS_Store
+
+# Runtime files (the folders stay, through their .gitignore files)
+/storage/logs/*.log
+/storage/framework/cache/data/*
+/storage/framework/sessions/*
+/storage/framework/views/*.php
+/storage/framework/testing/*
+/public/hot
+/public/storage
