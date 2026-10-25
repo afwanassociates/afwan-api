@@ -104,8 +104,8 @@ describe('required fields', function () {
     });
 
     it('requires a field on edit only when it is sent', function () {
-        $entry = PassportEntry::factory()->create();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs($user = User::factory()->dataEntry()->create());
+        $entry = PassportEntry::factory()->create(['created_by' => $user->id]); // data entry edits only their own
 
         $this->patchJson("/api/data-entry/passports/{$entry->id}", ['passport_name' => 'New Name'])->assertOk();
 
@@ -127,7 +127,8 @@ describe('old records', function () {
         $entry = PassportEntry::factory()->create(['passport_name' => 'No Reference']);
         // As saved while the reference was optional.
         DB::table('passport_entries')->where('id', $entry->id)->update(['reference_id' => null]);
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs($user = User::factory()->dataEntry()->create());
+        $entry->forceFill(['created_by' => $user->id])->save(); // data entry edits only their own
 
         $this->getJson("/api/data-entry/passports/{$entry->id}")
             ->assertOk()
@@ -155,7 +156,8 @@ describe('old records', function () {
         $entry = PassportEntry::factory()->create(['passport_name' => 'Old Entry']);
         // As saved before these fields existed.
         DB::table('passport_entries')->where('id', $entry->id)->update(['passport_expiry_date' => null, 'date_of_birth' => null, 'country_code' => null]);
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        Sanctum::actingAs($user = User::factory()->dataEntry()->create());
+        $entry->forceFill(['created_by' => $user->id])->save(); // data entry edits only their own
 
         $this->getJson("/api/data-entry/passports/{$entry->id}")
             ->assertOk()
@@ -169,7 +171,7 @@ describe('old records', function () {
         // Partial endpoints keep working without the missing fields.
         $this->patchJson("/api/data-entry/passports/{$entry->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertOk();
 
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs($user);
         $this->patchJson("/api/data-entry/passports/{$entry->id}", ['passport_name' => 'Old Entry Renamed'])
             ->assertOk()
             ->assertJsonPath('data.passport_expiry_date', null);
@@ -203,6 +205,7 @@ describe('form defaults', function () {
     });
 
     it('reflects a changed default', function () {
+        // Admins change the settings and still read the defaults (the company form needs them).
         Sanctum::actingAs(User::factory()->admin()->create());
 
         $this->putJson('/api/admin/settings', ['default_passport_country_code' => 'NP', 'default_company_country_code' => 'AE'])->assertOk();

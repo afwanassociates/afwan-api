@@ -97,8 +97,11 @@ class ApprovalController extends Controller
         return $user->hasRole(...UserRole::approvers()) ? null : $user;
     }
 
+    /**
+     * The accounts team (their own entries) and the approvers (admins included).
+     */
     private function authorizeTeam(Request $request): void
     {
-        abort_unless($request->user()->hasRole(...UserRole::accountsTeam()), 403);
+        abort_unless($request->user()->hasRole(...UserRole::accountsTeam(), ...UserRole::approvers()), 403);
     }
 }

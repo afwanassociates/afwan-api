@@ -38,6 +38,7 @@ use App\Http\Controllers\Reports\CompanyReportController;
 use App\Http\Controllers\Reports\ReferenceOptionsController;
 use App\Http\Controllers\Reports\SummaryReportController;
 use App\Http\Controllers\RoleController;
+use App\Http\Controllers\SuperAdmin\DataResetController;
 use App\Support\Workflow;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -58,8 +59,9 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     /*
-    | Work areas. A role also passes the groups of every role it outranks,
-    | so super_admin and admin reach the data-entry and accounts areas.
+    | Work areas, listed per role in UserRole::areas(): super_admin also
+    | enters admin; the heads enter their team's area. Admins have neither
+    | passport entry nor accounts (only the reports and the approvals).
     | To add a role: add an enum case in App\Enums\UserRole and a group here.
     */
     Route::prefix('super-admin')->name('super-admin.')->middleware('role:super_admin')->group(function () {
@@ -67,6 +69,14 @@ Route::middleware('auth:sanctum')->group(function () {
             'area' => 'super-admin',
             'message' => "Welcome, {$request->user()->name}.",
         ]))->name('dashboard');
+
+        // Settings → Danger zone: delete all data (a backup is written first). The delete
+        // needs the typed confirmation and the password, and is limited to 5 tries a minute.
+        Route::get('/data-reset', [DataResetController::class, 'show'])->name('data-reset.show');
+        Route::post('/data-reset', [DataResetController::class, 'destroy'])
+            ->middleware('throttle:5,1')->name('data-reset.destroy');
+        Route::get('/data-reset/backups/{name}', [DataResetController::class, 'download'])->name('data-reset.backups.download');
+        Route::delete('/data-reset/backups/{name}', [DataResetController::class, 'deleteBackup'])->name('data-reset.backups.destroy');
     });
 
     Route::prefix('admin')->name('admin.')->middleware('role:admin')->group(function () {
@@ -84,9 +94,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
     });
 
-    // Staff accounts: admins manage accounts heads, accounts and data entry users;
-    // an accounts head manages accounts users (App\Policies\UserPolicy).
-    Route::prefix('admin')->name('admin.')->middleware('role:admin,accounts_head')->group(function () {
+    // Staff accounts: admins manage the heads, accounts and data entry users; the accounts head
+    // manages accounts users and the operations head data entry users (App\Policies\UserPolicy).
+    Route::prefix('admin')->name('admin.')->middleware('role:admin,accounts_head,operation_head')->group(function () {
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
         Route::post('/users', [UserController::class, 'store'])->name('users.store');
         Route::patch('/users/{user}', [UserController::class, 'update'])->name('users.update');
@@ -168,19 +178,24 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('companies', CompanyController::class)->only(['index', 'store']);
         Route::patch('/companies/{company}', [AdminCompanyController::class, 'update'])->name('companies.update');
         Route::delete('/companies/{company}', [AdminCompanyController::class, 'destroy'])->name('companies.destroy');
+    });
+
+    // Country list and default countries: data entry, and admins for the company form and
+    // settings (admins no longer enter the data-entry area itself).
+    Route::prefix('data-entry')->name('data-entry.')->middleware('role:data_entry,admin')->group(function () {
         Route::get('/countries', CountryLookupController::class)->name('countries.index');
         Route::get('/defaults', DefaultsController::class)->name('defaults');
     });
 
     // The step work lists, readable by accounts too (actions stay data-entry only).
-    Route::prefix('data-entry')->name('data-entry.')->middleware('role:data_entry,accounts')->group(function () {
+    Route::prefix('data-entry')->name('data-entry.')->middleware('role:data_entry,accounts,admin')->group(function () {
         Route::get('/steps/{step}/passports', StepListController::class)
             ->whereIn('step', app(Workflow::class)->recordStepKeys())
             ->name('steps.passports');
     });
 
-    // Read-only reports for data entry and accounts (admin and super_admin pass too).
-    Route::prefix('reports')->name('reports.')->middleware('role:data_entry,accounts')->group(function () {
+    // Read-only reports for data entry, accounts, admin and super_admin.
+    Route::prefix('reports')->name('reports.')->middleware('role:data_entry,accounts,admin')->group(function () {
         // Passport counts over every passport, for the dashboard cards.
         Route::get('/summary', SummaryReportController::class)->name('summary');
         Route::get('/companies', [CompanyReportController::class, 'index'])->name('companies.index');
@@ -191,6 +206,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/references', ReferenceOptionsController::class)->name('references.index');
     });
 
+    Route::prefix('operation-head')->name('operation-head.')->middleware('role:operation_head')->group(function () {
+        Route::get('/dashboard', fn (Request $request) => response()->json([
+            'area' => 'operation-head',
+            'message' => "Welcome, {$request->user()->name}.",
+        ]))->name('dashboard');
+    });
+
     Route::prefix('accounts-head')->name('accounts-head.')->middleware('role:accounts_head')->group(function () {
         Route::get('/dashboard', fn (Request $request) => response()->json([
             'area' => 'accounts-head',
@@ -198,6 +220,19 @@ Route::middleware('auth:sanctum')->group(function () {
         ]))->name('dashboard');
     });
 
+    // Approval (Prepared → Approved): only approved entries count in the books. The accounts
+    // team sees its own entries; approvers are the accounts head, admin and super admin
+    // (App\Policies\AccountsEntryPolicy). Admins reach accounts only through this page.
+    Route::prefix('accounts')->name('accounts.')->middleware('role:accounts,admin')->group(function () {
+        Route::get('/approvals', [ApprovalController::class, 'index'])->name('approvals.index');
+        Route::get('/approvals/summary', [ApprovalController::class, 'summary'])->name('approvals.summary');
+        Route::post('/approvals/{type}/{id}/approve', [ApprovalController::class, 'approve'])
+            ->where(['type' => 'cash-receipts|cash-payments|cash-transfers|party-transactions', 'id' => '[0-9]+'])->name('approvals.approve');
+        Route::post('/approvals/{type}/{id}/return', [ApprovalController::class, 'sendBack'])
+            ->where(['type' => 'cash-receipts|cash-payments|cash-transfers|party-transactions', 'id' => '[0-9]+'])->name('approvals.return');
+    });
+
+    // Parties and cash: the accounts team only (accounts and the accounts head).
     Route::prefix('accounts')->name('accounts.')->middleware('role:accounts')->group(function () {
         Route::get('/dashboard', fn (Request $request) => response()->json([
             'area' => 'accounts',
@@ -218,17 +253,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('cash-payments', CashPaymentController::class);
         Route::apiResource('cash-transfers', CashTransferController::class);
         Route::get('/cash-book', [CashBookController::class, 'index'])->name('cash-book');
-        // The opening cash in hand (set by admin and super_admin) and today's balance.
+        // The opening cash in hand (set by the accounts head) and today's balance.
         Route::get('/cash-settings', [CashBookController::class, 'show'])->name('cash-settings.show');
         Route::put('/cash-settings', [CashBookController::class, 'update'])->name('cash-settings.update');
-
-        // Approval (Prepared → Approved): only approved entries count in the books.
-        // Approvers are the accounts head, admin and super admin (App\Policies\AccountsEntryPolicy).
-        Route::get('/approvals', [ApprovalController::class, 'index'])->name('approvals.index');
-        Route::get('/approvals/summary', [ApprovalController::class, 'summary'])->name('approvals.summary');
-        Route::post('/approvals/{type}/{id}/approve', [ApprovalController::class, 'approve'])
-            ->where(['type' => 'cash-receipts|cash-payments|cash-transfers|party-transactions', 'id' => '[0-9]+'])->name('approvals.approve');
-        Route::post('/approvals/{type}/{id}/return', [ApprovalController::class, 'sendBack'])
-            ->where(['type' => 'cash-receipts|cash-payments|cash-transfers|party-transactions', 'id' => '[0-9]+'])->name('approvals.return');
     });
 });

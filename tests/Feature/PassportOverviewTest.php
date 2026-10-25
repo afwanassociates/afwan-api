@@ -131,41 +131,25 @@ describe('latest status', function () {
 });
 
 describe('stage_status_date', function () {
-    it('is set by recompute from the records, for each case', function () {
+    it('is set from the medical result, and data entry cannot move it with a re-test', function () {
         $passport = overviewPassport('pending', '2026-02-01');
         expect($passport->stage_status_date->toDateString())->toBe('2026-02-01');
 
-        $admin = User::factory()->admin()->create();
-        Sanctum::actingAs($admin);
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         // Unfit: the current medical's date.
-        $unfit = recordMedical($passport->id, '2026-03-01', 'unfit')->json('data.id');
+        recordMedical($passport->id, '2026-03-01', 'unfit')->assertCreated();
         expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-03-01');
 
-        // Fit re-test: waiting for the next step since the medical date.
-        $fit = recordMedical($passport->id, '2026-04-10', 'fit')->json('data.id');
-        expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-04-10');
-
-        // A back-dated medical does not move it.
-        recordMedical($passport->id, '2026-02-15', 'fit')->assertCreated();
-        expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-04-10');
-
-        // Editing the current medical's date moves it.
-        $this->patchJson("/api/data-entry/medicals/{$fit}", ['medical_date' => '2026-04-12'])->assertOk();
-        expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-04-12');
-
-        // Deleting falls back to the previous latest record, then to the received date.
-        $this->deleteJson("/api/data-entry/medicals/{$fit}")->assertNoContent();
+        // Re-tests are for the operations head (covered by "is set by recompute").
+        recordMedical($passport->id, '2026-04-10', 'fit')->assertUnprocessable();
         expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-03-01');
-
-        MedicalRecord::query()->whereKeyNot($unfit)->get()->each(fn (MedicalRecord $record) => $this->deleteJson("/api/data-entry/medicals/{$record->id}"));
-        $this->deleteJson("/api/data-entry/medicals/{$unfit}")->assertNoContent();
-        expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-02-01');
     });
 
     it('is set when a passport is created and follows edits to its received date while not started', function () {
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs($user = User::factory()->dataEntry()->create());
         $passport = overviewPassport('not_started', '2026-02-01');
+        $passport->forceFill(['created_by' => $user->id])->save(); // data entry edits only their own
 
         $this->patchJson("/api/data-entry/passports/{$passport->id}", ['passport_received_date' => '2026-02-05'])->assertOk();
 
@@ -198,6 +182,38 @@ describe('stage_status_date', function () {
             ->and($fit->fresh()->stage_status_date->toDateString())->toBe('2026-03-30')
             ->and($unfit->fresh()->stage_status_date->toDateString())->toBe('2026-04-20')
             ->and(PassportEntry::withTrashed()->find($deleted->id)->stage_status_date->toDateString())->toBe('2026-03-30');
+    });
+
+    it('is set by recompute from the records, for each case', function () {
+        $passport = overviewPassport('pending', '2026-02-01');
+        expect($passport->stage_status_date->toDateString())->toBe('2026-02-01');
+
+        $head = User::factory()->operationHead()->create();
+        Sanctum::actingAs($head);
+
+        // Unfit: the current medical's date.
+        $unfit = recordMedical($passport->id, '2026-03-01', 'unfit')->json('data.id');
+        expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-03-01');
+
+        // Fit re-test: waiting for the next step since the medical date.
+        $fit = recordMedical($passport->id, '2026-04-10', 'fit')->json('data.id');
+        expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-04-10');
+
+        // A back-dated medical does not move it.
+        recordMedical($passport->id, '2026-02-15', 'fit')->assertCreated();
+        expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-04-10');
+
+        // Editing the current medical's date moves it.
+        $this->patchJson("/api/data-entry/medicals/{$fit}", ['medical_date' => '2026-04-12'])->assertOk();
+        expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-04-12');
+
+        // Deleting falls back to the previous latest record, then to the received date.
+        $this->deleteJson("/api/data-entry/medicals/{$fit}")->assertNoContent();
+        expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-03-01');
+
+        MedicalRecord::query()->whereKeyNot($unfit)->get()->each(fn (MedicalRecord $record) => $this->deleteJson("/api/data-entry/medicals/{$record->id}"));
+        $this->deleteJson("/api/data-entry/medicals/{$unfit}")->assertNoContent();
+        expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-02-01');
     });
 });
 
@@ -395,12 +411,19 @@ describe('overview list', function () {
         $this->postJson('/api/data-entry/passports', [])->assertForbidden();
     });
 
-    it('is available to data entry, admin and super admin', function (string $role) {
+    it('is available to data entry (admins use the read-only /reports/passports)', function () {
+        overviewPassport('unfit');
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        expect(overview('medical_status=all')->json('data.0.latest_status.text'))->toBe('Medical: Unfit');
+    });
+
+    it('is available to data entry and the operations head', function (string $role) {
         overviewPassport('unfit');
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
         expect(overview('medical_status=all')->json('data.0.latest_status.text'))->toBe('Medical: Unfit');
-    })->with(['dataEntry', 'admin', 'superAdmin']);
+    })->with(['dataEntry', 'operationHead']);
 });
 
 describe('reference filter', function () {

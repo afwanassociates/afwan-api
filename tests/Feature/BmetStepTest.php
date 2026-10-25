@@ -112,7 +112,7 @@ describe('milestones', function () {
 
     it('refuses the clearance until training and finger are both done', function (?array $details, string $message) {
         $passport = bmetPassport($details === null ? null : StepStatus::InProcess, $details ?? []);
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson(bmetUrl($passport, 'clearance'))
             ->assertUnprocessable()
@@ -172,10 +172,18 @@ describe('milestones', function () {
 });
 
 describe('undo', function () {
-    // Undo is for admin and super admin only (see the roles tests).
+    it('keeps undo of a milestone or the clearance from data entry and admins', function (string $role) {
+        $marked = bmetPassport(StepStatus::InProcess, ['training_certificate_date' => '2026-04-20', 'finger_date' => '2026-04-21']);
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->deleteJson(bmetUrl($marked, 'finger'))->assertForbidden();
+        $this->deleteJson(bmetUrl($marked, 'training'))->assertForbidden();
+        $this->deleteJson(bmetUrl($marked, 'clearance'))->assertForbidden();
+    })->with(['dataEntry', 'admin', 'superAdmin']);
+
     it('undoes a milestone; undoing the last one removes the record', function () {
         $passport = bmetPassport();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
         $this->postJson(bmetUrl($passport, 'training'), ['date' => '2026-04-20'])->assertCreated();
         $this->postJson(bmetUrl($passport, 'finger'), ['date' => '2026-04-21'])->assertOk();
 
@@ -197,7 +205,7 @@ describe('undo', function () {
 
     it('refuses to undo a milestone that is not marked', function () {
         $passport = bmetPassport(StepStatus::InProcess, ['training_certificate_date' => '2026-04-10']);
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
         $this->deleteJson(bmetUrl($passport, 'finger'))
             ->assertUnprocessable()
@@ -209,7 +217,7 @@ describe('undo', function () {
 
     it('refuses to undo training or finger once BMET is cleared', function (string $action) {
         $passport = bmetPassport(StepStatus::Completed, ['training_certificate_date' => '2026-04-08', 'finger_date' => '2026-04-09']);
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
         $this->deleteJson(bmetUrl($passport, $action))
             ->assertUnprocessable()
@@ -218,7 +226,7 @@ describe('undo', function () {
 
     it('undoes the clearance back to Pending with its milestones', function () {
         $passport = bmetPassport();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
         $this->postJson(bmetUrl($passport, 'training'), ['date' => '2026-04-20']);
         $this->postJson(bmetUrl($passport, 'finger'), ['date' => '2026-04-21']);
         $this->postJson(bmetUrl($passport, 'clearance'), ['date' => '2026-04-22'])->assertOk();
@@ -243,7 +251,7 @@ describe('undo', function () {
 
     it('refuses to undo the clearance once the flight is confirmed', function () {
         $passport = bmetPassport(StepStatus::Completed, ['training_certificate_date' => '2026-04-08', 'finger_date' => '2026-04-09']);
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/flight/booking", ['booking_date' => '2026-05-20'])->assertCreated();
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/flight/confirm")->assertOk();
 
@@ -329,16 +337,24 @@ describe('tabs', function () {
 });
 
 describe('roles', function () {
-    it('lets data entry, admin and super admin mark; only admin and super admin undo', function (string $role, bool $canUndo) {
+    it('lets data entry mark, but not undo', function () {
         $passport = bmetPassport();
-        Sanctum::actingAs(User::factory()->{$role}()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson(bmetUrl($passport, 'training'))->assertCreated();
         $this->postJson(bmetUrl($passport, 'finger'))->assertOk();
         $this->postJson(bmetUrl($passport, 'clearance'))->assertOk();
-        $this->deleteJson(bmetUrl($passport, 'clearance'))->assertStatus($canUndo ? 200 : 403);
-        $this->deleteJson(bmetUrl($passport, 'finger'))->assertStatus($canUndo ? 200 : 403);
-    })->with([['dataEntry', false], ['admin', true], ['superAdmin', true]]);
+        $this->deleteJson(bmetUrl($passport, 'clearance'))->assertForbidden();
+        $this->deleteJson(bmetUrl($passport, 'finger'))->assertForbidden();
+    });
+
+    it('lets admins only read the BMET list, like accounts', function (string $role) {
+        $passport = bmetPassport();
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->getJson('/api/data-entry/steps/bmet/passports')->assertOk();
+        $this->postJson(bmetUrl($passport, 'training'))->assertForbidden();
+    })->with(['admin', 'superAdmin']);
 
     it('lets accounts read the BMET list but not act', function () {
         $passport = bmetPassport(StepStatus::InProcess, ['training_certificate_date' => '2026-04-10']);
@@ -363,9 +379,20 @@ describe('roles', function () {
 
     it('has no other BMET actions', function () {
         $passport = bmetPassport();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson(bmetUrl($passport, 'submitted'))->assertNotFound();
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/visa/training")->assertNotFound();
     });
+
+    it('lets data entry and the operations head mark; only the operations head undoes', function (string $role, bool $canUndo) {
+        $passport = bmetPassport();
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->postJson(bmetUrl($passport, 'training'))->assertCreated();
+        $this->postJson(bmetUrl($passport, 'finger'))->assertOk();
+        $this->postJson(bmetUrl($passport, 'clearance'))->assertOk();
+        $this->deleteJson(bmetUrl($passport, 'clearance'))->assertStatus($canUndo ? 200 : 403);
+        $this->deleteJson(bmetUrl($passport, 'finger'))->assertStatus($canUndo ? 200 : 403);
+    })->with([['dataEntry', false], ['operationHead', true]]);
 });

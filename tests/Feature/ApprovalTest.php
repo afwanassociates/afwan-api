@@ -72,19 +72,19 @@ describe('approval', function () {
         $this->deleteJson("/api/accounts/cash-receipts/{$id}")->assertForbidden();
     });
 
-    it('never lets anyone approve an entry they prepared or edited, not even an admin', function () {
-        $admin = User::factory()->admin()->create();
+    it('never lets anyone approve an entry they prepared or edited, not even the accounts head', function () {
         $head = User::factory()->accountsHead()->create();
+        $otherHead = User::factory()->accountsHead()->create();
         $party = Party::factory()->create();
 
-        Sanctum::actingAs($admin);
+        Sanctum::actingAs($head);
         $id = cashIn($party);
         $this->postJson("/api/accounts/approvals/cash-receipts/{$id}/approve")
             ->assertForbidden()
             ->assertJsonPath('message', 'You prepared or edited this entry, so someone else must approve it.');
 
-        // The head edits it, so now only someone else (the admin) may approve.
-        Sanctum::actingAs($head);
+        // Another head edits it, so now only someone else (an admin) may approve.
+        Sanctum::actingAs($otherHead);
         $this->putJson("/api/accounts/cash-receipts/{$id}", [
             'date' => '2026-10-05', 'party_type' => 'client', 'party_id' => $party->id,
             'receipt_type' => 'cash', 'amount' => 900, 'payment_method' => 'cash',
@@ -142,6 +142,8 @@ describe('approval', function () {
 
         Sanctum::actingAs(User::factory()->admin()->create());
         $this->postJson("/api/accounts/approvals/cash-receipts/{$id}/return", ['reason' => 'Typo'])->assertOk();
+
+        Sanctum::actingAs($head);
         $this->getJson('/api/accounts/cash-settings')->assertJsonPath('data.cash_in_hand', 0);
         $this->getJson("/api/accounts/parties/{$party->id}/ledger")
             ->assertJsonPath('lines', [])

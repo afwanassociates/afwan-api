@@ -7,8 +7,9 @@ use App\Models\Party;
 use App\Models\User;
 
 /**
- * accounts, admin and super_admin keep parties and their ledgers; only admin
- * and super_admin delete a party (and only one without transactions).
+ * The accounts team (accounts and the accounts head) keeps parties and their
+ * ledgers; only the accounts head deletes a party (and only one without
+ * transactions). Admins have no parties.
  */
 class PartyPolicy
 {
@@ -34,6 +35,6 @@ class PartyPolicy
 
     public function delete(User $user, Party $party): bool
     {
-        return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(...UserRole::accountsManagers());
     }
 }

@@ -141,7 +141,7 @@ describe('cash receipts', function () {
 
         $id = $this->postJson('/api/accounts/cash-receipts', receiptPayload($party))->json('data.id');
         approveAllAccountsEntries();
-        Sanctum::actingAs(User::factory()->superAdmin()->create());
+        Sanctum::actingAs(User::factory()->accountsHead()->create());
         $this->deleteJson("/api/accounts/cash-receipts/{$id}")
             ->assertForbidden()
             ->assertJsonPath('message', 'Approved entries are locked. Ask an admin to return it for correction before you delete it.');

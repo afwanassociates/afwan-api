@@ -87,7 +87,7 @@ it('issues the visa with its issue date, expired date and optional visa number',
 
 it('validates the visa issued fields', function (array $body, string $field, ?string $message = null) {
     $passport = visaPassport();
-    Sanctum::actingAs(User::factory()->admin()->create());
+    Sanctum::actingAs(User::factory()->dataEntry()->create());
 
     $this->postJson(visaResultUrl($passport), ['result' => 'completed', ...$body])
         ->assertUnprocessable()
@@ -140,14 +140,14 @@ it('shows an issued visa in Visa issued, BMET Pending and Flight Pending at once
         ->toBe('Visa issued - BMET and flight pending');
 });
 
-it('lets data entry, admin and super admin record the visa result, not accounts', function (string $role, int $status) {
+it('lets only data entry record the visa result, not admins or accounts', function (string $role, int $status) {
     $passport = visaPassport();
     Sanctum::actingAs(User::factory()->{$role}()->create());
 
     $this->postJson(visaResultUrl($passport), ['result' => 'completed', 'issue_date' => '2026-04-25', 'valid_until' => '2026-10-25'])->assertStatus($status);
 })->with([
     'data entry' => ['dataEntry', 200],
-    'admin' => ['admin', 200],
-    'super admin' => ['superAdmin', 200],
+    'admin' => ['admin', 403],
+    'super admin' => ['superAdmin', 403],
     'accounts' => ['accounts', 403],
 ]);

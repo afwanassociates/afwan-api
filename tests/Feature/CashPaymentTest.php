@@ -141,9 +141,13 @@ describe('cash payments', function () {
         $id = $this->postJson('/api/accounts/cash-payments', paymentPayload(['payee_type' => 'owner', 'party_id' => $party->id, 'payment_type' => 'drawing']))->json('data.id');
         approveAllAccountsEntries();
 
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->accountsHead()->create());
         $this->deleteJson("/api/accounts/cash-payments/{$id}")->assertForbidden();
+        Sanctum::actingAs(User::factory()->admin()->create());
         $this->postJson("/api/accounts/approvals/cash-payments/{$id}/return", ['reason' => 'Wrong owner'])->assertOk();
+
+        // The accounts head deletes it, then the party (deleting parties is theirs).
+        Sanctum::actingAs(User::factory()->accountsHead()->create());
         $this->deleteJson("/api/accounts/cash-payments/{$id}")->assertNoContent();
         expect($party->transactions()->count())->toBe(0);
         // The party now has only a receipt-free history and can be deleted.

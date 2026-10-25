@@ -18,6 +18,7 @@ class StaffUserSeeder extends Seeder
         'admin@afwan.test' => ['name' => 'Admin', 'role' => UserRole::Admin],
         'dataentry@afwan.test' => ['name' => 'Data Entry', 'role' => UserRole::DataEntry],
         'accountshead@afwan.test' => ['name' => 'Accounts Head', 'role' => UserRole::AccountsHead],
+        'operationhead@afwan.test' => ['name' => 'Operations Head', 'role' => UserRole::OperationHead],
         'accounts@afwan.test' => ['name' => 'Accounts', 'role' => UserRole::Accounts],
     ];
 

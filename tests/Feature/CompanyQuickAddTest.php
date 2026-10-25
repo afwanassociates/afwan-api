@@ -54,7 +54,7 @@ it('requires the quota in the admin Companies CRUD too, but keeps existing compa
     $this->patchJson("/api/admin/companies/{$existing->id}", ['is_active' => false])
         ->assertOk()
         ->assertJsonPath('data.quota', null);
-    $this->patchJson("/api/data-entry/companies/{$existing->id}", ['name' => 'Renamed Existing'])
+    $this->patchJson("/api/admin/companies/{$existing->id}", ['name' => 'Renamed Existing'])
         ->assertOk()
         ->assertJsonPath('data.quota', null);
 });

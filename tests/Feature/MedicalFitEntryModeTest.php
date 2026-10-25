@@ -166,22 +166,15 @@ describe('Online mark', function () {
             ->and($this->getJson('/api/data-entry/steps/calling/passports')->json('data.0'))->not->toHaveKey('entry_mode')
             ->and($this->getJson("/api/data-entry/passports/{$passport->id}")->json('data.entry_mode'))->toBe(['value' => $mode, 'label' => $label]);
 
-        // Clearing the mark is an undo: data entry may not, admin may.
+        // Clearing the mark is an undo, for the operations head only: it stays in Calling.
         $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => null])->assertForbidden();
-        Sanctum::actingAs(User::factory()->admin()->create());
 
-        // Cleared again before Calling starts: back to the Medical Fit tab.
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => null])
-            ->assertOk()
-            ->assertJsonPath('data.entry_mode', null)
-            ->assertJsonPath('data.current_stage', 'medical');
-
-        expect(idsOf('/api/data-entry/steps/calling/passports'))->toBe([]);
+        expect(idsOf('/api/data-entry/steps/calling/passports'))->toBe([$passport->id]);
     });
 
     it('refuses to mark a passport without a valid fit medical', function (Closure $setUp) {
         $passport = $setUp();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => 'online'])
             ->assertUnprocessable()
@@ -202,17 +195,23 @@ describe('Online mark', function () {
         $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => 'online'])->assertOk();
     });
 
-    it('refuses changing or clearing the mark once Calling has a record', function (?string $newMode) {
+    it('refuses changing or clearing the mark once Calling has a record', function (?string $newMode, int $status) {
         $passport = fitPassport('fit', 'online');
         PassportStepRecord::factory()->for($passport)->step('calling')->status(StepStatus::InProcess)->on('2026-04-25')->create();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => $newMode])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors(['entry_mode' => 'The Online mark cannot be changed once Calling / Work Permit has started.']);
+        $response = $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => $newMode])
+            ->assertStatus($status);
+        if ($status === 422) {
+            $response->assertJsonValidationErrors(['entry_mode' => 'The Online mark cannot be changed once Calling / Work Permit has started.']);
+        }
 
         expect($passport->fresh()->entry_mode->value)->toBe('online');
-    })->with(['online', null]);
+    })->with([
+        'marked again: too late' => ['online', 422],
+        // Clearing is an undo, for the operations head only.
+        'cleared: not allowed' => [null, 403],
+    ]);
 
     it('validates the mark', function (array $body) {
         $passport = fitPassport();
@@ -226,7 +225,7 @@ describe('Online mark', function () {
         'unknown' => [['entry_mode' => 'offline']],
     ]);
 
-    it('lets data entry, admin and super admin mark, and nobody else', function () {
+    it('lets only data entry mark, not admins or anyone else', function () {
         $passport = fitPassport();
 
         $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => 'online'])->assertUnauthorized();
@@ -234,15 +233,18 @@ describe('Online mark', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
         $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => 'online'])->assertForbidden();
 
-        foreach (['dataEntry', 'admin', 'superAdmin'] as $role) {
+        foreach (['admin', 'superAdmin'] as $role) {
             Sanctum::actingAs(User::factory()->{$role}()->create());
-            $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => 'online'])->assertOk();
+            $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => 'online'])->assertForbidden();
         }
+
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => 'online'])->assertOk();
     });
 
     it('refuses to start Calling without the mark', function () {
         $passport = fitPassport();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling/update", ['receive_date' => '2026-04-25', 'issue_date' => '2026-04-25', 'valid_until' => '2026-10-25'])
             ->assertUnprocessable()
@@ -272,6 +274,20 @@ describe('Online mark', function () {
 
         $this->postJson("/api/data-entry/passports/{$legacy->id}/steps/visa/start", ['step_date' => '2026-04-25'])->assertCreated();
     });
+
+    it('lets data entry and the operations head mark, and nobody else', function () {
+        $passport = fitPassport();
+
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => 'online'])->assertUnauthorized();
+
+        Sanctum::actingAs(User::factory()->accounts()->create());
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => 'online'])->assertForbidden();
+
+        foreach (['dataEntry', 'operationHead'] as $role) {
+            Sanctum::actingAs(User::factory()->{$role}()->create());
+            $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => 'online'])->assertOk();
+        }
+    });
 });
 
 describe('medical list', function () {
@@ -300,7 +316,7 @@ describe('medical list', function () {
             ->and($this->getJson($url)->json())->not->toHaveKey('mark_counts');
     })->with(['fit', 'expiring_soon']);
 
-    it('moves a passport from the Fit tab to Calling pending when marked, and back when cleared', function (string $state, string $tab) {
+    it('moves a passport from the Fit tab to Calling pending when marked, for good (data entry cannot clear it)', function (string $state, string $tab) {
         $passport = fitPassport($state);
         Sanctum::actingAs(User::factory()->dataEntry()->create());
         $fitTab = "/api/data-entry/passports?mode=medical&medical_status={$tab}";
@@ -316,14 +332,11 @@ describe('medical list', function () {
         expect(idsOf($fitTab))->toBe([])
             ->and(idsOf('/api/data-entry/steps/calling/passports'))->toBe([$passport->id]);
 
-        // Undo (clearing the mark) is for admins.
-        Sanctum::actingAs(User::factory()->admin()->create());
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => null])
-            ->assertOk()
-            ->assertJsonPath('data.latest_status.text', 'Medical fit - mark Online');
+        // Clearing the mark is an undo, for the operations head only.
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => null])->assertForbidden();
 
-        expect(idsOf($fitTab))->toBe([$passport->id])
-            ->and(idsOf('/api/data-entry/steps/calling/passports'))->toBe([]);
+        expect(idsOf($fitTab))->toBe([])
+            ->and(idsOf('/api/data-entry/steps/calling/passports'))->toBe([$passport->id]);
     })->with([
         'fit tab' => ['fit', 'fit'],
         'expiring soon tab' => ['expiring_soon', 'expiring_soon'],
@@ -367,6 +380,37 @@ describe('medical list', function () {
 
         expect($step2)->toMatchArray(['pending' => 1, 'fit' => 3, 'expiring_soon' => 1, 'expired' => 2, 'unfit' => 1]);
     });
+
+    it('moves a passport from the Fit tab to Calling pending when marked, and back when cleared', function (string $state, string $tab) {
+        $passport = fitPassport($state);
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        $fitTab = "/api/data-entry/passports?mode=medical&medical_status={$tab}";
+
+        expect(idsOf($fitTab))->toBe([$passport->id])
+            ->and(idsOf('/api/data-entry/steps/calling/passports'))->toBe([]);
+
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => 'online'])
+            ->assertOk()
+            ->assertJsonPath('data.entry_mode', ['value' => 'online', 'label' => 'Online'])
+            ->assertJsonPath('data.latest_status.text', 'Ready for Calling (Online)');
+
+        expect(idsOf($fitTab))->toBe([])
+            ->and(idsOf('/api/data-entry/steps/calling/passports'))->toBe([$passport->id]);
+
+        // Undo (clearing the mark) is for admins.
+        Sanctum::actingAs(User::factory()->operationHead()->create());
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => null])
+            ->assertOk()
+            ->assertJsonPath('data.latest_status.text', 'Medical fit - mark Online');
+
+        expect(idsOf($fitTab))->toBe([$passport->id])
+            ->and(idsOf('/api/data-entry/steps/calling/passports'))->toBe([]);
+    })->with([
+        'fit tab' => ['fit', 'fit'],
+        'expiring soon tab' => ['expiring_soon', 'expiring_soon'],
+        // The Fit tab includes expiring-soon passports too.
+        'expiring soon, in the fit tab' => ['expiring_soon', 'fit'],
+    ]);
 });
 
 describe('calling list and summary', function () {
@@ -431,7 +475,7 @@ describe('Key-in removed', function () {
         $unmarked = fitPassport('expiring_soon');
         $started = fitPassport('fit', 'online');
         PassportStepRecord::factory()->for($started)->step('calling')->status(StepStatus::InProcess)->on('2026-04-25')->create();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $responses = [
             $this->getJson('/api/data-entry/workflow/config'),
@@ -454,6 +498,6 @@ describe('Key-in removed', function () {
         }
 
         expect($responses[3]->json('data.latest_status.text'))->toBe('Ready for Calling (Online)')
-            ->and($responses[11]->json('data.latest_status.text'))->toBe('Medical fit - mark Online');
+            ->and($responses[11]->status())->toBe(403); // clearing the mark: the operations head only
     });
 });

@@ -9,11 +9,10 @@ use App\Models\User;
 use App\Support\Workflow;
 
 /**
- * data_entry records steps and edits its own records until a later step has
- * records. admin and super_admin edit any record and are the only ones who
- * delete or undo (any step: the Online mark, BMET actions, the flight booking
- * and confirmation). The step order itself is enforced by
- * App\Services\WorkflowService.
+ * The passport team records steps; data entry edits its own records until a
+ * later step has records. Only the operations head edits any record, deletes
+ * and undoes (any step: the Online mark, BMET actions, the flight booking and
+ * confirmation). The step order itself is enforced by App\Services\WorkflowService.
  */
 class PassportStepRecordPolicy
 {
@@ -21,7 +20,7 @@ class PassportStepRecordPolicy
 
     public function viewAny(User $user): bool
     {
-        return $user->hasRole(UserRole::DataEntry, UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(...UserRole::passportTeam());
     }
 
     /**
@@ -29,7 +28,7 @@ class PassportStepRecordPolicy
      */
     public function viewList(User $user): bool
     {
-        return $user->hasRole(UserRole::DataEntry, UserRole::Accounts, UserRole::AccountsHead, UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(UserRole::DataEntry, UserRole::OperationHead, UserRole::Accounts, UserRole::AccountsHead, UserRole::Admin, UserRole::SuperAdmin);
     }
 
     public function create(User $user, PassportEntry $passport): bool
@@ -42,7 +41,7 @@ class PassportStepRecordPolicy
      */
     public function update(User $user, PassportStepRecord $record): bool
     {
-        return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin)
+        return $user->hasRole(...UserRole::passportManagers())
             || ($user->hasRole(UserRole::DataEntry)
                 && $record->created_by === $user->id
                 && $record->passportEntry !== null
@@ -51,15 +50,15 @@ class PassportStepRecordPolicy
 
     public function delete(User $user, PassportStepRecord $record): bool
     {
-        return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(...UserRole::passportManagers());
     }
 
     /**
      * Undo a step: clear the Online mark, a BMET action, the flight booking or
-     * the flight confirmation (admin and super_admin only).
+     * the flight confirmation (the operations head only).
      */
     public function undo(User $user): bool
     {
-        return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(...UserRole::passportManagers());
     }
 }

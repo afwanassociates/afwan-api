@@ -87,22 +87,15 @@ describe('references', function () {
         $this->getJson('/api/data-entry/references?all=1')->assertForbidden();
     });
 
-    it('lets admins deactivate, list inactive and soft delete a reference that has entries', function (string $role) {
+    it('keeps deactivating and deleting a reference from data entry and admins', function (string $role) {
         $reference = Reference::factory()->create();
         PassportEntry::factory()->create(['reference_id' => $reference->id]);
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
-        $this->patchJson("/api/data-entry/references/{$reference->id}", ['is_active' => false])
-            ->assertOk()
-            ->assertJsonPath('data.is_active', false);
-        $this->getJson('/api/data-entry/references?all=1')
-            ->assertOk()
-            ->assertJsonPath('data.0.id', $reference->id)
-            ->assertJsonPath('meta.total', 1);
-
-        $this->deleteJson("/api/data-entry/references/{$reference->id}")->assertNoContent();
-        $this->assertSoftDeleted($reference);
-    })->with(['admin', 'superAdmin']);
+        $this->patchJson("/api/data-entry/references/{$reference->id}", ['is_active' => false])->assertForbidden();
+        $this->deleteJson("/api/data-entry/references/{$reference->id}")->assertForbidden();
+        expect($reference->fresh())->is_active->toBeTrue()->trashed()->toBeFalse();
+    })->with(['admin', 'superAdmin', 'dataEntry']);
 
     it('cannot hard delete a reference that has passport entries', function () {
         $reference = Reference::factory()->create();
@@ -118,6 +111,23 @@ describe('references', function () {
         $this->getJson('/api/data-entry/references')->assertForbidden();
         $this->postJson('/api/data-entry/references', ['type' => ReferenceType::Person->value, 'name' => 'X'])->assertForbidden();
     });
+
+    it('lets the operations head deactivate, list inactive and soft delete a reference that has entries', function (string $role) {
+        $reference = Reference::factory()->create();
+        PassportEntry::factory()->create(['reference_id' => $reference->id]);
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->patchJson("/api/data-entry/references/{$reference->id}", ['is_active' => false])
+            ->assertOk()
+            ->assertJsonPath('data.is_active', false);
+        $this->getJson('/api/data-entry/references?all=1')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $reference->id)
+            ->assertJsonPath('meta.total', 1);
+
+        $this->deleteJson("/api/data-entry/references/{$reference->id}")->assertNoContent();
+        $this->assertSoftDeleted($reference);
+    })->with(['operationHead']);
 });
 
 describe('companies', function () {
@@ -156,16 +166,18 @@ describe('companies', function () {
         $this->deleteJson("/api/data-entry/companies/{$company->id}")->assertForbidden();
     });
 
-    it('lets admins rename, deactivate and soft delete a company', function (string $role) {
+    it('lets admins rename, deactivate and soft delete a company through the admin panel', function (string $role) {
         $company = Company::factory()->create();
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
-        $this->patchJson("/api/data-entry/companies/{$company->id}", ['name' => 'Renamed Co', 'is_active' => false])
+        $this->patchJson("/api/admin/companies/{$company->id}", ['name' => 'Renamed Co', 'is_active' => false])
             ->assertOk()
             ->assertJsonPath('data.name', 'Renamed Co')
             ->assertJsonPath('data.is_active', false);
+        // The old data-entry copies of these routes are closed to admins now.
+        $this->patchJson("/api/data-entry/companies/{$company->id}", ['name' => 'Again'])->assertForbidden();
 
-        $this->deleteJson("/api/data-entry/companies/{$company->id}")->assertNoContent();
+        $this->deleteJson("/api/admin/companies/{$company->id}")->assertNoContent();
         $this->assertSoftDeleted($company);
     })->with(['admin', 'superAdmin']);
 });

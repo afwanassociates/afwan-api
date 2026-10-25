@@ -128,17 +128,16 @@ describe('passport list', function () {
             ->and(listedPassportIds('medical_status=unfit&q=UF1234567'))->toBe([$unfit->id]);
     });
 
-    it('brings an unfit passport back to the default list after an admin records a fit re-test', function () {
+    it('keeps an unfit passport unfit: data entry cannot record a re-test', function () {
         $unfit = passportWithMedical('unfit');
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         expect(listedPassportIds())->toBe([]);
 
-        recordMedical($unfit->id, '2026-04-28', 'fit')
-            ->assertCreated();
+        recordMedical($unfit->id, '2026-04-28', 'fit')->assertUnprocessable();
 
-        expect(listedPassportIds())->toBe([$unfit->id])
-            ->and(listedPassportIds('medical_status=unfit'))->toBe([]);
+        expect(listedPassportIds())->toBe([])
+            ->and(listedPassportIds('medical_status=unfit'))->toBe([$unfit->id]);
     });
 
     it('filters by each medical status', function () {
@@ -206,6 +205,19 @@ describe('passport list', function () {
         // + current medical + its creator.
         expect($countQueries())->toBe($few)->toBe(9);
     });
+
+    it('brings an unfit passport back to the default list after the operations head records a fit re-test', function () {
+        $unfit = passportWithMedical('unfit');
+        Sanctum::actingAs(User::factory()->operationHead()->create());
+
+        expect(listedPassportIds())->toBe([]);
+
+        recordMedical($unfit->id, '2026-04-28', 'fit')
+            ->assertCreated();
+
+        expect(listedPassportIds())->toBe([$unfit->id])
+            ->and(listedPassportIds('medical_status=unfit'))->toBe([]);
+    });
 });
 
 describe('workflow', function () {
@@ -263,7 +275,7 @@ describe('workflow', function () {
     });
 
     it('returns zero counts when there are no passports', function () {
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->getJson('/api/data-entry/workflow/summary')
             ->assertOk()
@@ -368,7 +380,7 @@ describe('all passports', function () {
             ->and(listedPassportIds('medical_status=unfit'))->toBe([$passports['unfit']]);
     });
 
-    it('shows unfit passports in the all list to data entry, admin and super admin', function (string $role) {
+    it('shows unfit passports in the all list to data entry', function (string $role) {
         $unfit = passportWithMedical('unfit');
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
@@ -377,7 +389,7 @@ describe('all passports', function () {
             ->assertJsonPath('data.0.id', $unfit->id)
             ->assertJsonPath('data.0.medical_status', 'unfit')
             ->assertJsonPath('data.0.workflow.steps.1.state', 'failed');
-    })->with(['dataEntry', 'admin', 'superAdmin']);
+    })->with(['dataEntry']);
 
     it('combines with search, company, reference and date filters', function () {
         $unfit = passportWithMedical('unfit', ['passport_number' => 'UF1234567', 'passport_received_date' => '2026-02-10']);
@@ -471,4 +483,15 @@ describe('all passports', function () {
             ->and($everyStatus)->toBe(8)
             ->and($step2)->toBe(['not_started' => 0, 'pending' => 2, 'fit' => 2, 'expiring_soon' => 1, 'expired' => 1, 'unfit' => 3]);
     });
+
+    it('shows unfit passports in the all list to data entry and the operations head', function (string $role) {
+        $unfit = passportWithMedical('unfit');
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->getJson('/api/data-entry/passports?medical_status=all')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $unfit->id)
+            ->assertJsonPath('data.0.medical_status', 'unfit')
+            ->assertJsonPath('data.0.workflow.steps.1.state', 'failed');
+    })->with(['dataEntry', 'operationHead']);
 });

@@ -15,7 +15,8 @@ use Illuminate\Auth\Access\Response;
  * Shared rules of the accounts entries that need approval (cash receipts,
  * payments, transfers, hand-entered ledger lines):
  *
- * - the accounts team (accounts, accounts head, admin, super admin) prepares them;
+ * - the accounts team (accounts, accounts head) prepares them; admins only
+ *   approve and return them (from the Approvals page);
  * - a pending or returned entry may be edited or deleted by whoever prepared
  *   it, or by an approver; an approved entry is locked for everyone;
  * - an approver (accounts head, admin, super admin) approves a pending entry,

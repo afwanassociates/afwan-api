@@ -140,11 +140,11 @@ describe('company country', function () {
         Country::whereKey(['QA', 'FR'])->update(['is_active' => false]);
         Sanctum::actingAs(User::factory()->admin()->create());
 
-        $this->patchJson("/api/data-entry/companies/{$company->id}", ['name' => 'Renamed', 'country_code' => 'QA'])->assertOk();
-        $this->patchJson("/api/data-entry/companies/{$company->id}", ['country_code' => 'FR'])
+        $this->patchJson("/api/admin/companies/{$company->id}", ['name' => 'Renamed', 'country_code' => 'QA'])->assertOk();
+        $this->patchJson("/api/admin/companies/{$company->id}", ['country_code' => 'FR'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('country_code');
-        $this->patchJson("/api/data-entry/companies/{$company->id}", ['country_code' => 'AE'])
+        $this->patchJson("/api/admin/companies/{$company->id}", ['country_code' => 'AE'])
             ->assertOk()
             ->assertJsonPath('data.country.code', 'AE');
     });
@@ -229,18 +229,6 @@ describe('passport entries', function () {
             ->assertJsonPath('data.passport_expiry_date', '2031-02-01');
     });
 
-    it('records who deleted an entry', function () {
-        $entry = PassportEntry::factory()->create();
-        $admin = User::factory()->admin()->create();
-        Sanctum::actingAs($admin);
-
-        $this->deleteJson("/api/data-entry/passports/{$entry->id}")->assertNoContent();
-
-        expect(PassportEntry::withTrashed()->find($entry->id))
-            ->deleted_by->toBe($admin->id)
-            ->trashed()->toBeTrue();
-    });
-
     it('filters by company country together with the other filters and search', function () {
         Sanctum::actingAs(User::factory()->dataEntry()->create());
         $reference = Reference::factory()->create();
@@ -265,6 +253,18 @@ describe('passport entries', function () {
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('meta.total', 3)
             ->assertJsonPath('data.0.company.country', ['code' => 'SA', 'name' => 'Saudi Arabia']);
+    });
+
+    it('records who deleted an entry', function () {
+        $entry = PassportEntry::factory()->create();
+        $head = User::factory()->operationHead()->create();
+        Sanctum::actingAs($head);
+
+        $this->deleteJson("/api/data-entry/passports/{$entry->id}")->assertNoContent();
+
+        expect(PassportEntry::withTrashed()->find($entry->id))
+            ->deleted_by->toBe($head->id)
+            ->trashed()->toBeTrue();
     });
 });
 

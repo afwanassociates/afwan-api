@@ -7,14 +7,14 @@ use App\Models\Reference;
 use App\Models\User;
 
 /**
- * data_entry, admin and super_admin search and create reference records;
- * only admin and super_admin edit, deactivate or delete them.
+ * The passport team searches and creates reference records; only the
+ * operations head edits, deactivates or deletes them.
  */
 class ReferencePolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->hasRole(UserRole::DataEntry, UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(...UserRole::passportTeam());
     }
 
     /**
@@ -22,7 +22,7 @@ class ReferencePolicy
      */
     public function viewReport(User $user): bool
     {
-        return $user->hasRole(UserRole::DataEntry, UserRole::Accounts, UserRole::AccountsHead, UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(UserRole::DataEntry, UserRole::OperationHead, UserRole::Accounts, UserRole::AccountsHead, UserRole::Admin, UserRole::SuperAdmin);
     }
 
     public function create(User $user): bool
@@ -35,7 +35,7 @@ class ReferencePolicy
      */
     public function manage(User $user): bool
     {
-        return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(...UserRole::passportManagers());
     }
 
     public function update(User $user, Reference $reference): bool

@@ -27,8 +27,8 @@ class MedicalService
 
     /**
      * Set the date the passport goes (or went) for its medical. Needs the
-     * medical slip date first. Once a result is recorded only admin and
-     * super_admin may change it, to start a re-test. Nothing else changes.
+     * medical slip date first. Once a result is recorded only the operations
+     * head may change it, to start a re-test. Nothing else changes.
      *
      * @throws ValidationException when there is no slip date, or a result locks the date
      */
@@ -43,7 +43,7 @@ class MedicalService
                 ]);
             }
 
-            if (! $actor->hasRole(UserRole::Admin, UserRole::SuperAdmin)
+            if (! $actor->hasRole(...UserRole::passportManagers())
                 && MedicalRecord::query()->where('passport_entry_id', $locked->id)->exists()) {
                 throw ValidationException::withMessages([
                     'medical_date' => 'The medical date cannot be changed once a medical result is recorded.',

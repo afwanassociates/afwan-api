@@ -12,13 +12,15 @@ beforeEach(function () {
 });
 
 describe('access', function () {
-    it('lets data entry, admin and super admin set the date and record the result', function (string $role) {
+    it('lets only data entry set the date and record the result, not admins', function (string $role, bool $allowed) {
         $passport = PassportEntry::factory()->withMedicalSlip()->create();
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-20'])->assertOk();
-        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit', 'issue_date' => '2026-04-20', 'expiry_date' => '2026-07-20'])->assertCreated();
-    })->with(['dataEntry', 'admin', 'superAdmin']);
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-20'])
+            ->assertStatus($allowed ? 200 : 403);
+        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit', 'issue_date' => '2026-04-20', 'expiry_date' => '2026-07-20'])
+            ->assertStatus($allowed ? 201 : 403);
+    })->with([['dataEntry', true], ['admin', false], ['superAdmin', false]]);
 
     it('rejects accounts and guests', function () {
         $passport = PassportEntry::factory()->withMedicalSlip()->create(['medical_date' => '2026-04-20']);
@@ -35,11 +37,19 @@ describe('access', function () {
 
     it('no longer has the old record-medical endpoint', function () {
         $passport = PassportEntry::factory()->withMedicalSlip()->create();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson("/api/data-entry/passports/{$passport->id}/medicals", ['medical_date' => '2026-04-20', 'result' => 'fit'])
             ->assertMethodNotAllowed();
     });
+
+    it('lets data entry and the operations head set the date and record the result', function (string $role) {
+        $passport = PassportEntry::factory()->withMedicalSlip()->create();
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-20'])->assertOk();
+        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit', 'issue_date' => '2026-04-20', 'expiry_date' => '2026-07-20'])->assertCreated();
+    })->with(['dataEntry', 'operationHead']);
 });
 
 describe('status flow', function () {
@@ -91,7 +101,7 @@ describe('status flow', function () {
 
     it('keeps the passport\'s medical date in step when an admin corrects the current result', function () {
         $passport = PassportEntry::factory()->withMedicalSlip()->create();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $id = recordMedical($passport->id, '2026-04-20', 'fit')->json('data.id');
 

@@ -115,7 +115,7 @@ describe('medical pending only after the slip date', function () {
 
     it('refuses a medical result without a slip date', function () {
         $passport = PassportEntry::factory()->create();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         // Neither the medical date nor the result can come before the slip date.
         $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-20'])
@@ -156,7 +156,7 @@ describe('medical pending only after the slip date', function () {
         $creator = User::factory()->dataEntry()->create();
         $passport = PassportEntry::factory()->createdBy($creator)->create(['passport_name' => 'Old Name']);
         $before = DB::table('passport_entries')->where('id', $passport->id)->first();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         Carbon::setTestNow(Carbon::parse('2026-05-01 10:00', 'Asia/Dhaka')->utc());
         $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", [
@@ -202,7 +202,7 @@ describe('medical pending only after the slip date', function () {
             ->assertJsonPath('data.medical_slip.medical_center.name', 'Meem Medical Center');
     });
 
-    it('lets data entry, admin and super admin save the slip, and nobody else', function () {
+    it('lets only data entry save the slip, not admins or anyone else', function () {
         $passport = PassportEntry::factory()->create();
 
         $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertUnauthorized();
@@ -210,10 +210,13 @@ describe('medical pending only after the slip date', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
         $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertForbidden();
 
-        foreach (['dataEntry', 'admin', 'superAdmin'] as $role) {
+        // Admins are out of passport entry; only data entry sets the slip.
+        foreach (['admin', 'superAdmin'] as $role) {
             Sanctum::actingAs(User::factory()->{$role}()->create());
-            $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertOk();
+            $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertForbidden();
         }
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertOk();
     });
 
     it('takes only the result: the slip and centre stay on the passport', function () {
@@ -228,6 +231,20 @@ describe('medical pending only after the slip date', function () {
         ])->assertCreated()->assertJsonMissingPath('data.slip_no');
 
         expect($passport->fresh()->medical_center_id)->toBeNull();
+    });
+
+    it('lets data entry and the operations head save the slip, and nobody else', function () {
+        $passport = PassportEntry::factory()->create();
+
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertUnauthorized();
+
+        Sanctum::actingAs(User::factory()->accounts()->create());
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertForbidden();
+
+        foreach (['dataEntry', 'operationHead'] as $role) {
+            Sanctum::actingAs(User::factory()->{$role}()->create());
+            $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertOk();
+        }
     });
 });
 

@@ -54,10 +54,8 @@ describe('company admin CRUD', function () {
         $this->deleteJson("/api/admin/companies/{$company->id}")
             ->assertUnprocessable()
             ->assertJsonPath('code', 'company_has_passports');
-        // The older data-entry route applies the same rule.
-        $this->deleteJson("/api/data-entry/companies/{$company->id}")
-            ->assertUnprocessable()
-            ->assertJsonPath('code', 'company_has_passports');
+        // The older data-entry copy of the route is closed to admins now.
+        $this->deleteJson("/api/data-entry/companies/{$company->id}")->assertForbidden();
 
         expect($company->fresh()->trashed())->toBeFalse();
 

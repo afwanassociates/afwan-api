@@ -246,7 +246,7 @@ describe('start', function () {
 
     it('has no start or result for BMET: it is saved with its milestones', function () {
         $passport = stepsRecords(stepsPassport(), ['calling', 'visa']);
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/bmet/start", ['step_date' => '2026-04-20'])->assertNotFound();
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/bmet/result", ['result' => 'completed'])->assertNotFound();
@@ -277,7 +277,7 @@ describe('start', function () {
 
     it('enforces the step order', function (Closure $setUp, string $step, string $code) {
         $passport = $setUp();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $response = $this->postJson("/api/data-entry/passports/{$passport->id}/steps/{$step}/start", startBody($step));
 
@@ -388,7 +388,7 @@ describe('result', function () {
 
     it('refuses a result on a step that was never started or is not in process', function (Closure $setUp) {
         $passport = $setUp();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/visa/result", ['result' => 'completed', 'reference_no' => 'V1'])
             ->assertUnprocessable()
@@ -410,14 +410,22 @@ describe('result', function () {
 });
 
 describe('roles', function () {
-    it('lets data entry, admin and super admin act and read', function (string $role) {
+    it('lets data entry act and read', function () {
         $passport = stepsPassport();
-        Sanctum::actingAs(User::factory()->{$role}()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->getJson('/api/data-entry/steps/calling/passports')->assertOk();
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling/update", ['step_date' => '2026-04-20', 'receive_date' => '2026-04-26', 'issue_date' => '2026-04-25', 'valid_until' => '2026-10-25'])->assertCreated();
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/visa/start", startBody('visa', ['step_date' => '2026-04-27']))->assertCreated();
-    })->with(['dataEntry', 'admin', 'superAdmin']);
+    });
+
+    it('lets admins read the step lists (like accounts) but not act', function (string $role) {
+        $passport = stepsPassport();
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->getJson('/api/data-entry/steps/calling/passports')->assertOk();
+        $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling/update", ['step_date' => '2026-04-20', 'receive_date' => '2026-04-26', 'issue_date' => '2026-04-25', 'valid_until' => '2026-10-25'])->assertForbidden();
+    })->with(['admin', 'superAdmin']);
 
     it('lets accounts read the lists but not act', function () {
         $passport = stepsRecords(stepsPassport(), ['calling'], StepStatus::InProcess);
@@ -440,11 +448,20 @@ describe('roles', function () {
 
     it('returns 404 for actions on an unknown step', function () {
         $passport = stepsPassport();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/medical/start", startBody('calling'))->assertNotFound();
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/bogus/result", ['result' => 'completed'])->assertNotFound();
     });
+
+    it('lets data entry and the operations head act and read', function (string $role) {
+        $passport = stepsPassport();
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->getJson('/api/data-entry/steps/calling/passports')->assertOk();
+        $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling/update", ['step_date' => '2026-04-20', 'receive_date' => '2026-04-26', 'issue_date' => '2026-04-25', 'valid_until' => '2026-10-25'])->assertCreated();
+        $this->postJson("/api/data-entry/passports/{$passport->id}/steps/visa/start", startBody('visa', ['step_date' => '2026-04-27']))->assertCreated();
+    })->with(['dataEntry', 'operationHead']);
 });
 
 describe('summary', function () {

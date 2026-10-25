@@ -7,14 +7,15 @@ use App\Models\PassportEntry;
 use App\Models\User;
 
 /**
- * data_entry views and creates entries and edits its own. admin and
- * super_admin edit any entry and are the only ones who delete.
+ * The passport team (data entry and the operations head) views and creates
+ * entries; data entry edits its own. Only the operations head edits any entry
+ * and deletes. Admins see passports only through the read-only reports.
  */
 class PassportEntryPolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->hasRole(UserRole::DataEntry, UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(...UserRole::passportTeam());
     }
 
     /**
@@ -22,7 +23,7 @@ class PassportEntryPolicy
      */
     public function viewOverview(User $user): bool
     {
-        return $user->hasRole(UserRole::DataEntry, UserRole::Accounts, UserRole::AccountsHead, UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(UserRole::DataEntry, UserRole::OperationHead, UserRole::Accounts, UserRole::AccountsHead, UserRole::Admin, UserRole::SuperAdmin);
     }
 
     public function view(User $user, PassportEntry $entry): bool
@@ -37,7 +38,7 @@ class PassportEntryPolicy
 
     public function update(User $user, PassportEntry $entry): bool
     {
-        return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin)
+        return $user->hasRole(...UserRole::passportManagers())
             || ($user->hasRole(UserRole::DataEntry) && $entry->created_by === $user->id);
     }
 
@@ -85,6 +86,6 @@ class PassportEntryPolicy
 
     public function delete(User $user, PassportEntry $entry): bool
     {
-        return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(...UserRole::passportManagers());
     }
 }

@@ -258,7 +258,7 @@ describe('calling update', function () {
 
     it('needs a valid fit medical and the Online mark', function (Closure $setUp, string $code) {
         $passport = $setUp();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling/update", callingUpdate())
             ->assertUnprocessable()
@@ -281,7 +281,7 @@ describe('calling update', function () {
 
     it('no longer has calling start and result endpoints', function () {
         $passport = callingPassport();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling/start", ['step_date' => '2026-04-20'])->assertNotFound();
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling/result", callingUpdate())->assertNotFound();
@@ -290,7 +290,9 @@ describe('calling update', function () {
     it('refuses rejected and new in-process calling records through the older endpoints', function () {
         $passport = callingPassport();
         $record = stepRecord($passport, 'calling', StepStatus::InProcess, '2026-04-20');
-        Sanctum::actingAs(User::factory()->admin()->create());
+        // Data entry edits only their own records.
+        Sanctum::actingAs($user = User::factory()->dataEntry()->create());
+        $record->forceFill(['created_by' => $user->id])->save();
 
         foreach (['rejected', 'in_process'] as $status) {
             $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling", ['status' => $status])
@@ -344,7 +346,7 @@ describe('visa', function () {
         $dated = callingPassport();
         stepRecord($dated, 'calling', StepStatus::InProcess, '2026-04-20');
         $permitted = permittedPassport();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson("/api/data-entry/passports/{$dated->id}/steps/visa/start", ['step_date' => '2026-04-25'])
             ->assertUnprocessable()
@@ -417,7 +419,7 @@ describe('summary and roles', function () {
         }
     });
 
-    it('lets data entry, admin and super admin act, accounts only read', function () {
+    it('lets only data entry act; accounts and admins only read', function () {
         $passport = callingPassport();
         $permitted = permittedPassport();
 
@@ -429,17 +431,41 @@ describe('summary and roles', function () {
 
         expect(PassportStepRecord::query()->where('passport_entry_id', $passport->id)->exists())->toBeFalse();
 
-        foreach (['dataEntry', 'admin', 'superAdmin'] as $role) {
-            $other = callingPassport();
+        foreach (['admin', 'superAdmin'] as $role) {
             Sanctum::actingAs(User::factory()->{$role}()->create());
-            $this->postJson("/api/data-entry/passports/{$other->id}/steps/calling/update", callingUpdate())->assertCreated();
-            $this->postJson("/api/data-entry/passports/{$other->id}/steps/visa/start", ['step_date' => '2026-04-27'])->assertCreated();
+            $this->getJson('/api/data-entry/steps/calling/passports?tab=pending')->assertOk();
+            $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling/update", callingUpdate())->assertForbidden();
         }
+
+        $other = callingPassport();
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        $this->postJson("/api/data-entry/passports/{$other->id}/steps/calling/update", callingUpdate())->assertCreated();
+        $this->postJson("/api/data-entry/passports/{$other->id}/steps/visa/start", ['step_date' => '2026-04-27'])->assertCreated();
     });
 
     it('rejects guests', function () {
         $passport = callingPassport();
 
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling/update", callingUpdate())->assertUnauthorized();
+    });
+
+    it('lets data entry and the operations head act, accounts only read', function () {
+        $passport = callingPassport();
+        $permitted = permittedPassport();
+
+        Sanctum::actingAs(User::factory()->accounts()->create());
+        $this->getJson('/api/data-entry/steps/calling/passports?tab=pending')->assertOk();
+        $this->getJson('/api/data-entry/steps/visa/passports?tab=pending')->assertOk();
+        $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling/update", callingUpdate())->assertForbidden();
+        $this->postJson("/api/data-entry/passports/{$permitted->id}/steps/visa/start", ['step_date' => '2026-04-20'])->assertForbidden();
+
+        expect(PassportStepRecord::query()->where('passport_entry_id', $passport->id)->exists())->toBeFalse();
+
+        foreach (['dataEntry', 'operationHead'] as $role) {
+            $other = callingPassport();
+            Sanctum::actingAs(User::factory()->{$role}()->create());
+            $this->postJson("/api/data-entry/passports/{$other->id}/steps/calling/update", callingUpdate())->assertCreated();
+            $this->postJson("/api/data-entry/passports/{$other->id}/steps/visa/start", ['step_date' => '2026-04-27'])->assertCreated();
+        }
     });
 });

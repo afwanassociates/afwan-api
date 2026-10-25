@@ -247,16 +247,23 @@ describe('bulk: rules', function () {
             ->assertUnprocessable()->assertJsonValidationErrors('passport_ids');
     });
 
-    it('lets data entry, admin and super admin use it, but not accounts or guests', function (string $role, int $status) {
+    it('lets only data entry use it, not admins, accounts or guests', function (string $role, int $status) {
         $a = bulkPassport('MD RAHIM');
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
         bulk('visa', 'start', [$a], ['status' => 'in_process', 'step_date' => '2026-04-30'])->assertStatus($status);
-    })->with([['dataEntry', 200], ['admin', 200], ['superAdmin', 200], ['accounts', 403]]);
+    })->with([['dataEntry', 200], ['admin', 403], ['superAdmin', 403], ['accounts', 403]]);
 
     it('needs a login', function () {
         $a = bulkPassport('MD RAHIM');
 
         bulk('visa', 'start', [$a])->assertUnauthorized();
     });
+
+    it('lets data entry and the operations head use it, but not accounts or guests', function (string $role, int $status) {
+        $a = bulkPassport('MD RAHIM');
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        bulk('visa', 'start', [$a], ['status' => 'in_process', 'step_date' => '2026-04-30'])->assertStatus($status);
+    })->with([['dataEntry', 200], ['operationHead', 200], ['admin', 403], ['superAdmin', 403], ['accounts', 403]]);
 });

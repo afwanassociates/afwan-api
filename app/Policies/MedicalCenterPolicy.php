@@ -14,7 +14,7 @@ class MedicalCenterPolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->hasRole(UserRole::DataEntry, UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(UserRole::DataEntry, UserRole::OperationHead, UserRole::Admin, UserRole::SuperAdmin);
     }
 
     /**

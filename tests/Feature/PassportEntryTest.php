@@ -56,7 +56,7 @@ describe('access', function () {
 describe('create', function () {
     it('lets data entry create an entry, with created_by taken from the logged-in user', function () {
         $clerk = User::factory()->dataEntry()->create();
-        $someoneElse = User::factory()->admin()->create();
+        $someoneElse = User::factory()->dataEntry()->create();
         Sanctum::actingAs($clerk);
 
         $response = $this->postJson('/api/data-entry/passports', passportPayload([
@@ -175,23 +175,19 @@ describe('edit and delete', function () {
         $this->patchJson("/api/data-entry/passports/{$entry->id}", ['passport_name' => 'X'])->assertForbidden();
     });
 
-    it('lets admin and super admin edit any entry', function (string $role) {
+    it('keeps an entry from other data entry users and admins', function (string $role) {
         $clerk = User::factory()->dataEntry()->create();
         $entry = PassportEntry::factory()->createdBy($clerk)->create();
-        $editor = User::factory()->{$role}()->create();
-        Sanctum::actingAs($editor);
+        Sanctum::actingAs(User::factory()->{$role}()->create());
 
-        $this->patchJson("/api/data-entry/passports/{$entry->id}", ['passport_name' => 'Edited'])
-            ->assertOk()
-            ->assertJsonPath('data.passport_name', 'EDITED')
-            ->assertJsonPath('data.created_by', $clerk->id)
-            ->assertJsonPath('data.updated_by', $editor->id);
-    })->with(['admin', 'superAdmin']);
+        $this->patchJson("/api/data-entry/passports/{$entry->id}", ['passport_name' => 'Edited'])->assertForbidden();
+        expect($entry->fresh()->passport_name)->not->toBe('EDITED');
+    })->with(['admin', 'superAdmin', 'dataEntry']);
 
     it('rejects changing to another entry\'s passport number', function () {
         PassportEntry::factory()->create(['passport_number' => 'TAKEN1234']);
         $entry = PassportEntry::factory()->create();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->patchJson("/api/data-entry/passports/{$entry->id}", ['passport_number' => 'taken 1234'])
             ->assertUnprocessable()
@@ -207,14 +203,35 @@ describe('edit and delete', function () {
         $this->assertNotSoftDeleted($entry);
     });
 
-    it('lets admin and super admin soft delete', function (string $role) {
+    it('keeps deleting an entry from its creator and admins', function (string $role) {
+        Sanctum::actingAs($user = User::factory()->{$role}()->create());
+        $entry = PassportEntry::factory()->createdBy($user)->create();
+
+        $this->deleteJson("/api/data-entry/passports/{$entry->id}")->assertForbidden();
+        expect($entry->fresh()->trashed())->toBeFalse();
+    })->with(['admin', 'superAdmin', 'dataEntry']);
+
+    it('lets the operations head edit any entry', function (string $role) {
+        $clerk = User::factory()->dataEntry()->create();
+        $entry = PassportEntry::factory()->createdBy($clerk)->create();
+        $editor = User::factory()->{$role}()->create();
+        Sanctum::actingAs($editor);
+
+        $this->patchJson("/api/data-entry/passports/{$entry->id}", ['passport_name' => 'Edited'])
+            ->assertOk()
+            ->assertJsonPath('data.passport_name', 'EDITED')
+            ->assertJsonPath('data.created_by', $clerk->id)
+            ->assertJsonPath('data.updated_by', $editor->id);
+    })->with(['operationHead']);
+
+    it('lets the operations head soft delete', function (string $role) {
         $entry = PassportEntry::factory()->create();
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
         $this->deleteJson("/api/data-entry/passports/{$entry->id}")->assertNoContent();
         $this->assertSoftDeleted($entry);
         $this->getJson("/api/data-entry/passports/{$entry->id}")->assertNotFound();
-    })->with(['admin', 'superAdmin']);
+    })->with(['operationHead']);
 });
 
 describe('list', function () {

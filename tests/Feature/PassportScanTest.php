@@ -115,8 +115,9 @@ describe('create', function () {
 
 describe('update', function () {
     it('requires a scan while the passport has none', function () {
-        $passport = PassportEntry::factory()->withoutScan()->create();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        // Data entry edits only the passports they entered.
+        Sanctum::actingAs($user = User::factory()->dataEntry()->create());
+        $passport = PassportEntry::factory()->withoutScan()->create(['created_by' => $user->id]);
 
         $this->patchJson("/api/data-entry/passports/{$passport->id}", ['passport_name' => 'Renamed'])
             ->assertUnprocessable()
@@ -130,7 +131,7 @@ describe('update', function () {
     });
 
     it('keeps the scan optional once there is one, and replaces it when sent', function () {
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
         $this->postJson('/api/data-entry/passports', scanForm(fakeScan('jpg')))->assertCreated();
         $passport = PassportEntry::sole();
         $oldPath = $passport->scan_path;
@@ -151,7 +152,7 @@ describe('update', function () {
     });
 
     it('rejects a bad replacement and keeps the old scan', function () {
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
         $this->postJson('/api/data-entry/passports', scanForm(fakeScan('jpg')))->assertCreated();
         $passport = PassportEntry::sole();
 
@@ -184,7 +185,15 @@ describe('upload endpoint', function () {
         Storage::disk(PassportScanService::DISK)->assertMissing($first);
         Storage::disk(PassportScanService::DISK)->assertExists($passport->fresh()->scan_path);
         expect(Storage::disk(PassportScanService::DISK)->allFiles("passport-scans/{$passport->id}"))->toHaveCount(1);
-    })->with(['dataEntry', 'admin', 'superAdmin']);
+    })->with(['dataEntry']);
+
+    it('refuses admins: passport entry is the data entry team\'s alone', function (string $role) {
+        $passport = PassportEntry::factory()->withoutScan()->create();
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->postJson("/api/data-entry/passports/{$passport->id}/scan", ['scan' => fakeScan('jpg')])->assertForbidden();
+        $this->get("/api/data-entry/passports/{$passport->id}/scan")->assertForbidden();
+    })->with(['admin', 'superAdmin']);
 
     it('validates the upload', function () {
         $passport = PassportEntry::factory()->withoutScan()->create();
@@ -237,7 +246,7 @@ describe('streaming', function () {
 
         expect($download->headers->get('Content-Disposition'))->toStartWith('attachment')
             ->and($download->headers->get('Content-Disposition'))->toContain('Karim passport.pdf');
-    })->with(['dataEntry', 'admin', 'superAdmin']);
+    })->with(['dataEntry']);
 
     it('rejects accounts and guests', function () {
         $passport = scannedPassport();
@@ -263,7 +272,7 @@ describe('streaming', function () {
 
 describe('responses', function () {
     it('includes the scan fields on every passport details response, never the path', function () {
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
         $created = assertNoScanPath($this->postJson('/api/data-entry/passports', scanForm(fakeScan('jpg'))))->assertCreated();
         $id = $created->json('data.id');
 
@@ -285,7 +294,7 @@ describe('responses', function () {
 
     it('includes only has_scan on list responses', function () {
         $passport = PassportEntry::factory()->create();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $lists = [
             'passport list' => $this->getJson('/api/data-entry/passports'),

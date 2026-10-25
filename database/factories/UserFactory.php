@@ -89,6 +89,15 @@ class UserFactory extends Factory
     }
 
     /**
+     * Indicate that the user is the operations head (corrections in passport entry,
+     * manages the data entry team).
+     */
+    public function operationHead(): static
+    {
+        return $this->role(UserRole::OperationHead);
+    }
+
+    /**
      * Indicate that the user is the accounts & finance head (approves accounts entries).
      */
     public function accountsHead(): static

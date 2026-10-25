@@ -13,12 +13,14 @@ use App\Models\User;
  * an unfit passport, editing others' records, deleting, and any medical
  * change once a later step (calling onwards) has records are for admin and
  * super_admin only.
+ *
+ * (Since admins left passport entry, these corrections belong to the operations head.)
  */
 class MedicalRecordPolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->hasRole(UserRole::DataEntry, UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(...UserRole::passportTeam());
     }
 
     /**
@@ -49,8 +51,11 @@ class MedicalRecordPolicy
         return $this->isAdmin($user);
     }
 
+    /**
+     * Re-tests, editing anyone's record and deleting: the operations head.
+     */
     protected function isAdmin(User $user): bool
     {
-        return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(...UserRole::passportManagers());
     }
 }

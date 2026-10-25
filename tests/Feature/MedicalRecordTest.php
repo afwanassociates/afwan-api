@@ -98,7 +98,7 @@ describe('recording', function () {
     it('takes created_by from the logged-in user and only the result from the request', function () {
         $passport = receivedPassport();
         $clerk = User::factory()->dataEntry()->create();
-        $someoneElse = User::factory()->admin()->create();
+        $someoneElse = User::factory()->dataEntry()->create();
         Sanctum::actingAs($clerk);
 
         $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-20'])->assertOk();
@@ -143,13 +143,12 @@ describe('recording', function () {
     });
 
     it('keeps the history and lists it newest first', function () {
+        // Several medicals per passport come from older re-tests (only the operations head re-tests).
         $passport = receivedPassport();
-        // Re-tests (a new medical date after a result) are for admins.
-        Sanctum::actingAs(User::factory()->admin()->create());
-
         foreach (['2026-01-10', '2026-04-20', '2026-03-05'] as $date) {
-            recordMedical($passport->id, $date, 'fit')->assertCreated();
+            MedicalRecord::factory()->for($passport)->on($date)->create();
         }
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->getJson("/api/data-entry/passports/{$passport->id}/medicals")
             ->assertOk()
@@ -159,9 +158,21 @@ describe('recording', function () {
             ->assertJsonPath('data.2.medical_date', '2026-01-10');
     });
 
+    it('refuses a second result from data entry: only the operations head re-tests', function () {
+        $passport = receivedPassport();
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        recordMedical($passport->id, '2026-04-20', 'unfit')->assertCreated();
+
+        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit', 'issue_date' => '2026-04-20', 'expiry_date' => '2026-07-20'])
+            ->assertForbidden();
+
+        expect(MedicalRecord::count())->toBe(1);
+    });
+
     it('keeps the latest medical date current even when an older medical is entered later', function () {
         $passport = receivedPassport();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
         $latest = recordMedical($passport->id, '2026-04-20', 'fit')->json('data.id');
         recordMedical($passport->id, '2026-02-01', 'unfit')
@@ -174,7 +185,7 @@ describe('recording', function () {
 
     it('refuses a second result for the same medical date', function () {
         $passport = receivedPassport();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
         recordMedical($passport->id, '2026-04-20', 'unfit')->assertCreated();
 
@@ -268,9 +279,9 @@ describe('validation', function () {
         'missing result' => [[]],
     ]);
 
-    it('lets admins correct the remarks after recording', function () {
+    it('lets data entry correct the remarks of their own record', function () {
         $passport = receivedPassport();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $id = recordMedical($passport->id, '2026-04-20', 'unfit')->json('data.id');
 
@@ -285,10 +296,24 @@ describe('validation', function () {
     it('returns 404 for a deleted passport', function () {
         $passport = receivedPassport();
         $passport->delete();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         recordMedical($passport->id, '2026-04-20', 'fit')
             ->assertNotFound();
+    });
+
+    it('lets the operations head correct the remarks after recording', function () {
+        $passport = receivedPassport();
+        Sanctum::actingAs(User::factory()->operationHead()->create());
+
+        $id = recordMedical($passport->id, '2026-04-20', 'unfit')->json('data.id');
+
+        $this->patchJson("/api/data-entry/medicals/{$id}", ['remarks' => str_repeat('a', 1001)])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('remarks');
+        $this->patchJson("/api/data-entry/medicals/{$id}", ['remarks' => 'Chest X-ray'])
+            ->assertOk()
+            ->assertJsonPath('data.remarks', 'Chest X-ray');
     });
 });
 
@@ -336,7 +361,41 @@ describe('re-tests', function () {
         'expired' => '2026-04-01',
     ]);
 
-    it('lets admin and super admin re-test fit, expiring and expired passports', function (string $role, string $validUntil) {
+    it('lets no admin re-test fit, expiring and expired passports: admins are out of passport entry', function (string $role, string $validUntil) {
+        $passport = receivedPassport();
+        MedicalRecord::factory()->for($passport)->validUntil($validUntil)->create();
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        recordMedical($passport->id, '2026-04-30', 'fit')->assertForbidden();
+
+        expect(MedicalRecord::count())->toBe(1);
+    })->with(['admin', 'superAdmin'])->with(['2026-07-01', '2026-05-05', '2026-04-01']);
+
+    it('forbids data entry from re-testing an unfit passport', function () {
+        $passport = receivedPassport();
+        MedicalRecord::factory()->for($passport)->unfit()->on('2026-04-01')->create();
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        // Neither a new medical date nor a result: re-tests are for the operations head.
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-30'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['medical_date' => 'The medical date cannot be changed once a medical result is recorded.']);
+        $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit', 'issue_date' => '2026-04-30', 'expiry_date' => '2026-07-30'])->assertForbidden();
+
+        expect(MedicalRecord::count())->toBe(1);
+    });
+
+    it('lets no admin re-test an unfit passport', function (string $role) {
+        $passport = receivedPassport();
+        MedicalRecord::factory()->for($passport)->unfit()->on('2026-04-01')->create();
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        recordMedical($passport->id, '2026-04-30', 'fit')->assertForbidden();
+
+        expect(MedicalRecord::count())->toBe(1);
+    })->with(['admin', 'superAdmin']);
+
+    it('lets the operations head re-test fit, expiring and expired passports', function (string $role, string $validUntil) {
         $passport = receivedPassport();
         MedicalRecord::factory()->for($passport)->validUntil($validUntil)->create();
         Sanctum::actingAs(User::factory()->{$role}()->create());
@@ -347,14 +406,14 @@ describe('re-tests', function () {
             ->assertJsonPath('passport.medical_status', 'fit');
 
         expect(MedicalRecord::count())->toBe(2);
-    })->with(['admin', 'superAdmin'])->with(['2026-07-01', '2026-05-05', '2026-04-01']);
+    })->with(['operationHead'])->with(['2026-07-01', '2026-05-05', '2026-04-01']);
 
     it('forbids data entry from recording a result on an unfit passport', function () {
         $passport = receivedPassport();
         MedicalRecord::factory()->for($passport)->unfit()->on('2026-04-01')->create();
 
         // Even after an admin sets the re-test date, the result is admin-only.
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
         $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-30'])->assertOk();
 
         Sanctum::actingAs(User::factory()->dataEntry()->create());
@@ -363,7 +422,7 @@ describe('re-tests', function () {
         expect(MedicalRecord::count())->toBe(1);
     });
 
-    it('lets admin and super admin re-test an unfit passport', function (string $role) {
+    it('lets the operations head re-test an unfit passport', function (string $role) {
         $passport = receivedPassport();
         MedicalRecord::factory()->for($passport)->unfit()->on('2026-04-01')->create();
         Sanctum::actingAs(User::factory()->{$role}()->create());
@@ -373,7 +432,7 @@ describe('re-tests', function () {
             ->assertJsonPath('passport.medical_status', 'fit');
 
         expect(MedicalRecord::count())->toBe(2);
-    })->with(['admin', 'superAdmin']);
+    })->with(['operationHead']);
 });
 
 describe('editing', function () {
@@ -392,12 +451,20 @@ describe('editing', function () {
             ->assertForbidden();
     });
 
-    it('lets admin edit any record, with entered dates, and moves the current record', function () {
+    it('keeps someone else\'s record from other data entry users and admins', function (string $role) {
+        $record = MedicalRecord::factory()->for(receivedPassport())->on('2026-04-01')->create();
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->patchJson("/api/data-entry/medicals/{$record->id}", ['remarks' => 'Corrected'])->assertForbidden();
+        expect($record->fresh()->remarks)->not->toBe('Corrected');
+    })->with(['dataEntry', 'admin', 'superAdmin']);
+
+    it('lets the operations head edit any record, with entered dates, and moves the current record', function () {
         $passport = receivedPassport();
         $older = MedicalRecord::factory()->for($passport)->on('2026-03-01')->create();
         $newer = MedicalRecord::factory()->for($passport)->on('2026-04-01')->create();
-        $admin = User::factory()->admin()->create();
-        Sanctum::actingAs($admin);
+        $head = User::factory()->operationHead()->create();
+        Sanctum::actingAs($head);
 
         // Moving the older record past the newer one makes it current.
         $this->patchJson("/api/data-entry/medicals/{$older->id}", ['medical_date' => '2026-04-15', 'issue_date' => '2026-04-15', 'expiry_date' => '2026-07-15'])
@@ -406,7 +473,7 @@ describe('editing', function () {
             ->assertJsonPath('data.valid_until', '2026-07-15')
             ->assertJsonPath('passport.current_medical_id', $older->id);
 
-        expect($older->fresh()->updated_by)->toBe($admin->id);
+        expect($older->fresh()->updated_by)->toBe($head->id);
 
         $this->patchJson("/api/data-entry/medicals/{$newer->id}", ['result' => 'unfit'])
             ->assertOk()
@@ -422,6 +489,17 @@ describe('deleting', function () {
 
         $this->deleteJson("/api/data-entry/medicals/{$record->id}")->assertForbidden();
     });
+
+    it('keeps deleting a medical record from admins', function (string $role) {
+        $passport = receivedPassport();
+        $current = MedicalRecord::factory()->for($passport)->on('2026-04-01')->create();
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->deleteJson("/api/data-entry/medicals/{$current->id}")->assertForbidden();
+
+        expect($current->fresh()->trashed())->toBeFalse()
+            ->and($passport->fresh()->current_medical_id)->toBe($current->id);
+    })->with(['admin', 'superAdmin']);
 
     it('moves the current record back to the previous one, then to pending', function (string $role) {
         $passport = receivedPassport();
@@ -443,13 +521,13 @@ describe('deleting', function () {
 
         expect($passport->fresh()->current_medical_id)->toBeNull();
         $this->getJson("/api/data-entry/passports/{$passport->id}")->assertJsonPath('data.medical_status', 'pending');
-    })->with(['admin', 'superAdmin']);
+    })->with(['operationHead']);
 
     it('keeps the current record when an older one is deleted', function () {
         $passport = receivedPassport();
         $older = MedicalRecord::factory()->for($passport)->on('2026-03-01')->create();
         $current = MedicalRecord::factory()->for($passport)->on('2026-04-01')->create();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
         $this->deleteJson("/api/data-entry/medicals/{$older->id}")->assertNoContent();
 

@@ -20,7 +20,7 @@ function partyPayload(array $overrides = []): array
 }
 
 describe('parties', function () {
-    it('lets accounts, admin and super admin create, list, show and edit parties', function (string $role) {
+    it('lets accounts and the accounts head create, list, show and edit parties', function (string $role) {
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
         $this->postJson('/api/accounts/parties', partyPayload(['is_active' => false]))
@@ -50,7 +50,7 @@ describe('parties', function () {
         $this->getJson('/api/accounts/parties?q=karim&is_active=0')
             ->assertOk()
             ->assertJsonPath('data.*.id', [$id]);
-    })->with(['accounts', 'admin', 'superAdmin']);
+    })->with(['accounts', 'accountsHead']);
 
     it('numbers clients and owners in separate series', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
@@ -85,12 +85,12 @@ describe('parties', function () {
         $this->patchJson("/api/accounts/parties/{$party->id}", ['nid_passport' => $party->nid_passport])->assertOk();
     });
 
-    it('deletes only parties without transactions, and only for admins', function () {
+    it('deletes only parties without transactions, and only for the accounts head', function () {
         $party = Party::factory()->create();
         Sanctum::actingAs(User::factory()->accounts()->create());
         $this->deleteJson("/api/accounts/parties/{$party->id}")->assertForbidden();
 
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->accountsHead()->create());
         $this->postJson("/api/accounts/parties/{$party->id}/transactions", ['date' => '2026-10-01', 'type' => 'receivable', 'amount' => 10])->assertCreated();
         $this->deleteJson("/api/accounts/parties/{$party->id}")
             ->assertUnprocessable()
@@ -100,6 +100,20 @@ describe('parties', function () {
         $this->deleteJson("/api/accounts/parties/{$empty->id}")->assertNoContent();
         expect(Party::find($empty->id))->toBeNull();
     });
+
+    it('keeps parties and cash from admins: they only approve', function (string $role) {
+        $party = Party::factory()->create();
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->getJson('/api/accounts/parties')->assertForbidden();
+        $this->getJson("/api/accounts/parties/{$party->id}/ledger")->assertForbidden();
+        $this->deleteJson("/api/accounts/parties/{$party->id}")->assertForbidden();
+        $this->getJson('/api/accounts/cash-receipts')->assertForbidden();
+        $this->getJson('/api/accounts/cash-book')->assertForbidden();
+        $this->putJson('/api/accounts/cash-settings', ['opening_balance' => 1, 'opening_date' => '2026-10-01'])->assertForbidden();
+        $this->getJson('/api/accounts/approvals')->assertOk();
+        $this->getJson('/api/accounts/approvals/summary')->assertOk()->assertJsonPath('data.is_approver', true);
+    })->with(['admin', 'superAdmin']);
 
     it('refuses the accounts endpoints to data entry and guests', function () {
         $party = Party::factory()->create();
@@ -118,7 +132,7 @@ describe('parties', function () {
 
 describe('party ledger', function () {
     it('shows receivable, payment, refund and the running and closing balance', function () {
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->accountsHead()->create());
         $party = Party::factory()->create(['opening_balance' => 1000, 'opening_balance_type' => 'receivable']);
 
         $this->postJson("/api/accounts/parties/{$party->id}/transactions", ['date' => '2026-10-02', 'type' => 'receivable', 'amount' => 5000, 'note' => 'Visa processing'])->assertCreated();
@@ -206,7 +220,8 @@ describe('party ledger', function () {
 
         $this->patchJson("/api/accounts/party-transactions/{$fromReceipt}", ['date' => '2026-10-03', 'type' => 'receivable', 'amount' => 1])->assertForbidden();
 
-        Sanctum::actingAs(User::factory()->admin()->create());
+        // An approver (the accounts head) may delete someone else's pending line.
+        Sanctum::actingAs(User::factory()->accountsHead()->create());
         $this->deleteJson("/api/accounts/party-transactions/{$fromReceipt}")->assertForbidden();
         $this->postJson("/api/accounts/approvals/party-transactions/{$fromReceipt}/approve")->assertNotFound();
         $this->deleteJson("/api/accounts/party-transactions/{$manual}")->assertNoContent();

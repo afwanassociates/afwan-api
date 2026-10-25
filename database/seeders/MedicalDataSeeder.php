@@ -36,7 +36,7 @@ class MedicalDataSeeder extends Seeder
         }
 
         $clerk = User::query()->where('role', UserRole::DataEntry)->first();
-        $admin = User::query()->where('role', UserRole::Admin)->first() ?? $clerk;
+        $head = User::query()->where('role', UserRole::OperationHead)->first() ?? $clerk;
 
         if ($clerk === null) {
             $this->command?->warn('No data entry user found; run StaffUserSeeder first.');
@@ -77,10 +77,10 @@ class MedicalDataSeeder extends Seeder
                 'unfit' => [
                     [$clerk, ['medical_date' => $recent(10), 'result' => MedicalResult::Unfit, 'remarks' => 'Sample remark: failed the medical examination.']],
                 ],
-                // Only admin and super_admin may re-test an unfit passport.
+                // Only the operations head may re-test an unfit passport.
                 'retested' => [
                     [$clerk, ['medical_date' => $today->subMonths(2)->toDateString(), 'result' => MedicalResult::Unfit, 'remarks' => 'Sample remark: re-test advised.']],
-                    [$admin, ['medical_date' => $today->subDays(5)->toDateString(), 'result' => MedicalResult::Fit, 'remarks' => 'Sample remark: passed the re-test.']],
+                    [$head, ['medical_date' => $today->subDays(5)->toDateString(), 'result' => MedicalResult::Fit, 'remarks' => 'Sample remark: passed the re-test.']],
                 ],
             };
 

@@ -138,7 +138,7 @@ describe('access', function () {
 
     it('returns 404 for an unknown step', function () {
         $passport = workflowPassport();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/medical", stepPayload('calling', 'in_process'))->assertNotFound();
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/bogus", stepPayload('calling', 'in_process'))->assertNotFound();
@@ -183,7 +183,7 @@ describe('gating', function () {
             PassportStepRecord::factory()->for($passport)->step('calling')->status(StepStatus::from($callingStatus))->on('2026-04-10')->create();
         }
 
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/{$step}", stepPayload($step, $step === 'flight' ? 'completed' : 'in_process'))
             ->assertUnprocessable()
@@ -197,7 +197,7 @@ describe('gating', function () {
 
     it('needs a fit medical that is still valid today (Dhaka) for calling', function (string $medical, bool $allowed) {
         $passport = workflowPassport($medical);
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $response = $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling", stepPayload('calling', 'completed'));
 
@@ -214,7 +214,7 @@ describe('gating', function () {
 
     it('does not allow a second record for a completed step', function () {
         $passport = completeSteps(workflowPassport(), ['calling']);
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling", stepPayload('calling', 'completed'))
             ->assertUnprocessable()
@@ -269,7 +269,7 @@ describe('gating', function () {
 describe('recompute', function () {
     it('stores every stage and status with its date as the steps go on', function () {
         $passport = workflowPassport();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
         $post = fn (string $step, array $payload) => $this->postJson("/api/data-entry/passports/{$passport->id}/steps/{$step}", $payload)->assertCreated()->json('data.id');
 
         // Fit medical on 2026-04-01: waiting for calling since then.
@@ -354,7 +354,7 @@ describe('recompute', function () {
 describe('validation', function () {
     it('rejects invalid input', function (string $step, string $status, array $overrides, string $field) {
         $passport = completeSteps(workflowPassport(), array_slice(['calling', 'visa', 'bmet'], 0, array_search($step, ['calling', 'visa', 'bmet', 'flight'], true)));
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $payload = stepPayload($step, $status, $overrides);
         foreach ($overrides as $key => $value) {
@@ -398,7 +398,7 @@ describe('validation', function () {
 
     it('accepts today in Dhaka for a confirmed date', function () {
         $passport = completeSteps(workflowPassport(), ['calling', 'visa', 'bmet']);
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/flight", stepPayload('flight', 'completed', [
             'details' => ['booking_date' => '2026-05-20', 'confirmed_date' => '2026-05-01'],
@@ -408,7 +408,7 @@ describe('validation', function () {
     it('never takes protected fields or unknown details from the request', function () {
         $passport = completeSteps(workflowPassport(), ['calling', 'visa', 'bmet']);
         $clerk = User::factory()->dataEntry()->create();
-        $other = User::factory()->admin()->create();
+        $other = User::factory()->dataEntry()->create();
         Sanctum::actingAs($clerk);
 
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/flight", [
@@ -435,7 +435,7 @@ describe('validation', function () {
     it('validates a PATCH against the record as a whole', function () {
         $passport = completeSteps(workflowPassport(), ['calling']);
         $record = PassportStepRecord::factory()->for($passport)->step('visa')->status(StepStatus::InProcess)->on('2026-04-10')->create(['reference_no' => null]);
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->patchJson("/api/data-entry/step-records/{$record->id}", ['status' => 'completed'])
             ->assertUnprocessable()
@@ -542,7 +542,16 @@ describe('editing', function () {
         $this->patchJson("/api/data-entry/step-records/{$own->id}", ['remarks' => 'Again'])->assertForbidden();
     });
 
-    it('lets admin and super admin edit any record, but never out of order', function (string $role) {
+    it('keeps a record from admins', function (string $role) {
+        $passport = completeSteps(workflowPassport(), ['calling', 'visa']);
+        $visa = PassportStepRecord::query()->where('step_key', 'visa')->sole();
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->patchJson("/api/data-entry/step-records/{$visa->id}", ['remarks' => 'Checked'])->assertForbidden();
+        expect($visa->fresh()->status)->toBe(StepStatus::Completed);
+    })->with(['admin', 'superAdmin']);
+
+    it('lets the operations head edit any record, but never out of order', function (string $role) {
         $passport = completeSteps(workflowPassport(), ['calling', 'visa']);
         $visa = PassportStepRecord::query()->where('step_key', 'visa')->sole();
         PassportStepRecord::factory()->for($passport)->step('bmet')->status(StepStatus::InProcess)->on('2026-04-20')->create();
@@ -556,11 +565,21 @@ describe('editing', function () {
 
         expect($visa->fresh()->status)->toBe(StepStatus::Completed)
             ->and(storedPosition($passport))->toBe(['bmet', 'in_process', '2026-04-20']);
-    })->with(['admin', 'superAdmin']);
+    })->with(['operationHead']);
 });
 
 describe('deleting', function () {
-    it('lets only admin and super admin delete', function () {
+    it('keeps deleting a step record from data entry and admins', function (string $role) {
+        $user = User::factory()->{$role}()->create();
+        $passport = workflowPassport();
+        $record = PassportStepRecord::factory()->for($passport)->createdBy($user)->create();
+        Sanctum::actingAs($user);
+
+        $this->deleteJson("/api/data-entry/step-records/{$record->id}")->assertForbidden();
+        expect($record->fresh()->trashed())->toBeFalse();
+    })->with(['dataEntry', 'admin', 'superAdmin']);
+
+    it('lets only the operations head delete', function () {
         $clerk = User::factory()->dataEntry()->create();
         $passport = workflowPassport();
         $record = PassportStepRecord::factory()->for($passport)->createdBy($clerk)->create();
@@ -572,7 +591,7 @@ describe('deleting', function () {
     it('refuses while a later step has records', function () {
         $passport = completeSteps(workflowPassport(), ['calling', 'visa']);
         $calling = PassportStepRecord::query()->where('step_key', 'calling')->sole();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
         $this->deleteJson("/api/data-entry/step-records/{$calling->id}")
             ->assertUnprocessable()
@@ -592,7 +611,7 @@ describe('deleting', function () {
 
         expect(storedPosition($passport))->toBe(['visa', 'rejected', '2026-04-05'])
             ->and(PassportStepRecord::withTrashed()->find($approved->id)->deleted_by)->toBe($user->id);
-    })->with(['admin', 'superAdmin']);
+    })->with(['operationHead']);
 });
 
 describe('medical interplay', function () {
@@ -604,16 +623,31 @@ describe('medical interplay', function () {
         PassportStepRecord::factory()->for($passport)->status(StepStatus::InProcess)->on('2026-04-10')->create();
         Sanctum::actingAs($clerk);
 
-        // The medical date is locked (a result exists) and the result is admin-only.
+        // The medical date is locked (a result exists) and a re-test is for the operations head.
         $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-25'])->assertUnprocessable();
         $this->postJson("/api/data-entry/passports/{$passport->id}/medical-result", ['result' => 'fit', 'issue_date' => '2026-04-25', 'expiry_date' => '2026-07-25'])->assertForbidden();
         $this->patchJson("/api/data-entry/medicals/{$medical->id}", ['remarks' => 'x'])->assertForbidden();
     });
 
-    it('rejects an unfit result while later steps have records, for admin too', function () {
+    it('keeps data entry from changing the medical once later steps have records', function () {
         $passport = completeSteps(workflowPassport(), ['calling']);
         $medical = MedicalRecord::sole();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        // No re-test, no editing someone else's medical, no deleting.
+        recordMedical($passport->id, '2026-04-25', 'unfit')->assertUnprocessable();
+        $this->patchJson("/api/data-entry/medicals/{$medical->id}", ['result' => 'unfit'])->assertForbidden();
+        $this->deleteJson("/api/data-entry/medicals/{$medical->id}")->assertForbidden();
+
+        expect(MedicalRecord::count())->toBe(1)
+            ->and($medical->fresh()->result->value)->toBe('fit')
+            ->and(storedPosition($passport))->toBe(['visa', 'waiting', '2026-04-02']);
+    });
+
+    it('rejects an unfit result while later steps have records, for the operations head too', function () {
+        $passport = completeSteps(workflowPassport(), ['calling']);
+        $medical = MedicalRecord::sole();
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
         recordMedical($passport->id, '2026-04-25', 'unfit')
             ->assertUnprocessable()

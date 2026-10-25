@@ -28,8 +28,8 @@ function transfer(string $direction, float $amount, string $date): TestResponse
 }
 
 describe('cash opening balance', function () {
-    it('is set by admins and read by accounts, with today\'s cash in hand', function () {
-        Sanctum::actingAs(User::factory()->admin()->create());
+    it('is set by the accounts head and read by accounts, with today\'s cash in hand', function () {
+        Sanctum::actingAs(User::factory()->accountsHead()->create());
         setOpening(10000, '2026-10-01')
             ->assertOk()
             ->assertJsonPath('data.opening_balance', 10000)
@@ -40,13 +40,17 @@ describe('cash opening balance', function () {
         $this->getJson('/api/accounts/cash-settings')->assertOk()->assertJsonPath('data.opening_balance', 10000);
         setOpening(1, '2026-10-01')->assertForbidden();
 
+        Sanctum::actingAs(User::factory()->admin()->create());
+        $this->getJson('/api/accounts/cash-settings')->assertForbidden();
+        setOpening(1, '2026-10-01')->assertForbidden();
+
         Sanctum::actingAs(User::factory()->dataEntry()->create());
         $this->getJson('/api/accounts/cash-settings')->assertForbidden();
         $this->getJson('/api/accounts/cash-book')->assertForbidden();
     });
 
     it('refuses cash entries before the opening date, and a date after existing entries', function () {
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->accountsHead()->create());
         $party = Party::factory()->create();
 
         receipt($party, 100, '2026-09-20')->assertCreated();
@@ -64,7 +68,7 @@ describe('cash opening balance', function () {
     });
 
     it('refuses lowering the opening balance below what was spent', function () {
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->accountsHead()->create());
         setOpening(1000, '2026-10-01')->assertOk();
         transfer('deposit', 800, '2026-10-05')->assertCreated();
         approveAllAccountsEntries();
@@ -109,7 +113,7 @@ describe('cash transfers', function () {
     });
 
     it('refuses returning a withdrawal or receipt whose cash was spent later', function () {
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs($head = User::factory()->accountsHead()->create());
         $party = Party::factory()->create();
         $withdrawal = transfer('withdrawal', 1000, '2026-10-01')->json('data.id');
         $receiptId = receipt($party, 500, '2026-10-02')->json('data.id');
@@ -117,6 +121,8 @@ describe('cash transfers', function () {
         transfer('deposit', 1200, '2026-10-03')->assertCreated();
         approveAllAccountsEntries();
 
+        // Returning an approved entry is for admins.
+        Sanctum::actingAs(User::factory()->admin()->create());
         $this->postJson("/api/accounts/approvals/cash-transfers/{$withdrawal}/return", ['reason' => 'Wrong bank'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['status' => 'Not enough cash in hand: the balance would be −৳700.00 on 03-10-2026.']);
@@ -124,6 +130,7 @@ describe('cash transfers', function () {
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['status' => 'Not enough cash in hand: the balance would be −৳200.00 on 03-10-2026.']);
 
+        Sanctum::actingAs($head);
         $this->getJson('/api/accounts/cash-settings')
             ->assertJsonPath('data.cash_in_hand', 300)
             ->assertJsonPath('data.pending', ['count' => 0, 'in' => 0, 'out' => 0]);
@@ -132,7 +139,7 @@ describe('cash transfers', function () {
 
 describe('cash book', function () {
     it('shows each day with its opening, entries, running balance and closing', function () {
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->accountsHead()->create());
         $party = Party::factory()->create(['name' => 'Karim', 'code' => null]);
         setOpening(1000, '2026-10-01')->assertOk();
 

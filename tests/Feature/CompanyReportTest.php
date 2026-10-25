@@ -108,7 +108,7 @@ describe('company fields', function () {
         $existing = Company::factory()->create();
         Sanctum::actingAs(User::factory()->admin()->create());
 
-        $this->patchJson("/api/data-entry/companies/{$existing->id}", ['quota' => 5])
+        $this->patchJson("/api/admin/companies/{$existing->id}", ['quota' => 5])
             ->assertOk()
             ->assertJsonPath('data.quota', 5)
             ->assertJsonPath('data.name', $existing->name);
