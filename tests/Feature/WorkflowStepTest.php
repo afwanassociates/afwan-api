@@ -129,7 +129,8 @@ describe('access', function () {
         $record = PassportStepRecord::sole();
         Sanctum::actingAs(User::factory()->accounts()->create());
 
-        $this->getJson('/api/data-entry/workflow/config')->assertForbidden();
+        // The step definitions are read only, so accounts may read them (the step bar).
+        $this->getJson('/api/data-entry/workflow/config')->assertOk();
         $this->getJson("/api/data-entry/passports/{$passport->id}/steps")->assertForbidden();
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/visa", stepPayload('visa', 'in_process'))->assertForbidden();
         $this->patchJson("/api/data-entry/step-records/{$record->id}", ['remarks' => 'x'])->assertForbidden();

@@ -135,10 +135,10 @@ describe('company country', function () {
             ->assertJsonPath('data.0.country', ['code' => 'SA', 'name' => 'Saudi Arabia']);
     });
 
-    it('lets admins keep a company\'s deactivated country but not switch to another inactive one', function () {
+    it('lets the operations head keep a company\'s deactivated country but not switch to another inactive one', function () {
         $company = Company::factory()->create(['country_code' => 'QA']);
         Country::whereKey(['QA', 'FR'])->update(['is_active' => false]);
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
         $this->patchJson("/api/admin/companies/{$company->id}", ['name' => 'Renamed', 'country_code' => 'QA'])->assertOk();
         $this->patchJson("/api/admin/companies/{$company->id}", ['country_code' => 'FR'])

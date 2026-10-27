@@ -7,15 +7,15 @@ use App\Models\Company;
 use App\Models\User;
 
 /**
- * data_entry, admin and super_admin search and create company records;
- * only admin and super_admin edit, deactivate or delete them. accounts may
- * also read the company report.
+ * The passport team searches and creates company records; only the operations
+ * head manages them (the full list, edit, deactivate, delete). Everyone else
+ * with reports reads the company report.
  */
 class CompanyPolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->hasRole(UserRole::DataEntry, UserRole::OperationHead, UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(...UserRole::passportTeam());
     }
 
     /**
@@ -36,7 +36,7 @@ class CompanyPolicy
      */
     public function manage(User $user): bool
     {
-        return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(...UserRole::passportManagers());
     }
 
     public function update(User $user, Company $company): bool

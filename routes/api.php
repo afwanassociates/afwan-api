@@ -11,6 +11,7 @@ use App\Http\Controllers\Accounts\PartyTransactionController;
 use App\Http\Controllers\Admin\CompanyController as AdminCompanyController;
 use App\Http\Controllers\Admin\CountryController;
 use App\Http\Controllers\Admin\MedicalCenterController;
+use App\Http\Controllers\Admin\ReferenceController as AdminReferenceController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Auth\AuthController;
@@ -36,6 +37,7 @@ use App\Http\Controllers\DataEntry\WorkflowConfigController;
 use App\Http\Controllers\DataEntry\WorkflowSummaryController;
 use App\Http\Controllers\Reports\CompanyReportController;
 use App\Http\Controllers\Reports\ReferenceOptionsController;
+use App\Http\Controllers\Reports\ReferenceReportController;
 use App\Http\Controllers\Reports\SummaryReportController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SuperAdmin\DataResetController;
@@ -88,10 +90,15 @@ Route::middleware('auth:sanctum')->group(function () {
         // Countries are only ever added or deactivated, never deleted.
         Route::apiResource('countries', CountryController::class)->only(['index', 'store', 'update']);
         Route::apiResource('medical-centers', MedicalCenterController::class)->except('show');
-        // Full company management (admin and super_admin only).
-        Route::apiResource('companies', AdminCompanyController::class);
         Route::get('/settings', [SettingsController::class, 'show'])->name('settings.show');
         Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
+    });
+
+    // Full company and reference management: the operations head only (CompanyPolicy and
+    // ReferencePolicy "manage"). Admins see companies through the read-only reports.
+    Route::prefix('admin')->name('admin.')->middleware('role:operation_head')->group(function () {
+        Route::apiResource('companies', AdminCompanyController::class);
+        Route::apiResource('references', AdminReferenceController::class)->except('show');
     });
 
     // Staff accounts: admins manage the heads, accounts and data entry users; the accounts head
@@ -127,11 +134,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/medicals/{medical}', [MedicalRecordController::class, 'destroy'])->name('medicals.destroy');
         Route::get('/medical/queue', MedicalQueueController::class)->name('medical.queue');
         Route::get('/medical-centers', MedicalCenterLookupController::class)->name('medical-centers.index');
-        Route::get('/workflow/summary', WorkflowSummaryController::class)->name('workflow.summary');
 
         // Steps 3 to 6 (calling, visa, bmet, flight; config/workflow.php). Every
         // write goes through App\Services\WorkflowService.
-        Route::get('/workflow/config', WorkflowConfigController::class)->name('workflow.config');
         Route::get('/passports/{passport}/steps', [StepRecordController::class, 'index'])->name('passports.steps.index');
         Route::get('/passports/{passport}/history', PassportHistoryController::class)->name('passports.history');
         Route::post('/passports/{passport}/steps/{stepKey}', [StepRecordController::class, 'store'])
@@ -172,9 +177,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/step-records/{stepRecord}', [StepRecordController::class, 'update'])->name('step-records.update');
         Route::delete('/step-records/{stepRecord}', [StepRecordController::class, 'destroy'])->name('step-records.destroy');
 
-        Route::apiResource('references', ReferenceController::class)->except('show');
-        // Search dropdown and Quick Add for data entry; editing and deleting are
-        // admin-only and kept here for older clients (same as /admin/companies).
+        // Search dropdowns and Quick Add for the passport team; editing and deleting are
+        // for the operations head and kept here for older clients (same as /admin/...).
+        Route::apiResource('references', ReferenceController::class)->only(['index', 'store']);
+        Route::patch('/references/{reference}', [AdminReferenceController::class, 'update'])->name('references.update');
+        Route::delete('/references/{reference}', [AdminReferenceController::class, 'destroy'])->name('references.destroy');
         Route::apiResource('companies', CompanyController::class)->only(['index', 'store']);
         Route::patch('/companies/{company}', [AdminCompanyController::class, 'update'])->name('companies.update');
         Route::delete('/companies/{company}', [AdminCompanyController::class, 'destroy'])->name('companies.destroy');
@@ -187,8 +194,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/defaults', DefaultsController::class)->name('defaults');
     });
 
-    // The step work lists, readable by accounts too (actions stay data-entry only).
+    // The step work lists and the step bar (its counts and step definitions), readable by
+    // every staff role for the read-only reports (actions stay with the passport team).
     Route::prefix('data-entry')->name('data-entry.')->middleware('role:data_entry,accounts,admin')->group(function () {
+        Route::get('/workflow/summary', WorkflowSummaryController::class)->name('workflow.summary');
+        Route::get('/workflow/config', WorkflowConfigController::class)->name('workflow.config');
         Route::get('/steps/{step}/passports', StepListController::class)
             ->whereIn('step', app(Workflow::class)->recordStepKeys())
             ->name('steps.passports');
@@ -204,6 +214,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/passports', [PassportEntryController::class, 'index'])->name('passports');
         // Options of the company report's "Filter by reference" dropdown.
         Route::get('/references', ReferenceOptionsController::class)->name('references.index');
+        // The reference-wise report (like the company report, without quota or balance).
+        Route::get('/reference-report', [ReferenceReportController::class, 'index'])->name('reference-report.index');
+        Route::get('/reference-report/{reference}/passports', [ReferenceReportController::class, 'passports'])->name('reference-report.passports');
     });
 
     Route::prefix('operation-head')->name('operation-head.')->middleware('role:operation_head')->group(function () {

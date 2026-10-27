@@ -16,7 +16,7 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * Full company management for admin and super_admin. data_entry keeps only
+ * Full company management for the operations head. The passport team keeps
  * the search dropdown and Quick Add (DataEntry\CompanyController).
  */
 class CompanyController extends Controller

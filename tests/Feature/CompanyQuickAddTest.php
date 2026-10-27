@@ -41,9 +41,9 @@ it('requires the name, a quota of at least 1 and an active country, with clear m
     'unknown country' => [['country_code' => 'QQ'], 'country_code', 'The selected country does not exist or is inactive.'],
 ]);
 
-it('requires the quota in the admin Companies CRUD too, but keeps existing companies without one valid', function () {
+it('requires the quota in the Companies management too, but keeps existing companies without one valid', function () {
     $existing = Company::factory()->create(['quota' => null]);
-    Sanctum::actingAs(User::factory()->admin()->create());
+    Sanctum::actingAs(User::factory()->operationHead()->create());
 
     $this->postJson('/api/admin/companies', ['name' => 'Admin Made Co', 'country_code' => 'MY'])
         ->assertUnprocessable()

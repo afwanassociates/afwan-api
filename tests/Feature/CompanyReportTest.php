@@ -91,7 +91,7 @@ function csvRows(string $body): array
 
 describe('company fields', function () {
     it('saves only the name, country and quota (other fields are ignored)', function () {
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
         $this->postJson('/api/admin/companies', [
             'name' => 'Desert Rose Construction',
@@ -106,7 +106,7 @@ describe('company fields', function () {
 
     it('edits the quota of an existing company', function () {
         $existing = Company::factory()->create();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
         $this->patchJson("/api/admin/companies/{$existing->id}", ['quota' => 5])
             ->assertOk()
@@ -115,7 +115,7 @@ describe('company fields', function () {
     });
 
     it('rejects bad values', function (array $payload, string $field) {
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
         $this->postJson('/api/admin/companies', ['name' => 'Some Company', 'country_code' => 'MY', 'quota' => 5, ...$payload])
             ->assertUnprocessable()

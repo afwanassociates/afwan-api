@@ -61,7 +61,8 @@ describe('access', function () {
         $this->patchJson("/api/data-entry/medicals/{$record->id}", ['remarks' => 'x'])->assertForbidden();
         $this->deleteJson("/api/data-entry/medicals/{$record->id}")->assertForbidden();
         $this->getJson('/api/data-entry/medical/queue')->assertForbidden();
-        $this->getJson('/api/data-entry/workflow/summary')->assertForbidden();
+        // The step bar's counts are read only, so accounts may read them (All Passports).
+        $this->getJson('/api/data-entry/workflow/summary')->assertOk();
     });
 });
 

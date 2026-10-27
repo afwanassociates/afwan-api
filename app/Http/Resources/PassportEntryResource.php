@@ -21,7 +21,7 @@ class PassportEntryResource extends JsonResource
      *
      * @var list<string>
      */
-    public const RELATIONS = ['country', 'reference', 'company.country', 'medicalCenter', 'currentMedical.creator', 'stepRecords.creator'];
+    public const RELATIONS = ['country', 'reference', 'company.country', 'medicalCenter', 'creator', 'currentMedical.creator', 'stepRecords.creator'];
 
     /**
      * Transform the resource into an array.
@@ -93,6 +93,11 @@ class PassportEntryResource extends JsonResource
             'warnings' => $workflow->warnings($this->resource),
             ...$this->scanFields(),
             'created_by' => $this->created_by,
+            // Who entered it, by name ("Entered by" in the Passport Entry List).
+            'entered_by' => $this->whenLoaded('creator', fn () => $this->creator ? [
+                'id' => $this->creator->id,
+                'name' => $this->creator->name,
+            ] : null),
             'updated_by' => $this->updated_by,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,

@@ -6,9 +6,9 @@ use App\Models\User;
 use Laravel\Sanctum\Sanctum;
 
 describe('company admin CRUD', function () {
-    it('lets admin and super admin list, create, show, edit and delete companies', function (string $role) {
-        $admin = User::factory()->{$role}()->create();
-        Sanctum::actingAs($admin);
+    it('lets the operations head list, create, show, edit and delete companies', function () {
+        $head = User::factory()->operationHead()->create();
+        Sanctum::actingAs($head);
 
         $id = $this->postJson('/api/admin/companies', [
             'name' => 'Desert Rose Construction',
@@ -25,7 +25,7 @@ describe('company admin CRUD', function () {
             ->assertJsonPath('data.passports_count', 0)
             ->json('data.id');
 
-        expect(Company::find($id)->created_by)->toBe($admin->id);
+        expect(Company::find($id)->created_by)->toBe($head->id);
 
         $this->getJson("/api/admin/companies/{$id}")
             ->assertOk()
@@ -44,18 +44,20 @@ describe('company admin CRUD', function () {
         $this->deleteJson("/api/admin/companies/{$id}")->assertNoContent();
 
         expect(Company::withTrashed()->find($id)->trashed())->toBeTrue();
-    })->with(['admin', 'superAdmin']);
+    });
 
     it('blocks deleting a company with passports, deleted passports included', function () {
         $company = Company::factory()->create();
         PassportEntry::factory()->create(['company_id' => $company->id])->delete();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
         $this->deleteJson("/api/admin/companies/{$company->id}")
             ->assertUnprocessable()
             ->assertJsonPath('code', 'company_has_passports');
-        // The older data-entry copy of the route is closed to admins now.
-        $this->deleteJson("/api/data-entry/companies/{$company->id}")->assertForbidden();
+        // The older data-entry copy of the route answers the same.
+        $this->deleteJson("/api/data-entry/companies/{$company->id}")
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'company_has_passports');
 
         expect($company->fresh()->trashed())->toBeFalse();
 
@@ -65,7 +67,7 @@ describe('company admin CRUD', function () {
             ->assertJsonPath('data.is_active', false);
     });
 
-    it('refuses the admin endpoints to data entry and accounts', function (string $role) {
+    it('refuses the company management endpoints to everyone but the operations head', function (string $role) {
         $company = Company::factory()->create();
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
@@ -74,7 +76,7 @@ describe('company admin CRUD', function () {
         $this->postJson('/api/admin/companies', ['name' => 'X Co', 'country_code' => 'MY', 'quota' => 1])->assertForbidden();
         $this->patchJson("/api/admin/companies/{$company->id}", ['quota' => 5])->assertForbidden();
         $this->deleteJson("/api/admin/companies/{$company->id}")->assertForbidden();
-    })->with(['dataEntry', 'accounts']);
+    })->with(['dataEntry', 'accounts', 'accountsHead', 'admin', 'superAdmin']);
 
     it('rejects unauthenticated requests', function () {
         $this->getJson('/api/admin/companies')->assertUnauthorized();

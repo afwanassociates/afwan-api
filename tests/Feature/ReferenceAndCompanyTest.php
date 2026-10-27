@@ -112,7 +112,7 @@ describe('references', function () {
         $this->postJson('/api/data-entry/references', ['type' => ReferenceType::Person->value, 'name' => 'X'])->assertForbidden();
     });
 
-    it('lets the operations head deactivate, list inactive and soft delete a reference that has entries', function (string $role) {
+    it('lets the operations head deactivate and list inactive references, but not delete one with entries', function (string $role) {
         $reference = Reference::factory()->create();
         PassportEntry::factory()->create(['reference_id' => $reference->id]);
         Sanctum::actingAs(User::factory()->{$role}()->create());
@@ -125,8 +125,10 @@ describe('references', function () {
             ->assertJsonPath('data.0.id', $reference->id)
             ->assertJsonPath('meta.total', 1);
 
-        $this->deleteJson("/api/data-entry/references/{$reference->id}")->assertNoContent();
-        $this->assertSoftDeleted($reference);
+        $this->deleteJson("/api/data-entry/references/{$reference->id}")
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'reference_has_passports');
+        $this->assertNotSoftDeleted($reference);
     })->with(['operationHead']);
 });
 
@@ -166,18 +168,28 @@ describe('companies', function () {
         $this->deleteJson("/api/data-entry/companies/{$company->id}")->assertForbidden();
     });
 
-    it('lets admins rename, deactivate and soft delete a company through the admin panel', function (string $role) {
+    it('lets the operations head rename, deactivate and soft delete a company', function () {
         $company = Company::factory()->create();
-        Sanctum::actingAs(User::factory()->{$role}()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
         $this->patchJson("/api/admin/companies/{$company->id}", ['name' => 'Renamed Co', 'is_active' => false])
             ->assertOk()
             ->assertJsonPath('data.name', 'Renamed Co')
             ->assertJsonPath('data.is_active', false);
-        // The old data-entry copies of these routes are closed to admins now.
-        $this->patchJson("/api/data-entry/companies/{$company->id}", ['name' => 'Again'])->assertForbidden();
+        // The old data-entry copy of the route works the same for them.
+        $this->patchJson("/api/data-entry/companies/{$company->id}", ['name' => 'Again'])->assertOk();
 
         $this->deleteJson("/api/admin/companies/{$company->id}")->assertNoContent();
         $this->assertSoftDeleted($company);
+    });
+
+    it('keeps company management from admins: they read the reports only', function (string $role) {
+        $company = Company::factory()->create();
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->getJson('/api/admin/companies')->assertForbidden();
+        $this->patchJson("/api/admin/companies/{$company->id}", ['is_active' => false])->assertForbidden();
+        $this->deleteJson("/api/admin/companies/{$company->id}")->assertForbidden();
+        $this->getJson('/api/reports/companies')->assertOk();
     })->with(['admin', 'superAdmin']);
 });

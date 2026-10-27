@@ -234,6 +234,22 @@ describe('edit and delete', function () {
     })->with(['operationHead']);
 });
 
+describe('entered by', function () {
+    it('lists who entered each passport by real name, for the operations team', function (string $role) {
+        $clerk = User::factory()->dataEntry()->create(['name' => 'Rahima Akter']);
+        $entry = PassportEntry::factory()->createdBy($clerk)->create();
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->getJson('/api/data-entry/passports')
+            ->assertOk()
+            ->assertJsonPath('data.0.created_by', $clerk->id)
+            ->assertJsonPath('data.0.entered_by', ['id' => $clerk->id, 'name' => 'Rahima Akter']);
+        $this->getJson("/api/data-entry/passports/{$entry->id}")
+            ->assertOk()
+            ->assertJsonPath('data.entered_by.name', 'Rahima Akter');
+    })->with(['dataEntry', 'operationHead']);
+});
+
 describe('list', function () {
     beforeEach(function () {
         Sanctum::actingAs(User::factory()->dataEntry()->create());

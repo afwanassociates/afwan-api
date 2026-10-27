@@ -16,7 +16,7 @@ class WorkflowConfigController extends Controller
      */
     public function __invoke(Workflow $workflow): JsonResponse
     {
-        Gate::authorize('viewAny', PassportEntry::class);
+        Gate::authorize('viewOverview', PassportEntry::class);
 
         return response()->json(['data' => ['steps' => $workflow->definitions()]]);
     }

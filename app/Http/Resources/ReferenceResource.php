@@ -26,6 +26,7 @@ class ReferenceResource extends JsonResource
             'phone' => $this->phone,
             'notes' => $this->notes,
             'is_active' => $this->is_active,
+            'passports_count' => $this->whenCounted('passportEntries'),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

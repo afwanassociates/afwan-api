@@ -91,14 +91,23 @@ describe('role hierarchy', function () {
         $this->patchJson("/api/admin/users/{$entry->id}", ['role' => 'operation_head'])->assertForbidden();
     });
 
-    it('gives the operations head passport entry and reports, not accounts or companies admin', function () {
+    it('gives the operations head passport entry, reports, companies and references, not accounts', function () {
         Sanctum::actingAs(User::factory()->operationHead()->create());
 
         $this->getJson('/api/data-entry/passports')->assertOk();
         $this->getJson('/api/reports/summary')->assertOk();
+        $this->getJson('/api/admin/companies')->assertOk();
+        $this->getJson('/api/admin/references')->assertOk();
         $this->getJson('/api/accounts/parties')->assertForbidden();
-        $this->getJson('/api/admin/companies')->assertForbidden();
+        $this->getJson('/api/admin/countries')->assertForbidden();
     });
+
+    it('gives every staff role the step bar (counts and step definitions) for All Passports', function (string $role) {
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->getJson('/api/data-entry/workflow/summary')->assertOk()->assertJsonStructure(['data' => ['steps', 'step1']]);
+        $this->getJson('/api/data-entry/workflow/config')->assertOk()->assertJsonStructure(['data' => ['steps']]);
+    })->with(['dataEntry', 'operationHead', 'accounts', 'accountsHead', 'admin', 'superAdmin']);
 
     it('lets an admin manage the operations head', function () {
         $head = User::factory()->operationHead()->create();
