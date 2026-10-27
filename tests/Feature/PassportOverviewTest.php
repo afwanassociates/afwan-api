@@ -225,7 +225,7 @@ describe('overview list', function () {
         $item = overview()->json('data.0');
 
         expect(array_keys($item))->toBe([
-            'id', 'passport_name', 'passport_number', 'date_of_birth', 'country', 'passport_expiry_date',
+            'id', 'entry_no', 'passport_name', 'passport_number', 'date_of_birth', 'country', 'passport_expiry_date',
             'company', 'reference', 'passport_received_date', 'entered_by', 'created_at', 'has_scan', 'latest_status',
         ])
             ->and($item)->not->toHaveKeys(['current_medical', 'workflow', 'warnings', 'medical_status', 'can'])

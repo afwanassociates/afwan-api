@@ -76,10 +76,10 @@ describe('step tab CSV export', function () {
 
         expect($response->headers->get('content-disposition'))->toContain('visa-issued-01-05-2026.csv');
         $lines = array_map('str_getcsv', explode("\n", trim(ltrim($response->streamedContent(), "\xEF\xBB\xBF"))));
-        expect($lines[0])->toBe(['Passport name', 'Passport number', 'Company', 'Reference', 'Status', 'Visa submitted date', 'Issue date', 'Expired date', 'Visa number'])
+        expect($lines[0])->toBe(['No.', 'Passport name', 'Passport number', 'Company', 'Reference', 'Status', 'Visa submitted date', 'Issue date', 'Expired date', 'Visa number'])
             ->and($lines)->toHaveCount(2)
-            ->and($lines[1][0])->toBe('MD RAHIM')
-            ->and(array_slice($lines[1], 5))->toBe(['30-03-2026', '03-04-2026', '03-10-2026', 'V-1']);
+            ->and($lines[1][1])->toBe('MD RAHIM')
+            ->and(array_slice($lines[1], 6))->toBe(['30-03-2026', '03-04-2026', '03-10-2026', 'V-1']);
     });
 
     it('downloads the BMET cleared tab with the visa and BMET dates', function () {
@@ -90,10 +90,10 @@ describe('step tab CSV export', function () {
         $csv = ltrim($this->get('/api/data-entry/steps/bmet/passports?tab=cleared&export=csv')->assertOk()->streamedContent(), "\xEF\xBB\xBF");
         $lines = array_map('str_getcsv', explode("\n", trim($csv)));
 
-        expect($lines[0])->toBe(['Passport name', 'Passport number', 'Company', 'Reference', 'Status', 'Visa issue date', 'Visa expired date', 'Training date', 'Finger date', 'Clearance date'])
+        expect($lines[0])->toBe(['No.', 'Passport name', 'Passport number', 'Company', 'Reference', 'Status', 'Visa issue date', 'Visa expired date', 'Training date', 'Finger date', 'Clearance date'])
             ->and($lines)->toHaveCount(2)
-            ->and($lines[1][0])->toBe('MD RAHIM')
-            ->and(array_slice($lines[1], 5, 4))->toBe(['03-04-2026', '03-10-2026', '20-03-2026', '25-03-2026']);
+            ->and($lines[1][1])->toBe('MD RAHIM')
+            ->and(array_slice($lines[1], 6, 4))->toBe(['03-04-2026', '03-10-2026', '20-03-2026', '25-03-2026']);
     });
 
     it('rejects an unknown export format', function () {

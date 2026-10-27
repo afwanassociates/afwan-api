@@ -234,6 +234,64 @@ describe('edit and delete', function () {
     })->with(['operationHead']);
 });
 
+describe('entry number', function () {
+    it('gives each new passport the next serial number, starting at 1', function () {
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        $first = $this->postJson('/api/data-entry/passports', passportPayload(['passport_number' => 'AA1000001']))
+            ->assertCreated()
+            ->assertJsonPath('data.entry_no', 1);
+        $this->postJson('/api/data-entry/passports', passportPayload(['passport_number' => 'AA1000002']))
+            ->assertCreated()
+            ->assertJsonPath('data.entry_no', 2);
+
+        $this->getJson("/api/data-entry/passports/{$first->json('data.id')}")->assertJsonPath('data.entry_no', 1);
+    });
+
+    it('never reuses the number of a deleted passport', function () {
+        PassportEntry::factory()->count(3)->create();
+        PassportEntry::query()->where('entry_no', 3)->first()->delete();
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        $this->postJson('/api/data-entry/passports', passportPayload(['passport_number' => 'AA1000004']))
+            ->assertCreated()
+            ->assertJsonPath('data.entry_no', 4);
+        expect(PassportEntry::withTrashed()->orderBy('entry_no')->pluck('entry_no')->all())->toBe([1, 2, 3, 4]);
+    });
+
+    it('keeps the number when the passport is edited', function () {
+        $clerk = User::factory()->dataEntry()->create();
+        PassportEntry::factory()->create();
+        $entry = PassportEntry::factory()->createdBy($clerk)->create();
+        Sanctum::actingAs($clerk);
+
+        $this->patchJson("/api/data-entry/passports/{$entry->id}", ['passport_name' => 'Edited', 'entry_no' => 99])
+            ->assertOk()
+            ->assertJsonPath('data.entry_no', 2);
+    });
+
+    it('shows the number on the step pages and the company report too', function () {
+        $entry = PassportEntry::factory()->create();
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        expect($this->getJson('/api/data-entry/steps/calling/passports?tab=pending')->assertOk()->json('data'))
+            ->each->toHaveKey('entry_no');
+        $this->getJson("/api/reports/companies/{$entry->company_id}/passports")
+            ->assertOk()
+            ->assertJsonPath('data.0.entry_no', 1);
+    });
+
+    it('shows the number in All Passports too', function () {
+        $entry = PassportEntry::factory()->create();
+        Sanctum::actingAs(User::factory()->admin()->create());
+
+        $this->getJson('/api/reports/passports?medical_status=all')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $entry->id)
+            ->assertJsonPath('data.0.entry_no', 1);
+    });
+});
+
 describe('entered by', function () {
     it('lists who entered each passport by real name, for the operations team', function (string $role) {
         $clerk = User::factory()->dataEntry()->create(['name' => 'Rahima Akter']);

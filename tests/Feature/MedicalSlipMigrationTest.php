@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Company;
+use App\Models\PassportEntry;
 use App\Models\Reference;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
@@ -34,6 +35,7 @@ it('moves the slip to passports, keeps results, and is reversible and idempotent
     $center = DB::table('medical_centers')->where('name', 'Meem Medical Center')->value('id');
 
     $passport = fn (string $number, array $values = []) => DB::table('passport_entries')->insertGetId([
+        'entry_no' => PassportEntry::nextEntryNo(),
         'passport_name' => 'SAMPLE NAME',
         'passport_number' => $number,
         'reference_id' => $reference->id,

@@ -52,6 +52,8 @@ class StepListResource extends JsonResource
 
         $row = [
             'id' => $this->id,
+            // The serial number shown as "No." (1, 2, 3, …).
+            'entry_no' => $this->entry_no,
             'passport_name' => $this->passport_name,
             'passport_number' => $this->passport_number,
             'reference' => $this->reference ? ['id' => $this->reference->id, 'name' => $this->reference->name] : null,

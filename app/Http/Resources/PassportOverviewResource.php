@@ -37,6 +37,8 @@ class PassportOverviewResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            // The serial number shown as "No." (1, 2, 3, …).
+            'entry_no' => $this->entry_no,
             'passport_name' => $this->passport_name,
             'passport_number' => $this->passport_number,
             'date_of_birth' => $this->date_of_birth?->toDateString(),

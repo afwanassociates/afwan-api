@@ -52,6 +52,7 @@ class StepListCsv
         $flight = fn (string $key) => fn (array $row) => $row['flight_status'][$key] ?? null;
 
         return [
+            'No.' => fn (array $row) => $row['entry_no'],
             'Passport name' => fn (array $row) => $row['passport_name'],
             'Passport number' => fn (array $row) => $row['passport_number'],
             'Company' => fn (array $row) => $row['company']['name'] ?? null,

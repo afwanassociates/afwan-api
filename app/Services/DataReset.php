@@ -203,6 +203,23 @@ class DataReset
     /**
      * @return array{restored: array<string, int>, files: int}
      */
+    /**
+     * Backups made before the entry number existed: number those passports by id, after the
+     * highest number the backup has. Rows that have a number keep it.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    public static function numberPassports(array $rows): array
+    {
+        $rows = collect($rows)->sortBy('id')->values();
+        $next = (int) $rows->max('entry_no') + 1;
+
+        return $rows->map(function (array $row) use (&$next) {
+            return [...$row, 'entry_no' => $row['entry_no'] ?? $next++];
+        })->all();
+    }
+
     private function restoreFrom(PharData $archive, string $archivePath): array
     {
         $data = json_decode((string) file_get_contents($archive['data.json']->getPathname()), true, flags: JSON_THROW_ON_ERROR);
@@ -213,6 +230,10 @@ class DataReset
             if (DB::table($table)->exists()) {
                 throw new RuntimeException("The table {$table} is not empty; restore only puts data back into empty tables.");
             }
+        }
+
+        if (isset($data['tables']['passport_entries'])) {
+            $data['tables']['passport_entries'] = self::numberPassports($data['tables']['passport_entries']);
         }
 
         $restored = DB::transaction(function () use ($tables, $data) {

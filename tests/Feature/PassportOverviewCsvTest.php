@@ -43,16 +43,17 @@ describe('All Passports CSV export', function () {
         $lines = overviewCsv();
 
         expect($lines[0])->toBe([
-            'Passport name', 'Passport number', 'Date of birth', 'Country', 'Passport expiry date',
+            'No.', 'Passport name', 'Passport number', 'Date of birth', 'Country', 'Passport expiry date',
             'Company', 'Company country', 'Reference', 'Received date', 'Entered by', 'Latest status',
         ])
             // Every row, not one page.
             ->and($lines)->toHaveCount(22);
 
-        $row = collect($lines)->firstWhere(0, 'MD RAHIM');
-        expect([$row[1], $row[2], $row[4], $row[5], $row[7], $row[8]])
+        $row = collect($lines)->firstWhere(1, 'MD RAHIM');
+        expect([$row[2], $row[3], $row[5], $row[6], $row[8], $row[9]])
             ->toBe(['A1234567', '17-05-1990', '01-01-2035', 'Alpha Builders', 'Sea Star', '15-01-2026'])
-            ->and($row[10])->not->toBe('');
+            ->and($row[0])->toMatch('/^\d+$/')
+            ->and($row[11])->not->toBe('');
     });
 
     it('uses the same searches as the list', function () {
@@ -62,7 +63,7 @@ describe('All Passports CSV export', function () {
 
         $lines = overviewCsv('&q=rahim');
 
-        expect($lines)->toHaveCount(2)->and($lines[1][0])->toBe('MD RAHIM');
+        expect($lines)->toHaveCount(2)->and($lines[1][1])->toBe('MD RAHIM');
     });
 
     it('is only for the overview', function () {
@@ -87,11 +88,12 @@ describe('company passports CSV export', function () {
 
         expect($response->headers->get('content-disposition'))->toContain('company-alpha-builders-sdn-bhd-passports-01-05-2026.csv');
         $lines = array_map('str_getcsv', explode("\n", trim(ltrim($response->streamedContent(), "\xEF\xBB\xBF"))));
-        expect($lines[0][0])->toBe('Passport name')
+        expect($lines[0][0])->toBe('No.')
+            ->and($lines[0][1])->toBe('Passport name')
             ->and(end($lines[0]))->toBe('Latest status')
             ->and($lines)->toHaveCount(20)
-            ->and($lines[1][0])->toBe('NEWEST ONE')
-            ->and(array_column($lines, 0))->not->toContain('OTHER COMPANY')
-            ->and(array_unique(array_column(array_slice($lines, 1), 5)))->toBe(['Alpha Builders Sdn Bhd']);
+            ->and($lines[1][1])->toBe('NEWEST ONE')
+            ->and(array_column($lines, 1))->not->toContain('OTHER COMPANY')
+            ->and(array_unique(array_column(array_slice($lines, 1), 6)))->toBe(['Alpha Builders Sdn Bhd']);
     });
 });

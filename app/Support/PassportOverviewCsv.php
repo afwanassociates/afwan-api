@@ -30,12 +30,13 @@ class PassportOverviewCsv
             fwrite($out, "\xEF\xBB\xBF");
 
             fputcsv($out, [
-                'Passport name', 'Passport number', 'Date of birth', 'Country', 'Passport expiry date',
+                'No.', 'Passport name', 'Passport number', 'Date of birth', 'Country', 'Passport expiry date',
                 'Company', 'Company country', 'Reference', 'Received date', 'Entered by', 'Latest status',
             ], escape: '');
 
             foreach ($query->lazy() as $passport) {
                 fputcsv($out, array_map(fn (mixed $value) => $this->cell($value), [
+                    $passport->entry_no,
                     $passport->passport_name,
                     $passport->passport_number,
                     $passport->date_of_birth?->format('d-m-Y'),

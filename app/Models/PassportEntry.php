@@ -27,7 +27,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * (medical_slip_date, medical_center_id) and the medical_date are set only
  * through App\Services\MedicalService, entry_mode only through
  * App\Services\WorkflowService::updateEntryMode, and the scan columns only through
- * App\Services\PassportScanService (scan_path is never sent to clients).
+ * App\Services\PassportScanService (scan_path is never sent to clients). entry_no,
+ * the serial number (1, 2, 3, …), is given once when the entry is created and never
+ * changes or comes back after a delete.
  */
 #[Hidden(['scan_path'])]
 #[Fillable([
@@ -60,6 +62,7 @@ class PassportEntry extends Model
     protected function casts(): array
     {
         return [
+            'entry_no' => 'integer',
             'date_of_birth' => 'date',
             'passport_received_date' => 'date',
             'passport_expiry_date' => 'date',
@@ -70,6 +73,29 @@ class PassportEntry extends Model
             'entry_mode' => EntryMode::class,
             'scan_uploaded_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Every new entry gets the next serial number, also when model events are
+     * off (the seeders). The lock (inside the save's transaction) and the
+     * unique index keep two entries saved at once apart.
+     *
+     * @param  Builder<static>  $query
+     */
+    protected function performInsert(Builder $query): bool
+    {
+        $this->entry_no ??= static::nextEntryNo();
+
+        return parent::performInsert($query);
+    }
+
+    /**
+     * The next serial number: one more than the highest ever given, deleted
+     * entries included, so a number is never reused.
+     */
+    public static function nextEntryNo(): int
+    {
+        return (int) static::withTrashed()->lockForUpdate()->max('entry_no') + 1;
     }
 
     /**

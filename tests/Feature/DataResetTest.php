@@ -131,6 +131,13 @@ describe('delete all data', function () {
             ->and(Storage::disk('local')->allFiles('passport-scans'))->toHaveCount(1);
     });
 
+    it('numbers the passports of a backup made before the entry number existed', function () {
+        expect(DataReset::numberPassports([['id' => 9, 'name' => 'B'], ['id' => 4, 'name' => 'A']]))
+            ->toBe([['id' => 4, 'name' => 'A', 'entry_no' => 1], ['id' => 9, 'name' => 'B', 'entry_no' => 2]])
+            ->and(DataReset::numberPassports([['id' => 1, 'entry_no' => 5], ['id' => 2, 'entry_no' => null]]))
+            ->toBe([['id' => 1, 'entry_no' => 5], ['id' => 2, 'entry_no' => 6]]);
+    });
+
     it('downloads, deletes and restores a backup', function () {
         seedEveryGroup();
         $before = [
