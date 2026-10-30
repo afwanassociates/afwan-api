@@ -26,7 +26,7 @@ class PassportOverviewResource extends JsonResource
      * @var list<string>
      */
     // stepRecords: the status line reads the flight booking while BMET is open.
-    public const RELATIONS = ['country', 'reference', 'company.country', 'creator', 'currentMedical', 'stepRecords'];
+    public const RELATIONS = ['country', 'reference', 'company.country', 'creator', 'currentMedical', 'stepRecords', 'currentReturn.returner'];
 
     /**
      * Transform the resource into an array.
@@ -68,6 +68,7 @@ class PassportOverviewResource extends JsonResource
             'created_at' => $this->created_at,
             ...$this->scanFlag($this->resource),
             'latest_status' => app(Workflow::class)->latestStatus($this->resource),
+            'returned' => $this->currentReturn ? ReturnedPassportResource::summary($this->currentReturn) : null,
         ];
     }
 }

@@ -156,13 +156,14 @@ describe('company report', function () {
                 'flight_done' => 1,
                 // Flight not confirmed and not unfit.
                 'in_process' => 5,
+                'returned' => 0,
                 'balance' => 2,
             ])
             ->and($response->json('data.1'))->toMatchArray(['total' => 1, 'medical_pending' => 1, 'in_process' => 1, 'quota' => null, 'balance' => null])
             ->and($response->json('data.2'))->toMatchArray(['total' => 0, 'medical_fit' => 0, 'quota' => 3, 'balance' => 3])
             ->and($response->json('totals'))->toBe([
                 'quota' => 13, 'total' => 9, 'medical_fit' => 5, 'medical_unfit' => 2, 'medical_pending' => 2, 'not_started' => 0,
-                'calling_done' => 3, 'visa_done' => 2, 'bmet_done' => 2, 'flight_done' => 1, 'in_process' => 6,
+                'calling_done' => 3, 'visa_done' => 2, 'bmet_done' => 2, 'flight_done' => 1, 'in_process' => 6, 'returned' => 0,
                 'balance' => 5,
             ]);
     });
@@ -213,11 +214,11 @@ describe('company report', function () {
             ->and($response->headers->get('Content-Type'))->toContain('text/csv')
             // 1 May 2026 in Dhaka (still 30 April in UTC).
             ->and($response->headers->get('Content-Disposition'))->toContain('company-report-01-05-2026.csv')
-            ->and($rows[0])->toBe(['ID', 'Company', 'Country', 'Quota', 'Total', 'Medical fit', 'Medical unfit', 'Medical pending', 'Not started', 'Calling done', 'Visa done', 'Bmet done', 'Flight done', 'In process', 'Balance'])
+            ->and($rows[0])->toBe(['ID', 'Company', 'Country', 'Quota', 'Total', 'Medical fit', 'Medical unfit', 'Medical pending', 'Not started', 'Calling done', 'Visa done', 'Bmet done', 'Flight done', 'In process', 'Returned', 'Balance'])
             ->and($rows)->toHaveCount(5)
-            ->and($rows[1])->toBe([(string) $a->id, '\'=HYPERLINK("x")', 'MY', '10', '8', '5', '2', '1', '0', '3', '2', '2', '1', '5', '2'])
-            ->and($rows[2][14])->toBe('')
-            ->and($rows[4])->toBe(['Total', '', '', '13', '9', '5', '2', '2', '0', '3', '2', '2', '1', '6', '5']);
+            ->and($rows[1])->toBe([(string) $a->id, '\'=HYPERLINK("x")', 'MY', '10', '8', '5', '2', '1', '0', '3', '2', '2', '1', '5', '0', '2'])
+            ->and($rows[2][15])->toBe('')
+            ->and($rows[4])->toBe(['Total', '', '', '13', '9', '5', '2', '2', '0', '3', '2', '2', '1', '6', '0', '5']);
     });
 });
 

@@ -236,9 +236,18 @@ class MedicalService
 
     /**
      * Lock the passport row so concurrent writes for one passport run one at a time.
+     * A returned passport takes no workflow changes until the return is undone.
+     *
+     * @throws WorkflowException
      */
     protected function lock(PassportEntry $passport): PassportEntry
     {
-        return PassportEntry::withTrashed()->lockForUpdate()->findOrFail($passport->id);
+        $locked = PassportEntry::withTrashed()->lockForUpdate()->findOrFail($passport->id);
+
+        if ($locked->current_return_id !== null) {
+            throw WorkflowException::passportReturned();
+        }
+
+        return $locked;
     }
 }

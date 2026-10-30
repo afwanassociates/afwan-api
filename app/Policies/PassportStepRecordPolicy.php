@@ -10,9 +10,10 @@ use App\Support\Workflow;
 
 /**
  * The passport team records steps; data entry edits its own records until a
- * later step has records. Only the operations head edits any record, deletes
- * and undoes (any step: the Online mark, BMET actions, the flight booking and
- * confirmation). The step order itself is enforced by App\Services\WorkflowService.
+ * later step has records. Only the operations head edits any record and undoes
+ * (the Online mark, BMET actions, the flight booking and confirmation). Nobody
+ * deletes a step record. The step order itself (and the block on returned
+ * passports) is enforced by App\Services\WorkflowService.
  */
 class PassportStepRecordPolicy
 {
@@ -48,9 +49,12 @@ class PassportStepRecordPolicy
                 && ! $this->workflow->hasRecordsAfter($record->passportEntry, $record->step_key));
     }
 
+    /**
+     * Step records are never deleted, by anyone.
+     */
     public function delete(User $user, PassportStepRecord $record): bool
     {
-        return $user->hasRole(...UserRole::passportManagers());
+        return false;
     }
 
     /**

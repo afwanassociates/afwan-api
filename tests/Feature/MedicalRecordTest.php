@@ -502,37 +502,16 @@ describe('deleting', function () {
             ->and($passport->fresh()->current_medical_id)->toBe($current->id);
     })->with(['admin', 'superAdmin']);
 
-    it('moves the current record back to the previous one, then to pending', function (string $role) {
+    it('refuses the operations head too: medical records are never deleted', function () {
         $passport = receivedPassport();
-        $previous = MedicalRecord::factory()->for($passport)->unfit()->on('2026-03-01')->create();
-        $current = MedicalRecord::factory()->for($passport)->on('2026-04-01')->create();
-        $user = User::factory()->{$role}()->create();
-        Sanctum::actingAs($user);
-
-        expect($passport->fresh()->current_medical_id)->toBe($current->id);
-
-        $this->deleteJson("/api/data-entry/medicals/{$current->id}")->assertNoContent();
-
-        expect($passport->fresh()->current_medical_id)->toBe($previous->id);
-        expect(MedicalRecord::withTrashed()->find($current->id))
-            ->trashed()->toBeTrue()
-            ->deleted_by->toBe($user->id);
-
-        $this->deleteJson("/api/data-entry/medicals/{$previous->id}")->assertNoContent();
-
-        expect($passport->fresh()->current_medical_id)->toBeNull();
-        $this->getJson("/api/data-entry/passports/{$passport->id}")->assertJsonPath('data.medical_status', 'pending');
-    })->with(['operationHead']);
-
-    it('keeps the current record when an older one is deleted', function () {
-        $passport = receivedPassport();
-        $older = MedicalRecord::factory()->for($passport)->on('2026-03-01')->create();
+        $older = MedicalRecord::factory()->for($passport)->unfit()->on('2026-03-01')->create();
         $current = MedicalRecord::factory()->for($passport)->on('2026-04-01')->create();
         Sanctum::actingAs(User::factory()->operationHead()->create());
 
-        $this->deleteJson("/api/data-entry/medicals/{$older->id}")->assertNoContent();
+        $this->deleteJson("/api/data-entry/medicals/{$current->id}")->assertForbidden();
+        $this->deleteJson("/api/data-entry/medicals/{$older->id}")->assertForbidden();
 
-        expect($passport->fresh()->current_medical_id)->toBe($current->id);
-        $this->getJson("/api/data-entry/passports/{$passport->id}/medicals")->assertJsonCount(1, 'data');
+        expect(MedicalRecord::query()->count())->toBe(2)
+            ->and($passport->fresh()->current_medical_id)->toBe($current->id);
     });
 });

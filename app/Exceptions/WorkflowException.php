@@ -101,6 +101,26 @@ class WorkflowException extends Exception
         return new self('order_violation', "This change would leave the {$stepLabel} step not completed while a later step has records.");
     }
 
+    public static function passportReturned(): self
+    {
+        return new self('passport_returned', 'This passport was returned to its owner. Undo the return before changing its steps.');
+    }
+
+    public static function alreadyReturned(): self
+    {
+        return new self('already_returned', 'This passport is already returned.');
+    }
+
+    public static function flightConfirmed(): self
+    {
+        return new self('flight_confirmed', 'A passport cannot be returned once its flight is confirmed.');
+    }
+
+    public static function notReturned(): self
+    {
+        return new self('not_returned', 'This passport is not returned, so there is nothing to undo.');
+    }
+
     public static function laterStepsNeedFitMedical(): self
     {
         return new self('later_steps_exist', 'This passport already has calling or later step records, which need a fit medical. Remove those records first.');

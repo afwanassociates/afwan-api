@@ -256,6 +256,7 @@ return [
         'in_process' => 'In Process',
         'rejected' => 'Rejected',
         'completed' => 'Completed',
+        'returned' => 'Returned',
     ],
 
     'tones' => [
@@ -268,6 +269,7 @@ return [
         'expired' => 'amber',
         'in_process' => 'blue',
         'completed' => 'green',
+        'returned' => 'gray',
     ],
 
     'default_tone' => 'gray',

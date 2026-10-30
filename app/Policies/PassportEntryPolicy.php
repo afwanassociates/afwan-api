@@ -5,11 +5,13 @@ namespace App\Policies;
 use App\Enums\UserRole;
 use App\Models\PassportEntry;
 use App\Models\User;
+use App\Support\Workflow;
 
 /**
  * The passport team (data entry and the operations head) views and creates
  * entries; data entry edits its own. Only the operations head edits any entry
- * and deletes. Admins see passports only through the read-only reports.
+ * and returns a passport to its owner (or undoes that). Nobody deletes a
+ * passport. Admins see passports only through the read-only reports.
  */
 class PassportEntryPolicy
 {
@@ -84,8 +86,38 @@ class PassportEntryPolicy
         return $this->viewAny($user);
     }
 
+    /**
+     * Passports are never deleted, by anyone: a passport handed back is returned instead.
+     */
     public function delete(User $user, PassportEntry $entry): bool
     {
-        return $user->hasRole(...UserRole::passportManagers());
+        return false;
+    }
+
+    /**
+     * Return the passport to its owner, at any step until the flight is
+     * confirmed (the operations head).
+     */
+    public function returnPassport(User $user, PassportEntry $entry): bool
+    {
+        return $user->hasRole(...UserRole::passportManagers())
+            && ! $entry->isReturned()
+            && $entry->current_stage !== Workflow::COMPLETED;
+    }
+
+    /**
+     * Undo the return: the passport goes back to the step it was at (the operations head).
+     */
+    public function undoReturn(User $user, PassportEntry $entry): bool
+    {
+        return $user->hasRole(...UserRole::passportManagers()) && $entry->isReturned();
+    }
+
+    /**
+     * Read the Returned Passports list (every staff role, read only).
+     */
+    public function viewReturned(User $user): bool
+    {
+        return $this->viewOverview($user);
     }
 }

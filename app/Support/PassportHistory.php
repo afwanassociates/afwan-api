@@ -3,18 +3,24 @@
 namespace App\Support;
 
 use App\Enums\MedicalResult;
+use App\Http\Resources\ReturnedPassportResource;
 use App\Models\MedicalRecord;
 use App\Models\PassportEntry;
+use App\Models\PassportReturn;
 use App\Models\PassportStepRecord;
 use App\Models\User;
 
 /**
  * A passport's history from entry to flight, oldest first: the entry, the
- * medical slip, every medical result and every step record (soft-deleted
- * records left out). Built from the stored records; nothing extra is kept.
+ * medical slip, every medical result, every step record (soft-deleted records
+ * left out) and every return to the owner (undone ones too, with their undo).
+ * Built from the stored records; nothing extra is kept.
  */
 class PassportHistory
 {
+    /** The step key of return events (not a workflow step). */
+    public const RETURNED = 'returned';
+
     public function __construct(protected Workflow $workflow) {}
 
     /**
@@ -24,7 +30,7 @@ class PassportHistory
      */
     public function events(PassportEntry $passport): array
     {
-        $passport->loadMissing(['creator', 'medicalCenter', 'medicalRecords.creator', 'stepRecords.creator']);
+        $passport->loadMissing(['creator', 'medicalCenter', 'medicalRecords.creator', 'stepRecords.creator', 'returns.returner', 'returns.undoer']);
 
         $events = [$this->entered($passport)];
 
@@ -47,6 +53,11 @@ class PassportHistory
             $events[] = $this->step($record);
         }
 
+        foreach ($passport->returns as $return) {
+            array_push($events, ...$this->returned($return));
+        }
+
+        // Returns sort after the steps of the same day (unknown keys come last).
         $order = array_flip(array_column($this->workflow->steps(), 'key'));
 
         usort($events, fn (array $a, array $b) => [$a['date'], $order[$a['step_key']] ?? 99, $a['sequence']]
@@ -140,6 +151,49 @@ class PassportHistory
     }
 
     /**
+     * The return, and its undo when it was undone.
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function returned(PassportReturn $return): array
+    {
+        $wasAt = ReturnedPassportResource::stageLabel($this->workflow, $return->stage);
+
+        $events = [$this->event(
+            key: "return-{$return->id}",
+            date: $return->return_date->toDateString(),
+            step: self::RETURNED,
+            title: $return->isUndone() ? 'Passport returned (undone)' : 'Passport returned',
+            tone: 'gray',
+            details: [
+                ['label' => 'Was at', 'value' => $wasAt, 'type' => 'text'],
+                ['label' => 'Receiver', 'value' => $return->receiver_name, 'type' => 'text'],
+                ['label' => 'Receiver phone', 'value' => $return->receiver_phone, 'type' => 'text'],
+                ['label' => 'Receiver NID / Passport no.', 'value' => $return->receiver_id_no, 'type' => 'text'],
+                ['label' => 'Returned on', 'value' => $return->return_date->toDateString(), 'type' => 'date'],
+            ],
+            by: $return->returner,
+            remarks: $return->remarks,
+            sequence: $return->id * 2,
+        )];
+
+        if ($return->isUndone()) {
+            $events[] = $this->event(
+                key: "return-undo-{$return->id}",
+                date: $return->undone_at->setTimezone(LocalDate::timezone())->toDateString(),
+                step: self::RETURNED,
+                title: 'Return undone',
+                tone: 'blue',
+                details: [['label' => 'Back to', 'value' => $wasAt, 'type' => 'text']],
+                by: $return->undoer,
+                sequence: $return->id * 2 + 1,
+            );
+        }
+
+        return $events;
+    }
+
+    /**
      * @param  list<array{label: string, value: mixed, type: string}>  $details
      * @return array<string, mixed>
      */
@@ -158,7 +212,7 @@ class PassportHistory
             'key' => $key,
             'date' => $date,
             'step_key' => $step,
-            'step_label' => $this->workflow->label($step),
+            'step_label' => $step === self::RETURNED ? 'Return' : $this->workflow->label($step),
             'title' => $title,
             'tone' => $tone,
             // Only filled fields.

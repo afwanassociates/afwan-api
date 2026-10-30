@@ -543,6 +543,21 @@ class Workflow
         $waitingForFirst = ($stage === $first && $status === 'waiting') || ($stage === 'medical' && $status === 'fit');
         $mode = $passport->entry_mode;
 
+        if ($passport->isReturned() && $passport->currentReturn !== null) {
+            // e.g. "Returned on 28-10-2026 to Rahim (01711…)"; the stage stays where it was.
+            $return = $passport->currentReturn;
+
+            return [
+                'stage' => $stage,
+                'stage_label' => $stage === self::COMPLETED ? $this->statusLabel(self::COMPLETED) : $this->label($stage),
+                'status' => 'returned',
+                'status_label' => $this->statusLabel('returned'),
+                'text' => "Returned on {$return->return_date->format('d-m-Y')} to {$return->receiver_name} ({$return->receiver_phone})",
+                'tone' => $this->tone('returned'),
+                'date' => $return->return_date->toDateString(),
+            ];
+        }
+
         if ($stage === self::COMPLETED) {
             // e.g. "Flight confirmed (21-05-2026)".
             $status = StepStatus::Completed->value;
@@ -684,7 +699,7 @@ class Workflow
      * Counts for the step bar. One aggregate query over passports and current
      * medicals, plus one grouped query for the stages. Unfit passports are not
      * "active" but are in total_all; fit includes expiring_soon. Soft-deleted
-     * passports are never counted.
+     * and returned passports are never counted.
      *
      * @return array<string, mixed>
      */
@@ -703,6 +718,7 @@ class Workflow
         ));
 
         $row = PassportEntry::query()
+            ->notReturned()
             ->withCurrentMedical()
             ->toBase()
             ->select([])
@@ -721,6 +737,7 @@ class Workflow
             ->first();
 
         $counts = PassportEntry::query()
+            ->notReturned()
             ->toBase()
             ->select(['current_stage', 'stage_status'])
             ->selectRaw('count(*) as total')

@@ -21,6 +21,7 @@ class MedicalQueueController extends Controller
         $page = PassportEntry::query()
             ->select(['id', 'passport_name', 'passport_number', 'passport_received_date'])
             // Pending: slip date entered, no result yet (not_started is left out).
+            ->notReturned()
             ->whereNull('current_medical_id')
             ->whereNotNull('medical_slip_date')
             ->orderBy('passport_received_date')

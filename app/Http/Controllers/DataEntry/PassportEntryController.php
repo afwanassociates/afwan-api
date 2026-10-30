@@ -69,6 +69,8 @@ class PassportEntryController extends Controller
 
         $entries = PassportEntry::query()
             ->with($overview ? PassportOverviewResource::RELATIONS : PassportEntryResource::RELATIONS)
+            // Returned passports leave the working lists; All Passports still shows them.
+            ->when(! $overview, fn (Builder $query) => $query->notReturned())
             ->withCurrentMedical()
             // Unfit passports have their own list (medical_status=unfit) and are
             // left out by default; medical_status=all applies no medical filter.
@@ -181,8 +183,8 @@ class PassportEntryController extends Controller
     }
 
     /**
-     * Soft delete a passport entry, recording who deleted it. Its passport
-     * number stays taken.
+     * Passports are never deleted (PassportEntryPolicy::delete refuses everyone);
+     * kept so the route answers 403 instead of 405.
      */
     public function destroy(Request $request, PassportEntry $passport): Response
     {

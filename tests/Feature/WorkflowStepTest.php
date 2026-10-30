@@ -589,30 +589,16 @@ describe('deleting', function () {
         $this->deleteJson("/api/data-entry/step-records/{$record->id}")->assertForbidden();
     });
 
-    it('refuses while a later step has records', function () {
-        $passport = completeSteps(workflowPassport(), ['calling', 'visa']);
-        $calling = PassportStepRecord::query()->where('step_key', 'calling')->sole();
+    it('refuses the operations head too: step records are never deleted', function () {
+        $passport = completeSteps(workflowPassport(), ['calling']);
+        $approved = PassportStepRecord::factory()->for($passport)->step('visa')->on('2026-04-10')->create();
         Sanctum::actingAs(User::factory()->operationHead()->create());
 
-        $this->deleteJson("/api/data-entry/step-records/{$calling->id}")
-            ->assertUnprocessable()
-            ->assertJsonPath('code', 'later_step_exists');
+        $this->deleteJson("/api/data-entry/step-records/{$approved->id}")->assertForbidden();
+
+        expect(storedPosition($passport))->toBe(['bmet', 'waiting', '2026-04-10'])
+            ->and($approved->fresh()->trashed())->toBeFalse();
     });
-
-    it('makes the previous latest record current again', function (string $role) {
-        $passport = completeSteps(workflowPassport(), ['calling']);
-        PassportStepRecord::factory()->for($passport)->step('visa')->status(StepStatus::Rejected)->on('2026-04-05')->create();
-        $approved = PassportStepRecord::factory()->for($passport)->step('visa')->on('2026-04-10')->create();
-        $user = User::factory()->{$role}()->create();
-        Sanctum::actingAs($user);
-
-        expect(storedPosition($passport))->toBe(['bmet', 'waiting', '2026-04-10']);
-
-        $this->deleteJson("/api/data-entry/step-records/{$approved->id}")->assertNoContent();
-
-        expect(storedPosition($passport))->toBe(['visa', 'rejected', '2026-04-05'])
-            ->and(PassportStepRecord::withTrashed()->find($approved->id)->deleted_by)->toBe($user->id);
-    })->with(['operationHead']);
 });
 
 describe('medical interplay', function () {
@@ -656,9 +642,7 @@ describe('medical interplay', function () {
         $this->patchJson("/api/data-entry/medicals/{$medical->id}", ['result' => 'unfit'])
             ->assertUnprocessable()
             ->assertJsonPath('code', 'later_steps_exist');
-        $this->deleteJson("/api/data-entry/medicals/{$medical->id}")
-            ->assertUnprocessable()
-            ->assertJsonPath('code', 'later_steps_exist');
+        $this->deleteJson("/api/data-entry/medicals/{$medical->id}")->assertForbidden();
 
         expect(MedicalRecord::count())->toBe(1)
             ->and($medical->fresh()->result->value)->toBe('fit');

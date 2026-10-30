@@ -255,16 +255,13 @@ describe('passport entries', function () {
             ->assertJsonPath('data.0.company.country', ['code' => 'SA', 'name' => 'Saudi Arabia']);
     });
 
-    it('records who deleted an entry', function () {
+    it('never deletes an entry, even for the operations head', function () {
         $entry = PassportEntry::factory()->create();
-        $head = User::factory()->operationHead()->create();
-        Sanctum::actingAs($head);
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
-        $this->deleteJson("/api/data-entry/passports/{$entry->id}")->assertNoContent();
+        $this->deleteJson("/api/data-entry/passports/{$entry->id}")->assertForbidden();
 
-        expect(PassportEntry::withTrashed()->find($entry->id))
-            ->deleted_by->toBe($head->id)
-            ->trashed()->toBeTrue();
+        expect($entry->fresh()->trashed())->toBeFalse();
     });
 });
 

@@ -207,13 +207,9 @@ describe('stage_status_date', function () {
         $this->patchJson("/api/data-entry/medicals/{$fit}", ['medical_date' => '2026-04-12'])->assertOk();
         expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-04-12');
 
-        // Deleting falls back to the previous latest record, then to the received date.
-        $this->deleteJson("/api/data-entry/medicals/{$fit}")->assertNoContent();
-        expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-03-01');
-
-        MedicalRecord::query()->whereKeyNot($unfit)->get()->each(fn (MedicalRecord $record) => $this->deleteJson("/api/data-entry/medicals/{$record->id}"));
-        $this->deleteJson("/api/data-entry/medicals/{$unfit}")->assertNoContent();
-        expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-02-01');
+        // Medical records are never deleted, so nothing moves it back.
+        $this->deleteJson("/api/data-entry/medicals/{$fit}")->assertForbidden();
+        expect($passport->fresh()->stage_status_date->toDateString())->toBe('2026-04-12');
     });
 });
 
@@ -226,7 +222,7 @@ describe('overview list', function () {
 
         expect(array_keys($item))->toBe([
             'id', 'entry_no', 'passport_name', 'passport_number', 'date_of_birth', 'country', 'passport_expiry_date',
-            'company', 'reference', 'passport_received_date', 'entered_by', 'created_at', 'has_scan', 'latest_status',
+            'company', 'reference', 'passport_received_date', 'entered_by', 'created_at', 'has_scan', 'latest_status', 'returned',
         ])
             ->and($item)->not->toHaveKeys(['current_medical', 'workflow', 'warnings', 'medical_status', 'can'])
             ->and(array_keys($item['reference']))->toBe(['id', 'name', 'type'])

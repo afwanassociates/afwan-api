@@ -21,7 +21,7 @@ class PassportEntryResource extends JsonResource
      *
      * @var list<string>
      */
-    public const RELATIONS = ['country', 'reference', 'company.country', 'medicalCenter', 'creator', 'currentMedical.creator', 'stepRecords.creator'];
+    public const RELATIONS = ['country', 'reference', 'company.country', 'medicalCenter', 'creator', 'currentMedical.creator', 'stepRecords.creator', 'currentReturn.returner'];
 
     /**
      * Transform the resource into an array.
@@ -93,6 +93,8 @@ class PassportEntryResource extends JsonResource
             'latest_status' => $workflow->latestStatus($this->resource),
             'workflow' => $workflow->forPassport($this->resource, $medicalStatus),
             'warnings' => $workflow->warnings($this->resource),
+            // Set while the passport is returned to its owner (out of every working list).
+            'returned' => $this->currentReturn ? ReturnedPassportResource::summary($this->currentReturn) : null,
             ...$this->scanFields(),
             'created_by' => $this->created_by,
             // Who entered it, by name ("Entered by" in the Passport Entry List).
@@ -106,8 +108,9 @@ class PassportEntryResource extends JsonResource
             // What the current user may do with this entry, for the SPA's buttons.
             'can' => [
                 'update' => $request->user()?->can('update', $this->resource) ?? false,
-                'delete' => $request->user()?->can('delete', $this->resource) ?? false,
                 'record_medical' => $request->user()?->can('create', [MedicalRecord::class, $this->resource]) ?? false,
+                'return' => $request->user()?->can('returnPassport', $this->resource) ?? false,
+                'undo_return' => $request->user()?->can('undoReturn', $this->resource) ?? false,
             ],
         ];
     }

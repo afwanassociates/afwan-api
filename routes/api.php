@@ -26,6 +26,7 @@ use App\Http\Controllers\DataEntry\MedicalRecordController;
 use App\Http\Controllers\DataEntry\MedicalSlipController;
 use App\Http\Controllers\DataEntry\PassportEntryController;
 use App\Http\Controllers\DataEntry\PassportHistoryController;
+use App\Http\Controllers\DataEntry\PassportReturnController;
 use App\Http\Controllers\DataEntry\PassportScanController;
 use App\Http\Controllers\DataEntry\ReferenceController;
 use App\Http\Controllers\DataEntry\StepActionController;
@@ -38,6 +39,7 @@ use App\Http\Controllers\DataEntry\WorkflowSummaryController;
 use App\Http\Controllers\Reports\CompanyReportController;
 use App\Http\Controllers\Reports\ReferenceOptionsController;
 use App\Http\Controllers\Reports\ReferenceReportController;
+use App\Http\Controllers\Reports\ReturnedPassportController;
 use App\Http\Controllers\Reports\SummaryReportController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SuperAdmin\DataResetController;
@@ -139,6 +141,9 @@ Route::middleware('auth:sanctum')->group(function () {
         // write goes through App\Services\WorkflowService.
         Route::get('/passports/{passport}/steps', [StepRecordController::class, 'index'])->name('passports.steps.index');
         Route::get('/passports/{passport}/history', PassportHistoryController::class)->name('passports.history');
+        // Return the passport to its owner (any step) and undo that: the operations head.
+        Route::post('/passports/{passport}/return', [PassportReturnController::class, 'store'])->name('passports.return.store');
+        Route::delete('/passports/{passport}/return', [PassportReturnController::class, 'destroy'])->name('passports.return.destroy');
         Route::post('/passports/{passport}/steps/{stepKey}', [StepRecordController::class, 'store'])
             ->whereIn('stepKey', app(Workflow::class)->recordStepKeys())
             ->name('passports.steps.store');
@@ -212,6 +217,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/companies/{company}/passports', [CompanyReportController::class, 'passports'])->name('companies.passports');
         // The All Passports overview (lean, read only; same filters as view=overview).
         Route::get('/passports', [PassportEntryController::class, 'index'])->name('passports');
+        // Passports returned to their owners (read only; undo is on the data-entry route).
+        Route::get('/returned-passports', ReturnedPassportController::class)->name('returned-passports');
         // Options of the company report's "Filter by reference" dropdown.
         Route::get('/references', ReferenceOptionsController::class)->name('references.index');
         // The reference-wise report (like the company report, without quota or balance).

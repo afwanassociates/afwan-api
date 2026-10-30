@@ -165,7 +165,7 @@ describe('edit and delete', function () {
             ->assertOk()
             ->assertJsonPath('data.passport_name', 'NEW NAME')
             ->assertJsonPath('data.can.update', true)
-            ->assertJsonPath('data.can.delete', false);
+            ->assertJsonPath('data.can.return', false);
     });
 
     it('forbids data entry from editing someone else\'s entry', function () {
@@ -224,14 +224,13 @@ describe('edit and delete', function () {
             ->assertJsonPath('data.updated_by', $editor->id);
     })->with(['operationHead']);
 
-    it('lets the operations head soft delete', function (string $role) {
+    it('lets nobody delete a passport, the operations head included', function (string $role) {
         $entry = PassportEntry::factory()->create();
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
-        $this->deleteJson("/api/data-entry/passports/{$entry->id}")->assertNoContent();
-        $this->assertSoftDeleted($entry);
-        $this->getJson("/api/data-entry/passports/{$entry->id}")->assertNotFound();
-    })->with(['operationHead']);
+        $this->deleteJson("/api/data-entry/passports/{$entry->id}")->assertForbidden();
+        $this->assertNotSoftDeleted($entry);
+    })->with(['operationHead', 'dataEntry']);
 });
 
 describe('entry number', function () {

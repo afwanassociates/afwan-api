@@ -27,7 +27,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * (medical_slip_date, medical_center_id) and the medical_date are set only
  * through App\Services\MedicalService, entry_mode only through
  * App\Services\WorkflowService::updateEntryMode, and the scan columns only through
- * App\Services\PassportScanService (scan_path is never sent to clients). entry_no,
+ * App\Services\PassportScanService (scan_path is never sent to clients), and
+ * current_return_id only through App\Services\PassportReturnService. entry_no,
  * the serial number (1, 2, 3, …), is given once when the entry is created and never
  * changes or comes back after a delete.
  */
@@ -180,6 +181,35 @@ class PassportEntry extends Model
     }
 
     /**
+     * The return in force (the passport was handed back to its owner), or null
+     * while the passport is in the workflow.
+     *
+     * @return BelongsTo<PassportReturn, $this>
+     */
+    public function currentReturn(): BelongsTo
+    {
+        return $this->belongsTo(PassportReturn::class, 'current_return_id');
+    }
+
+    /**
+     * Every return of this passport, undone ones included (history), oldest first.
+     *
+     * @return HasMany<PassportReturn, $this>
+     */
+    public function returns(): HasMany
+    {
+        return $this->hasMany(PassportReturn::class)->oldest('id');
+    }
+
+    /**
+     * Whether the passport is returned to its owner (out of every working list).
+     */
+    public function isReturned(): bool
+    {
+        return $this->current_return_id !== null;
+    }
+
+    /**
      * Every medical record of this passport (history), newest first.
      *
      * @return HasMany<MedicalRecord, $this>
@@ -279,6 +309,15 @@ class PassportEntry extends Model
         $query->withCurrentMedical();
 
         $status->applyTo($query->getQuery(), self::CURRENT_MEDICAL, LocalDate::today());
+    }
+
+    /**
+     * Leave out passports returned to their owners (every working list and step count).
+     */
+    #[Scope]
+    protected function notReturned(Builder $query): void
+    {
+        $query->whereNull($this->qualifyColumn('current_return_id'));
     }
 
     /**

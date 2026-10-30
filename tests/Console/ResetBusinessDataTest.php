@@ -8,6 +8,7 @@ use App\Models\Country;
 use App\Models\MedicalCenter;
 use App\Models\MedicalRecord;
 use App\Models\PassportEntry;
+use App\Models\PassportReturn;
 use App\Models\PassportStepRecord;
 use App\Models\Reference;
 use App\Models\User;
@@ -85,6 +86,11 @@ beforeEach(function () {
         ->step('calling')->status(StepStatus::Completed)->create();
     PassportStepRecord::factory()->for($this->passport, 'passportEntry')->createdBy($dataEntry)
         ->step('visa')->status(StepStatus::InProcess)->create();
+    $return = new PassportReturn(['return_date' => '2026-04-01', 'receiver_name' => 'Owner', 'receiver_phone' => '01700000000']);
+    $return->passport_entry_id = $this->passport->id;
+    $return->stage = 'visa';
+    $return->returned_by = $dataEntry->id;
+    $return->save();
 
     // Scan files (fake disk).
     $disk = Storage::disk(PassportScanService::DISK);

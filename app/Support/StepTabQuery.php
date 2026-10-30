@@ -24,8 +24,8 @@ use Illuminate\Database\Eloquent\Builder;
  * passports whose workflow is completed (flight confirmed).
  *
  * For the first step after medical (calling) every at-step state also needs
- * a fit medical still valid today (Dhaka). Soft-deleted passports are never
- * included, and unfit passports never reach a record step.
+ * a fit medical still valid today (Dhaka). Soft-deleted and returned passports
+ * are never included, and unfit passports never reach a record step.
  */
 class StepTabQuery
 {
@@ -50,6 +50,7 @@ class StepTabQuery
         $today = LocalDate::today()->toDateString();
 
         return PassportEntry::query()
+            ->notReturned()
             ->withCurrentMedical()
             ->where(fn (Builder $query) => $query
                 ->when($atStep !== [], fn (Builder $query) => $query->orWhere(fn (Builder $query) => $query

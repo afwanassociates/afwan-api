@@ -35,8 +35,8 @@ class DataReset
     public const GROUPS = [
         'passports' => [
             'label' => 'Passports & workflow',
-            'description' => 'Passport entries, medical records, every workflow step and the uploaded passport scans.',
-            'tables' => ['passport_step_records', 'medical_records', 'passport_entries'],
+            'description' => 'Passport entries, medical records, every workflow step, passport returns and the uploaded passport scans.',
+            'tables' => ['passport_step_records', 'medical_records', 'passport_returns', 'passport_entries'],
             'scans' => true,
         ],
         'companies' => [

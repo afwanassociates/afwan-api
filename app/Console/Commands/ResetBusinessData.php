@@ -67,6 +67,7 @@ class ResetBusinessData extends Command
     public const CLEAR = [
         'passport_step_records',
         'medical_records',
+        'passport_returns',
         'passport_entries',
         'companies',
         'references',

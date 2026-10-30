@@ -31,6 +31,7 @@ class CompanyReport
             'not_started',
             ...array_map(fn (string $key) => "{$key}_done", $this->workflow->recordStepKeys()),
             'in_process',
+            'returned',
         ];
     }
 
@@ -135,7 +136,8 @@ class CompanyReport
      *   since expired); medical_unfit and medical_pending: still at medical
      *   (pending means the slip date is in); not_started: no slip date yet;
      * - <step>_done: the stage is past that step (completed counts for all);
-     * - in_process: flight not confirmed and not unfit.
+     * - in_process: flight not confirmed, not unfit and not returned;
+     * - returned: handed back to the owner (still counted in the steps it reached).
      */
     public function passportCounts(string $groupBy, ?int $referenceId = null, ?int $companyId = null): QueryBuilder
     {
@@ -185,7 +187,8 @@ class CompanyReport
             $sums[] = 'sum(current_stage in ('.implode(', ', $later).")) as {$key}_done";
         }
 
-        $sums[] = "sum(current_stage <> '".Workflow::COMPLETED."' and not (current_stage = 'medical' and stage_status = 'unfit')) as in_process";
+        $sums[] = "sum(current_return_id is null and current_stage <> '".Workflow::COMPLETED."' and not (current_stage = 'medical' and stage_status = 'unfit')) as in_process";
+        $sums[] = 'sum(current_return_id is not null) as returned';
 
         return $sums;
     }
