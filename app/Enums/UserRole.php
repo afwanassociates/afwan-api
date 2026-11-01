@@ -155,7 +155,19 @@ enum UserRole: string
     }
 
     /**
-     * Roles that set the cash opening balance and delete parties.
+     * Roles that see the money summary (total received and paid, closing cash,
+     * bank and mobile banking balances): the accounts head on Cash Management
+     * and on the dashboard, admins on the dashboard only. Accounts users don't.
+     *
+     * @return list<UserRole>
+     */
+    public static function financeViewers(): array
+    {
+        return [self::AccountsHead, self::Admin, self::SuperAdmin];
+    }
+
+    /**
+     * Roles that set the cash opening balance.
      *
      * @return list<UserRole>
      */

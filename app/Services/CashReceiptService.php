@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Enums\ApprovalStatus;
+use App\Enums\BusinessType;
 use App\Enums\CashReceiptType;
+use App\Enums\PartyType;
 use App\Enums\PaymentMethod;
 use App\Models\CashReceipt;
 use App\Models\Party;
@@ -78,6 +80,7 @@ class CashReceiptService
      */
     private function checkDate(array $data): void
     {
+        // Only money received as cash goes into cash in hand.
         if ($data['payment_method'] === PaymentMethod::Cash->value) {
             $this->cashBook->assertOnOrAfterOpening($data['date']);
         }
@@ -90,16 +93,27 @@ class CashReceiptService
     private function attributes(array $data): array
     {
         $isBank = $data['payment_method'] === PaymentMethod::Bank->value;
+        $isMobile = $data['payment_method'] === PaymentMethod::MobileBanking->value;
+        // Business and country are for a party's money only; the country for recruitment only.
+        $isClient = $data['party_type'] === PartyType::Client->value;
+        $business = $isClient ? $data['business_type'] : null;
 
         return [
             'date' => $data['date'],
             'party_id' => $data['party_id'],
             'receipt_type' => $data['receipt_type'],
+            'business_type' => $business,
+            'country_code' => $business === BusinessType::Recruitment->value ? $data['country_code'] : null,
             'amount' => $data['amount'],
             'payment_method' => $data['payment_method'],
             // Bank details only mean something for a bank deposit.
             'bank_name' => $isBank ? $data['bank_name'] : null,
             'bank_branch' => $isBank ? $data['bank_branch'] : null,
+            'bank_account_name' => $isBank ? $data['bank_account_name'] : null,
+            'bank_account_number' => $isBank ? $data['bank_account_number'] : null,
+            // Likewise the provider and wallet number for mobile banking.
+            'mobile_provider' => $isMobile ? $data['mobile_provider'] : null,
+            'mobile_number' => $isMobile ? $data['mobile_number'] : null,
             'note' => $data['note'] ?? null,
         ];
     }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Http\UploadedFile;
@@ -7,6 +8,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 /*
@@ -133,6 +135,23 @@ function recordMedical(int $passportId, string $medicalDate, string $result): Te
  * Approve every accounts entry, as the accounts head would (the approval rules
  * themselves are covered by tests/Feature/ApprovalTest.php).
  */
+/**
+ * The money summary as the accounts head sees it (accounts users don't get the
+ * balances), then back to the user who was acting. Cash settings
+ * (/api/accounts/cash-settings) add the pending summary.
+ */
+function financeSummary(string $url = '/api/finance/summary'): TestResponse
+{
+    $previous = auth('sanctum')->user();
+    Sanctum::actingAs(User::factory()->accountsHead()->create());
+    $response = test()->getJson($url);
+    if ($previous) {
+        Sanctum::actingAs($previous);
+    }
+
+    return $response;
+}
+
 function approveAllAccountsEntries(): void
 {
     foreach (['cash_receipts', 'cash_payments', 'cash_transfers', 'party_transactions'] as $table) {

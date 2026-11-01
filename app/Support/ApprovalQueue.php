@@ -112,19 +112,25 @@ class ApprovalQueue
             $entry instanceof CashReceipt => [
                 'type' => $type, 'kind' => 'Cash receive', 'reference' => $entry->receipt_no,
                 'title' => 'From '.$entry->party->name.' ('.$entry->party->code.')',
-                'detail' => $entry->receipt_type->label().' · '.self::via($entry->payment_method->label(), $entry->bank_name, $entry->bank_branch),
+                'detail' => $entry->receipt_type->label().' · '.self::via($entry),
                 'party_id' => $entry->party_id, 'direction' => 'in',
             ],
             $entry instanceof CashPayment => [
                 'type' => $type, 'kind' => 'Cash payment', 'reference' => $entry->payment_no,
                 'title' => 'To '.($entry->party ? $entry->party->name.' ('.$entry->party->code.')' : $entry->payee_name),
-                'detail' => $entry->payment_type->label().($entry->purpose ? ' · '.$entry->purpose : '').' · '.self::via($entry->payment_method->label(), $entry->bank_name, $entry->bank_branch),
+                'detail' => $entry->summary().' · '.self::via($entry),
                 'party_id' => $entry->party_id, 'direction' => 'out',
             ],
             $entry instanceof CashTransfer => [
-                'type' => $type, 'kind' => 'Cash transfer', 'reference' => $entry->transfer_no,
-                'title' => $entry->direction->label(),
-                'detail' => $entry->bank_name.', '.$entry->bank_branch,
+                'type' => $type, 'kind' => 'Deposit / withdrawal', 'reference' => $entry->transfer_no,
+                'title' => $entry->direction->labelFor($entry->channel),
+                'detail' => implode(' · ', array_filter([
+                    $entry->mobile_provider
+                        ? $entry->mobile_provider->label().', '.$entry->mobile_number
+                        : $entry->bank_name.', '.$entry->bank_branch,
+                    $entry->deposit_slip_no ? 'Slip '.$entry->deposit_slip_no : null,
+                    $entry->cheque_no ? 'Cheque '.$entry->cheque_no : null,
+                ])),
                 'party_id' => null, 'direction' => $entry->direction === TransferDirection::Withdrawal ? 'in' : 'out',
             ],
             $entry instanceof PartyTransaction => [
@@ -162,8 +168,17 @@ class ApprovalQueue
         ];
     }
 
-    private static function via(string $method, ?string $bank, ?string $branch): string
+    /**
+     * "Cash in hand", "Bank (Sonali Bank, Motijheel)" or "Mobile banking (bKash, 01712345678)".
+     */
+    private static function via(CashReceipt|CashPayment $entry): string
     {
-        return $bank ? "{$method} ({$bank}, {$branch})" : $method;
+        $method = $entry->payment_method->label();
+
+        return match (true) {
+            $entry->mobile_provider !== null => "{$method} ({$entry->mobile_provider->label()}, {$entry->mobile_number})",
+            $entry->bank_name !== null => "{$method} ({$entry->bank_name}, {$entry->bank_branch})",
+            default => $method,
+        };
     }
 }

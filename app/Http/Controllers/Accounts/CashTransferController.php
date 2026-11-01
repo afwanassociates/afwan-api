@@ -16,7 +16,7 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * Cash management: cash deposited to a bank or withdrawn from a bank.
+ * Cash management: cash deposited to or withdrawn from a bank or mobile banking wallet.
  */
 class CashTransferController extends Controller
 {
@@ -45,7 +45,11 @@ class CashTransferController extends Controller
                 $pattern = Like::contains($search);
                 $q->where('transfer_no', 'like', $pattern)
                     ->orWhere('bank_name', 'like', $pattern)
-                    ->orWhere('bank_branch', 'like', $pattern);
+                    ->orWhere('bank_branch', 'like', $pattern)
+                    ->orWhere('mobile_number', 'like', $pattern)
+                    ->orWhere('deposit_slip_no', 'like', $pattern)
+                    ->orWhere('cheque_no', 'like', $pattern)
+                    ->orWhere('reference_name', 'like', $pattern);
             }));
 
         // Totals count approved transfers only; pending ones separately.

@@ -9,7 +9,6 @@ use App\Models\CashPayment;
 use App\Models\CashReceipt;
 use App\Models\CashSetting;
 use App\Models\CashTransfer;
-use App\Models\User;
 use App\Support\LocalDate;
 use Closure;
 use Illuminate\Database\Eloquent\Model;
@@ -19,9 +18,10 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Cash in hand: the opening balance, plus cash receipts and withdrawals from
- * a bank, minus cash payments and deposits to a bank. Only approved entries
- * count; receipts and payments made through a bank do not touch cash in hand
- * (they belong to the bank book).
+ * a bank, minus cash payments and deposits to a bank. Only receipts and
+ * payments made as cash in hand count: money received or paid by bank or
+ * mobile banking never passes through the cash box. Only approved entries
+ * count.
  *
  * Every cash write runs through guarded(): it locks the cash settings row,
  * writes, and rolls back if cash in hand would close below zero on any day.
@@ -63,7 +63,6 @@ class CashBook
     {
         $pending = ApprovalStatus::Pending->value;
         $cash = PaymentMethod::Cash->value;
-
         $receipts = DB::table('cash_receipts')->where('status', $pending)->where('payment_method', $cash)
             ->selectRaw('COUNT(*) as n, COALESCE(SUM(amount), 0) as total')->first();
         $payments = DB::table('cash_payments')->where('status', $pending)->where('payment_method', $cash)
@@ -96,31 +95,6 @@ class CashBook
     }
 
     /**
-     * Set the opening balance and its date. Refused when cash entries exist
-     * before the date, or when the new balance would make a day negative.
-     */
-    public function setOpening(float $amount, ?string $date, User $user): CashSetting
-    {
-        return $this->guarded(function () use ($amount, $date, $user) {
-            $first = $this->firstEntryDate();
-
-            if ($date !== null && $first !== null && $first < $date) {
-                throw ValidationException::withMessages([
-                    'opening_date' => 'There are cash entries from '.self::displayDate($first).'. Choose that date or an earlier one.',
-                ]);
-            }
-
-            $setting = CashSetting::current();
-            $setting->opening_balance = $amount;
-            $setting->opening_date = $date;
-            $setting->updated_by = $user->id;
-            $setting->save();
-
-            return $setting;
-        }, 'opening_balance');
-    }
-
-    /**
      * Cash in hand at the end of the given day (today by default).
      */
     public function balanceOn(?string $date = null): float
@@ -128,6 +102,65 @@ class CashBook
         $date ??= LocalDate::today()->format('Y-m-d');
 
         return self::money($this->openingCents() + array_sum($this->dailyNet(to: $date)));
+    }
+
+    /**
+     * Bank balance at the end of the given day (today by default): approved
+     * bank receipts and cash deposited to the bank, minus approved bank
+     * payments and cash withdrawn from the bank. There is no bank opening
+     * balance, so it starts at zero.
+     */
+    public function bankBalanceOn(?string $date = null): float
+    {
+        $date ??= LocalDate::today()->format('Y-m-d');
+        $bank = PaymentMethod::Bank->value;
+        $transfers = $this->approvedUpTo('cash_transfers', $date)->where('channel', $bank)
+            ->selectRaw('COALESCE(SUM(CASE WHEN direction = ? THEN amount ELSE -amount END), 0) as net', [TransferDirection::Deposit->value])
+            ->value('net');
+
+        return self::money(
+            self::cents($this->approvedUpTo('cash_receipts', $date)->where('payment_method', $bank)->sum('amount'))
+            - self::cents($this->approvedUpTo('cash_payments', $date)->where('payment_method', $bank)->sum('amount'))
+            + self::cents($transfers)
+        );
+    }
+
+    /**
+     * Mobile banking balance at the end of the given day (today by default):
+     * approved mobile banking receipts and cash in, minus approved mobile
+     * banking payments and cash out.
+     * There is no mobile banking opening balance, so it starts at zero.
+     */
+    public function mobileBankingBalanceOn(?string $date = null): float
+    {
+        $date ??= LocalDate::today()->format('Y-m-d');
+        $mobile = PaymentMethod::MobileBanking->value;
+        $transfers = $this->approvedUpTo('cash_transfers', $date)->where('channel', $mobile)
+            ->selectRaw('COALESCE(SUM(CASE WHEN direction = ? THEN amount ELSE -amount END), 0) as net', [TransferDirection::Deposit->value])
+            ->value('net');
+
+        return self::money(
+            self::cents($this->approvedUpTo('cash_receipts', $date)->where('payment_method', $mobile)->sum('amount'))
+            - self::cents($this->approvedUpTo('cash_payments', $date)->where('payment_method', $mobile)->sum('amount'))
+            + self::cents($transfers)
+        );
+    }
+
+    /**
+     * Approved receipts (or payments) up to the given day (today by default),
+     * by any method. Transfers are not counted: they only move money between
+     * cash and the bank.
+     */
+    public function totalOn(string $table, ?string $date = null): float
+    {
+        $date ??= LocalDate::today()->format('Y-m-d');
+
+        return self::money(self::cents($this->approvedUpTo($table, $date)->sum('amount')));
+    }
+
+    private function approvedUpTo(string $table, string $date): Builder
+    {
+        return DB::table($table)->where('status', ApprovalStatus::Approved->value)->where('date', '<=', $date);
     }
 
     /**
@@ -251,19 +284,23 @@ class CashBook
 
         $lines = [];
 
-        foreach ($range(CashReceipt::query()->approved()->where('payment_method', PaymentMethod::Cash->value)->with('party'))->get() as $r) {
+        $cash = PaymentMethod::Cash->value;
+
+        foreach ($range(CashReceipt::query()->approved()->where('payment_method', $cash)->with('party'))->get() as $r) {
             $lines[] = $this->line($r, 'receipt', $r->receipt_no, 'Received from '.$r->party->name.' ('.$r->party->code.')',
                 $r->receipt_type->label().($r->note ? ' · '.$r->note : ''), self::cents($r->amount), 0, $r->party_id);
         }
 
-        foreach ($range(CashPayment::query()->approved()->where('payment_method', PaymentMethod::Cash->value)->with('party'))->get() as $p) {
+        foreach ($range(CashPayment::query()->approved()->where('payment_method', $cash)->with('party'))->get() as $p) {
             $who = $p->party ? $p->party->name.' ('.$p->party->code.')' : $p->payee_name;
-            $detail = $p->payment_type->label().($p->purpose ? ' · '.$p->purpose : '').($p->note ? ' · '.$p->note : '');
+            $detail = $p->summary().($p->note ? ' · '.$p->note : '');
             $lines[] = $this->line($p, 'payment', $p->payment_no, 'Paid to '.$who, $detail, 0, self::cents($p->amount), $p->party_id);
         }
 
         foreach ($range(CashTransfer::query()->approved())->get() as $t) {
-            $bank = $t->bank_name.', '.$t->bank_branch;
+            $bank = $t->channel === PaymentMethod::MobileBanking
+                ? $t->mobile_provider?->label().' '.$t->mobile_number
+                : $t->bank_name.', '.$t->bank_branch;
             $isWithdrawal = $t->direction === TransferDirection::Withdrawal;
             $lines[] = $this->line($t, 'transfer', $t->transfer_no,
                 $isWithdrawal ? 'Withdrawn from '.$bank : 'Deposited to '.$bank, $t->note,
@@ -297,20 +334,6 @@ class CashBook
             // Within a day: in the order the entries were made.
             'sort' => $voucher->created_at?->format('Y-m-d H:i:s').'|'.$kind.'|'.str_pad((string) $voucher->id, 10, '0', STR_PAD_LEFT),
         ];
-    }
-
-    /**
-     * The earliest date of any cash-in-hand entry, approved or not.
-     */
-    private function firstEntryDate(): ?string
-    {
-        $dates = array_filter([
-            DB::table('cash_receipts')->where('payment_method', PaymentMethod::Cash->value)->min('date'),
-            DB::table('cash_payments')->where('payment_method', PaymentMethod::Cash->value)->min('date'),
-            DB::table('cash_transfers')->min('date'),
-        ]);
-
-        return $dates === [] ? null : substr((string) min($dates), 0, 10);
     }
 
     private function openingCents(): int

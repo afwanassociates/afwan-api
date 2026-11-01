@@ -41,7 +41,8 @@ enum PayeeType: string
     public function paymentTypes(): array
     {
         return match ($this) {
-            self::Client => [CashPaymentType::Refund, CashPaymentType::LoanRepayment],
+            // Only owners lend money, so only owners get loan repayments.
+            self::Client => [CashPaymentType::Refund],
             self::Owner => [CashPaymentType::Drawing, CashPaymentType::LoanRepayment],
             self::Other => [CashPaymentType::Expense],
         };

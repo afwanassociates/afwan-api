@@ -3,18 +3,21 @@
 namespace App\Enums;
 
 /**
- * How money arrived: cash in hand, or a bank deposit (with bank name and branch).
+ * How money arrived: cash in hand, a bank deposit (with bank name and branch),
+ * or mobile banking (with the provider and the wallet number).
  */
 enum PaymentMethod: string
 {
     case Cash = 'cash';
     case Bank = 'bank';
+    case MobileBanking = 'mobile_banking';
 
     public function label(): string
     {
         return match ($this) {
             self::Cash => 'Cash in hand',
             self::Bank => 'Bank',
+            self::MobileBanking => 'Mobile banking',
         };
     }
 

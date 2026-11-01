@@ -10,9 +10,7 @@ use App\Http\Resources\PartyResource;
 use App\Models\Party;
 use App\Support\Like;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
-use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -38,6 +36,7 @@ class PartyController extends Controller
                 $pattern = Like::contains($search);
                 $query->where('name', 'like', $pattern)
                     ->orWhere('code', 'like', $pattern)
+                    ->orWhere('rl_number', 'like', $pattern)
                     ->orWhere('mobile', 'like', $pattern)
                     ->orWhere('nid_passport', 'like', $pattern);
             }))
@@ -92,26 +91,6 @@ class PartyController extends Controller
         $party->save();
 
         return $this->resource($party);
-    }
-
-    /**
-     * Delete a party with no ledger lines. One with transactions is
-     * deactivated instead, so its history stays.
-     */
-    public function destroy(Party $party): Response|JsonResponse
-    {
-        Gate::authorize('delete', $party);
-
-        if ($party->transactions()->exists() || $party->cashReceipts()->exists() || $party->cashPayments()->exists()) {
-            return response()->json([
-                'message' => 'This party has transactions, so it cannot be deleted. Deactivate it instead.',
-                'code' => 'party_has_transactions',
-            ], 422);
-        }
-
-        $party->delete();
-
-        return response()->noContent();
     }
 
     private function resource(Party $party): PartyResource

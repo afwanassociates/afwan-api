@@ -10,6 +10,7 @@ function cashIn(Party $party, float $amount = 1000, string $date = '2026-10-05')
 {
     return test()->postJson('/api/accounts/cash-receipts', [
         'date' => $date, 'party_type' => 'client', 'party_id' => $party->id,
+        'business_type' => 'recruitment', 'country_code' => 'MY',
         'receipt_type' => 'cash', 'amount' => $amount, 'payment_method' => 'cash',
     ])->assertCreated()->json('data.id');
 }
@@ -17,7 +18,7 @@ function cashIn(Party $party, float $amount = 1000, string $date = '2026-10-05')
 function cashOut(float $amount, string $date = '2026-10-06'): TestResponse
 {
     return test()->postJson('/api/accounts/cash-payments', [
-        'date' => $date, 'payee_type' => 'other', 'payee_name' => 'Landlord', 'payment_type' => 'expense',
+        'date' => $date, 'payee_type' => 'other', 'payee_name' => 'Landlord', 'payment_type' => 'expense', 'expense_category' => 'office_rent',
         'purpose' => 'Rent', 'amount' => $amount, 'payment_method' => 'cash',
     ]);
 }
@@ -35,7 +36,7 @@ describe('approval', function () {
             ->assertJsonPath('data.status_label', 'Pending approval')
             ->assertJsonPath('data.prepared_by', 'Rina')
             ->assertJsonPath('data.can', ['update' => true, 'delete' => true, 'approve' => false, 'send_back' => false]);
-        $this->getJson('/api/accounts/cash-settings')
+        financeSummary('/api/accounts/cash-settings')
             ->assertJsonPath('data.cash_in_hand', 0)
             ->assertJsonPath('data.pending', ['count' => 1, 'in' => 1000, 'out' => 0]);
 
@@ -61,7 +62,7 @@ describe('approval', function () {
         $this->getJson("/api/accounts/cash-receipts/{$id}")
             ->assertJsonPath('data.approved_by', 'Head')
             ->assertJsonPath('data.can', ['update' => false, 'delete' => false, 'approve' => false, 'send_back' => false]);
-        $this->getJson('/api/accounts/cash-settings')->assertJsonPath('data.cash_in_hand', 1000);
+        financeSummary()->assertJsonPath('data.cash_in_hand', 1000);
         $this->getJson("/api/accounts/parties/{$party->id}/ledger")
             ->assertJsonPath('lines.0.reference', 'CR-2026-0001')
             ->assertJsonPath('pending', []);
@@ -87,6 +88,7 @@ describe('approval', function () {
         Sanctum::actingAs($otherHead);
         $this->putJson("/api/accounts/cash-receipts/{$id}", [
             'date' => '2026-10-05', 'party_type' => 'client', 'party_id' => $party->id,
+            'business_type' => 'recruitment', 'country_code' => 'MY',
             'receipt_type' => 'cash', 'amount' => 900, 'payment_method' => 'cash',
         ])->assertOk();
         $this->postJson("/api/accounts/approvals/cash-receipts/{$id}/approve")->assertForbidden();
@@ -121,12 +123,13 @@ describe('approval', function () {
             ->assertJsonPath('data.can.update', true);
         $this->putJson("/api/accounts/cash-receipts/{$id}", [
             'date' => '2026-10-05', 'party_type' => 'client', 'party_id' => $party->id,
+            'business_type' => 'recruitment', 'country_code' => 'MY',
             'receipt_type' => 'cash', 'amount' => 950, 'payment_method' => 'cash',
         ])->assertOk()->assertJsonPath('data.status', 'pending');
 
         Sanctum::actingAs($head);
         $this->postJson("/api/accounts/approvals/cash-receipts/{$id}/approve")->assertOk();
-        $this->getJson('/api/accounts/cash-settings')->assertJsonPath('data.cash_in_hand', 950);
+        financeSummary()->assertJsonPath('data.cash_in_hand', 950);
     });
 
     it('lets only an admin return an approved entry for correction, which takes it out of the books', function () {
@@ -144,7 +147,7 @@ describe('approval', function () {
         $this->postJson("/api/accounts/approvals/cash-receipts/{$id}/return", ['reason' => 'Typo'])->assertOk();
 
         Sanctum::actingAs($head);
-        $this->getJson('/api/accounts/cash-settings')->assertJsonPath('data.cash_in_hand', 0);
+        financeSummary()->assertJsonPath('data.cash_in_hand', 0);
         $this->getJson("/api/accounts/parties/{$party->id}/ledger")
             ->assertJsonPath('lines', [])
             ->assertJsonPath('pending.0.status', 'rejected')
@@ -171,7 +174,7 @@ describe('approval', function () {
             ->assertJsonValidationErrors(['status' => 'Not enough cash in hand: the balance would be −৳400.00 on 06-10-2026.']);
 
         expect(CashPayment::find($second)->status->value)->toBe('pending');
-        $this->getJson('/api/accounts/cash-settings')->assertJsonPath('data.cash_in_hand', 300);
+        financeSummary()->assertJsonPath('data.cash_in_hand', 300);
     });
 
     it('approves hand-entered ledger lines in the same queue', function () {

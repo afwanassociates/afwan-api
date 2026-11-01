@@ -49,6 +49,7 @@ class CashPaymentController extends Controller
                 $q->where('payment_no', 'like', $pattern)
                     ->orWhere('payee_name', 'like', $pattern)
                     ->orWhere('purpose', 'like', $pattern)
+                    ->orWhere('bill_no', 'like', $pattern)
                     ->orWhereHas('party', fn (Builder $p) => $p->where('name', 'like', $pattern)->orWhere('code', 'like', $pattern));
             }));
 
@@ -62,11 +63,12 @@ class CashPaymentController extends Controller
             ->selectRaw('COUNT(*) as count, COALESCE(SUM(amount), 0) as amount')
             ->selectRaw("COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN amount END), 0) as cash")
             ->selectRaw("COALESCE(SUM(CASE WHEN payment_method = 'bank' THEN amount END), 0) as bank")
+            ->selectRaw("COALESCE(SUM(CASE WHEN payment_method = 'mobile_banking' THEN amount END), 0) as mobile_banking")
             ->toBase()
             ->first();
 
         $payments = $query
-            ->with(['party', ...self::PEOPLE])
+            ->with(['party', 'loanReceipt:id,receipt_no', ...self::PEOPLE])
             ->orderByDesc('date')
             ->orderByDesc('id')
             ->paginate($request->integer('per_page', 15))
@@ -78,6 +80,7 @@ class CashPaymentController extends Controller
                 'amount' => round((float) $totals->amount, 2),
                 'cash' => round((float) $totals->cash, 2),
                 'bank' => round((float) $totals->bank, 2),
+                'mobile_banking' => round((float) $totals->mobile_banking, 2),
             ], 'pending' => [
                 'count' => (int) $pending->count,
                 'amount' => round((float) $pending->amount, 2),
@@ -89,7 +92,7 @@ class CashPaymentController extends Controller
     {
         Gate::authorize('view', $cashPayment);
 
-        return new CashPaymentResource($cashPayment->load(['party', ...self::PEOPLE]));
+        return new CashPaymentResource($cashPayment->load(['party', 'loanReceipt:id,receipt_no', ...self::PEOPLE]));
     }
 
     public function store(StoreCashPaymentRequest $request): CashPaymentResource
@@ -98,7 +101,7 @@ class CashPaymentController extends Controller
 
         $payment = $this->payments->create($request->validated(), $request->user());
 
-        return new CashPaymentResource($payment->load(['party', ...self::PEOPLE]));
+        return new CashPaymentResource($payment->load(['party', 'loanReceipt:id,receipt_no', ...self::PEOPLE]));
     }
 
     public function update(StoreCashPaymentRequest $request, CashPayment $cashPayment): CashPaymentResource
@@ -107,7 +110,7 @@ class CashPaymentController extends Controller
 
         $payment = $this->payments->update($cashPayment, $request->validated(), $request->user());
 
-        return new CashPaymentResource($payment->load(['party', ...self::PEOPLE]));
+        return new CashPaymentResource($payment->load(['party', 'loanReceipt:id,receipt_no', ...self::PEOPLE]));
     }
 
     public function destroy(CashPayment $cashPayment): Response

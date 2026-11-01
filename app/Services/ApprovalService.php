@@ -22,7 +22,7 @@ use Illuminate\Validation\ValidationException;
  */
 class ApprovalService
 {
-    public function __construct(private readonly CashBook $cashBook) {}
+    public function __construct(private readonly CashBook $cashBook, private readonly OwnerLoans $ownerLoans) {}
 
     public function approve(CashReceipt|CashPayment|CashTransfer|PartyTransaction $entry, User $user): CashReceipt|CashPayment|CashTransfer|PartyTransaction
     {
@@ -31,6 +31,13 @@ class ApprovalService
 
             if (! $entry->isPending()) {
                 throw ValidationException::withMessages(['status' => 'This entry is no longer pending. Reload the page.']);
+            }
+            if ($entry instanceof CashPayment && $entry->loan_receipt_id !== null) {
+                try {
+                    $this->ownerLoans->assertRepayable($entry->loan_receipt_id, $entry->party_id, (float) $entry->amount, $entry->id, atApproval: true);
+                } catch (ValidationException $e) {
+                    throw ValidationException::withMessages(['status' => collect($e->errors())->flatten()->first()]);
+                }
             }
 
             $entry->status = ApprovalStatus::Approved;
@@ -51,6 +58,9 @@ class ApprovalService
 
             if ($entry->status === ApprovalStatus::Rejected) {
                 throw ValidationException::withMessages(['status' => 'This entry was already returned. Reload the page.']);
+            }
+            if ($entry instanceof CashReceipt && $entry->isApproved()) {
+                $this->ownerLoans->assertNoRepayments($entry);
             }
 
             $entry->status = ApprovalStatus::Rejected;

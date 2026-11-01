@@ -60,11 +60,12 @@ class CashReceiptController extends Controller
             ->selectRaw('COUNT(*) as count, COALESCE(SUM(amount), 0) as amount')
             ->selectRaw("COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN amount END), 0) as cash")
             ->selectRaw("COALESCE(SUM(CASE WHEN payment_method = 'bank' THEN amount END), 0) as bank")
+            ->selectRaw("COALESCE(SUM(CASE WHEN payment_method = 'mobile_banking' THEN amount END), 0) as mobile_banking")
             ->toBase()
             ->first();
 
         $receipts = $query
-            ->with(['party', ...self::PEOPLE])
+            ->with(['party', 'country', ...self::PEOPLE])
             ->orderByDesc('date')
             ->orderByDesc('id')
             ->paginate($request->integer('per_page', 15))
@@ -76,6 +77,7 @@ class CashReceiptController extends Controller
                 'amount' => round((float) $totals->amount, 2),
                 'cash' => round((float) $totals->cash, 2),
                 'bank' => round((float) $totals->bank, 2),
+                'mobile_banking' => round((float) $totals->mobile_banking, 2),
             ], 'pending' => [
                 'count' => (int) $pending->count,
                 'amount' => round((float) $pending->amount, 2),
@@ -87,7 +89,7 @@ class CashReceiptController extends Controller
     {
         Gate::authorize('view', $cashReceipt);
 
-        return new CashReceiptResource($cashReceipt->load(['party', ...self::PEOPLE]));
+        return new CashReceiptResource($cashReceipt->load(['party', 'country', ...self::PEOPLE]));
     }
 
     public function store(StoreCashReceiptRequest $request): CashReceiptResource
@@ -96,7 +98,7 @@ class CashReceiptController extends Controller
 
         $receipt = $this->receipts->create($request->validated(), $request->user());
 
-        return new CashReceiptResource($receipt->load(['party', ...self::PEOPLE]));
+        return new CashReceiptResource($receipt->load(['party', 'country', ...self::PEOPLE]));
     }
 
     public function update(StoreCashReceiptRequest $request, CashReceipt $cashReceipt): CashReceiptResource
@@ -105,7 +107,7 @@ class CashReceiptController extends Controller
 
         $receipt = $this->receipts->update($cashReceipt, $request->validated(), $request->user());
 
-        return new CashReceiptResource($receipt->load(['party', ...self::PEOPLE]));
+        return new CashReceiptResource($receipt->load(['party', 'country', ...self::PEOPLE]));
     }
 
     public function destroy(CashReceipt $cashReceipt): Response

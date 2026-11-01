@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Enums\MobileBankingProvider;
+use App\Enums\PaymentMethod;
 use App\Enums\TransferDirection;
 use App\Models\Concerns\HasApproval;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -9,10 +11,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Cash in hand deposited to a bank, or withdrawn from a bank into cash.
+ * Cash in hand deposited to a bank or mobile banking wallet (channel), or
+ * withdrawn from one into cash.
  * Write through App\Services\CashTransferService.
  */
-#[Fillable(['date', 'direction', 'amount', 'bank_name', 'bank_branch', 'note'])]
+#[Fillable(['date', 'direction', 'channel', 'amount', 'bank_name', 'bank_branch', 'mobile_provider', 'mobile_number', 'cheque_no', 'deposit_slip_no', 'reference_name', 'reference_mobile', 'reference_nid_passport', 'note'])]
 class CashTransfer extends Model
 {
     use HasApproval;
@@ -27,6 +30,8 @@ class CashTransfer extends Model
             'year' => 'integer',
             'sequence' => 'integer',
             'direction' => TransferDirection::class,
+            'channel' => PaymentMethod::class,
+            'mobile_provider' => MobileBankingProvider::class,
             'amount' => 'decimal:2',
         ];
     }

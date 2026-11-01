@@ -8,8 +8,8 @@ use App\Models\User;
 
 /**
  * The accounts team (accounts and the accounts head) keeps parties and their
- * ledgers; only the accounts head deletes a party (and only one without
- * transactions). Admins have no parties.
+ * ledgers. Nobody deletes a party or owner (deactivate instead). Admins have
+ * no parties.
  */
 class PartyPolicy
 {
@@ -31,10 +31,5 @@ class PartyPolicy
     public function update(User $user, Party $party): bool
     {
         return $this->viewAny($user);
-    }
-
-    public function delete(User $user, Party $party): bool
-    {
-        return $user->hasRole(...UserRole::accountsManagers());
     }
 }

@@ -5,9 +5,11 @@ use App\Http\Controllers\Accounts\CashBookController;
 use App\Http\Controllers\Accounts\CashPaymentController;
 use App\Http\Controllers\Accounts\CashReceiptController;
 use App\Http\Controllers\Accounts\CashTransferController;
+use App\Http\Controllers\Accounts\OwnerLoanController;
 use App\Http\Controllers\Accounts\PartyController;
 use App\Http\Controllers\Accounts\PartyLedgerController;
 use App\Http\Controllers\Accounts\PartyTransactionController;
+use App\Http\Controllers\Accounts\ReceiptOptionsController;
 use App\Http\Controllers\Admin\CompanyController as AdminCompanyController;
 use App\Http\Controllers\Admin\CountryController;
 use App\Http\Controllers\Admin\MedicalCenterController;
@@ -233,6 +235,12 @@ Route::middleware('auth:sanctum')->group(function () {
         ]))->name('dashboard');
     });
 
+    // The money summary on the dashboard: the accounts head, admin and super admin
+    // (UserRole::financeViewers()). Admins see it here only; they have no cash pages.
+    Route::prefix('finance')->name('finance.')->middleware('role:admin,accounts_head')->group(function () {
+        Route::get('/summary', [CashBookController::class, 'finance'])->name('summary');
+    });
+
     Route::prefix('accounts-head')->name('accounts-head.')->middleware('role:accounts_head')->group(function () {
         Route::get('/dashboard', fn (Request $request) => response()->json([
             'area' => 'accounts-head',
@@ -260,7 +268,8 @@ Route::middleware('auth:sanctum')->group(function () {
         ]))->name('dashboard');
 
         // Party / client management (clients and owners) and their ledgers.
-        Route::apiResource('parties', PartyController::class);
+        // Parties and owners are never deleted (deactivate instead), by anyone.
+        Route::apiResource('parties', PartyController::class)->except('destroy');
         Route::get('/parties/{party}/ledger', PartyLedgerController::class)->name('parties.ledger');
         // Receivable and refund lines entered by hand (payments come from cash receipts).
         Route::post('/parties/{party}/transactions', [PartyTransactionController::class, 'store'])->name('parties.transactions.store');
@@ -270,11 +279,14 @@ Route::middleware('auth:sanctum')->group(function () {
         // Cash management. Every cash write runs through App\Services\CashBook, so cash in
         // hand never goes negative on any day.
         Route::apiResource('cash-receipts', CashReceiptController::class);
+        // Business types, countries and the default country for the cash receive form.
+        Route::get('/receipt-options', ReceiptOptionsController::class)->name('receipt-options');
         Route::apiResource('cash-payments', CashPaymentController::class);
         Route::apiResource('cash-transfers', CashTransferController::class);
         Route::get('/cash-book', [CashBookController::class, 'index'])->name('cash-book');
+        // Owner capital and loans (each loan open until fully repaid).
+        Route::get('/owner-loans', OwnerLoanController::class)->name('owner-loans');
         // The opening cash in hand (set by the accounts head) and today's balance.
         Route::get('/cash-settings', [CashBookController::class, 'show'])->name('cash-settings.show');
-        Route::put('/cash-settings', [CashBookController::class, 'update'])->name('cash-settings.update');
     });
 });

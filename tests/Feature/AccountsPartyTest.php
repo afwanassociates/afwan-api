@@ -4,10 +4,14 @@ use App\Models\Party;
 use App\Models\User;
 use Laravel\Sanctum\Sanctum;
 
+/** A client gets an RL number made from its NID (unique like the NID); an owner has none. */
 function partyPayload(array $overrides = []): array
 {
+    $isOwner = ($overrides['type'] ?? 'client') === 'owner';
+
     return [
         'type' => 'client',
+        ...($isOwner ? [] : ['rl_number' => 'RL-'.trim($overrides['nid_passport'] ?? 'AB123456')]),
         'name' => '  Md   Karim  ',
         'mobile' => '01711-000000',
         'address' => 'Mirpur 10, Dhaka',
@@ -85,21 +89,50 @@ describe('parties', function () {
         $this->patchJson("/api/accounts/parties/{$party->id}", ['nid_passport' => $party->nid_passport])->assertOk();
     });
 
-    it('deletes only parties without transactions, and only for the accounts head', function () {
-        $party = Party::factory()->create();
+    it('requires a unique RL number for clients and refuses one for owners', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
-        $this->deleteJson("/api/accounts/parties/{$party->id}")->assertForbidden();
 
-        Sanctum::actingAs(User::factory()->accountsHead()->create());
-        $this->postJson("/api/accounts/parties/{$party->id}/transactions", ['date' => '2026-10-01', 'type' => 'receivable', 'amount' => 10])->assertCreated();
-        $this->deleteJson("/api/accounts/parties/{$party->id}")
+        $id = $this->postJson('/api/accounts/parties', partyPayload(['rl_number' => '  rl  1234 ']))
+            ->assertCreated()
+            ->assertJsonPath('data.rl_number', 'RL 1234')
+            ->json('data.id');
+
+        $this->postJson('/api/accounts/parties', partyPayload(['nid_passport' => 'N2', 'rl_number' => 'RL 1234']))
             ->assertUnprocessable()
-            ->assertJsonPath('code', 'party_has_transactions');
+            ->assertJsonValidationErrors('rl_number');
+        $this->postJson('/api/accounts/parties', partyPayload(['nid_passport' => 'N3', 'rl_number' => '']))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('rl_number');
+        $this->patchJson("/api/accounts/parties/{$id}", ['rl_number' => ''])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('rl_number');
+        $this->patchJson("/api/accounts/parties/{$id}", ['rl_number' => 'RL 1234'])->assertOk();
 
-        $empty = Party::factory()->create();
-        $this->deleteJson("/api/accounts/parties/{$empty->id}")->assertNoContent();
-        expect(Party::find($empty->id))->toBeNull();
+        $this->postJson('/api/accounts/parties', partyPayload(['nid_passport' => 'N4', 'type' => 'owner', 'rl_number' => 'RL 9']))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('rl_number');
+        $ownerId = $this->postJson('/api/accounts/parties', partyPayload(['nid_passport' => 'N6', 'type' => 'owner']))
+            ->assertCreated()
+            ->assertJsonPath('data.rl_number', null)
+            ->json('data.id');
+        $this->patchJson("/api/accounts/parties/{$ownerId}", ['rl_number' => 'RL 9'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('rl_number');
+
+        $this->getJson('/api/accounts/parties?q=rl 12')
+            ->assertOk()
+            ->assertJsonPath('data.*.id', [$id]);
     });
+
+    it('never deletes a party or owner, for anyone', function (string $role) {
+        $party = Party::factory()->create();
+        $owner = Party::factory()->owner()->create();
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->deleteJson("/api/accounts/parties/{$party->id}")->assertMethodNotAllowed();
+        $this->deleteJson("/api/accounts/parties/{$owner->id}")->assertMethodNotAllowed();
+        expect(Party::count())->toBe(2);
+    })->with(['accounts', 'accountsHead', 'admin', 'superAdmin']);
 
     it('keeps parties and cash from admins: they only approve', function (string $role) {
         $party = Party::factory()->create();
@@ -107,10 +140,9 @@ describe('parties', function () {
 
         $this->getJson('/api/accounts/parties')->assertForbidden();
         $this->getJson("/api/accounts/parties/{$party->id}/ledger")->assertForbidden();
-        $this->deleteJson("/api/accounts/parties/{$party->id}")->assertForbidden();
         $this->getJson('/api/accounts/cash-receipts')->assertForbidden();
         $this->getJson('/api/accounts/cash-book')->assertForbidden();
-        $this->putJson('/api/accounts/cash-settings', ['opening_balance' => 1, 'opening_date' => '2026-10-01'])->assertForbidden();
+        $this->putJson('/api/accounts/cash-settings', ['opening_balance' => 1, 'opening_date' => '2026-10-01'])->assertMethodNotAllowed();
         $this->getJson('/api/accounts/approvals')->assertOk();
         $this->getJson('/api/accounts/approvals/summary')->assertOk()->assertJsonPath('data.is_approver', true);
     })->with(['admin', 'superAdmin']);
@@ -138,12 +170,13 @@ describe('party ledger', function () {
         $this->postJson("/api/accounts/parties/{$party->id}/transactions", ['date' => '2026-10-02', 'type' => 'receivable', 'amount' => 5000, 'note' => 'Visa processing'])->assertCreated();
         $this->postJson('/api/accounts/cash-receipts', [
             'date' => '2026-10-05', 'party_type' => 'client', 'party_id' => $party->id,
+            'business_type' => 'recruitment', 'country_code' => 'MY',
             'receipt_type' => 'cash', 'amount' => 3000, 'payment_method' => 'cash',
         ])->assertCreated();
         // A refund is a cash payment (here from the bank), never a hand-entered line.
         $this->postJson('/api/accounts/cash-payments', [
             'date' => '2026-10-07', 'payee_type' => 'client', 'party_id' => $party->id, 'payment_type' => 'refund',
-            'amount' => 200, 'payment_method' => 'bank', 'bank_name' => 'Sonali', 'bank_branch' => 'Feni',
+            'amount' => 200, 'payment_method' => 'bank', 'bank_name' => 'Sonali', 'bank_branch' => 'Feni', 'bank_account_name' => 'Afwan Associates', 'bank_account_number' => '1234567',
         ])->assertCreated();
 
         foreach (['payment', 'refund'] as $type) {
@@ -214,6 +247,7 @@ describe('party ledger', function () {
 
         $this->postJson('/api/accounts/cash-receipts', [
             'date' => '2026-10-05', 'party_type' => 'client', 'party_id' => $party->id,
+            'business_type' => 'recruitment', 'country_code' => 'MY',
             'receipt_type' => 'cash', 'amount' => 50, 'payment_method' => 'cash',
         ])->assertCreated();
         $fromReceipt = $party->transactions()->whereNotNull('cash_receipt_id')->value('id');

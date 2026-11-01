@@ -28,7 +28,7 @@ enum PartyTransactionType: string
             self::Loan => 'Loan received',
             self::Capital => 'Capital received',
             self::LoanRepayment => 'Loan repaid',
-            self::Drawing => 'Owner drawing',
+            self::Drawing => 'Payment to owner',
         };
     }
 

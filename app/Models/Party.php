@@ -22,7 +22,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * ledger. type, sequence, code, is_active and created_by are deliberately not
  * fillable: the code is assigned once on insert and never changes.
  */
-#[Fillable(['name', 'mobile', 'address', 'nid_passport', 'tin_bin', 'opening_balance', 'opening_balance_type'])]
+#[Fillable(['rl_number', 'name', 'mobile', 'address', 'nid_passport', 'tin_bin', 'opening_balance', 'opening_balance_type'])]
 class Party extends Model
 {
     /** @use HasFactory<PartyFactory> */

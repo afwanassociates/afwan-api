@@ -18,7 +18,7 @@ enum CashPaymentType: string
         return match ($this) {
             self::Refund => 'Refund',
             self::LoanRepayment => 'Loan repayment',
-            self::Drawing => 'Owner drawing',
+            self::Drawing => 'Payment to owner',
             self::Expense => 'Expense',
         };
     }

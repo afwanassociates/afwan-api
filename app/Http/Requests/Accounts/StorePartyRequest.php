@@ -21,8 +21,8 @@ class StorePartyRequest extends FormRequest
     public const MAX_AMOUNT = 9999999999999.99;
 
     /**
-     * Normalize the name and the NID/passport (no spaces, upper case) before
-     * the uniqueness check, so the check sees the stored value.
+     * Normalize the name, the RL number (upper case) and the NID/passport (no
+     * spaces, upper case) before the uniqueness checks, so they see the stored value.
      */
     protected function prepareForValidation(): void
     {
@@ -36,8 +36,14 @@ class StorePartyRequest extends FormRequest
             $this->merge(['nid_passport' => Normalize::passportNumber($this->input('nid_passport'))]);
         }
 
-        if ($this->input('tin_bin') === '') {
-            $this->merge(['tin_bin' => null]);
+        if (is_string($this->input('rl_number'))) {
+            $this->merge(['rl_number' => Normalize::passportName($this->input('rl_number'))]);
+        }
+
+        foreach (['tin_bin', 'rl_number'] as $field) {
+            if ($this->input($field) === '') {
+                $this->merge([$field => null]);
+            }
         }
     }
 
@@ -52,6 +58,9 @@ class StorePartyRequest extends FormRequest
             'type' => $this->party()
                 ? ['prohibited']
                 : ['required', Rule::in(PartyType::values())],
+            'rl_number' => $this->partyType() === PartyType::Owner
+                ? ['prohibited']
+                : [$required, 'string', 'max:50', Rule::unique('parties', 'rl_number')->ignore($this->party())],
             'name' => [$required, 'string', 'max:150'],
             'mobile' => [$required, 'string', 'max:30', 'regex:'.self::MOBILE_PATTERN],
             'address' => [$required, 'string', 'max:500'],
@@ -71,6 +80,9 @@ class StorePartyRequest extends FormRequest
         return [
             'type.required' => 'Choose whether this is a party or an owner.',
             'type.prohibited' => 'The type of a party cannot be changed.',
+            'rl_number.required' => 'Enter the RL number.',
+            'rl_number.prohibited' => 'Owners do not have an RL number.',
+            'rl_number.unique' => 'A party with this RL number already exists.',
             'name.required' => 'Enter the name.',
             'mobile.required' => 'Enter the mobile number.',
             'mobile.regex' => 'Enter a valid mobile number (digits, spaces or dashes, optional +).',
@@ -80,6 +92,14 @@ class StorePartyRequest extends FormRequest
             'opening_balance.min' => 'The opening balance cannot be negative; choose Payable instead.',
             'opening_balance.decimal' => 'The opening balance can have at most 2 decimal places.',
         ];
+    }
+
+    /**
+     * The type of the party: fixed when editing, as sent when creating.
+     */
+    private function partyType(): ?PartyType
+    {
+        return $this->party()?->type ?? PartyType::tryFrom((string) $this->input('type'));
     }
 
     /**
