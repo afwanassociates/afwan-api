@@ -7,7 +7,7 @@ use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Http\UploadedFile;
 
 /**
- * The passport scan copy: a JPG, PNG or PDF of at most 5 MB, whose real
+ * A passport scan copy (or an owner loan bill copy): a JPG, PNG or PDF of at most 5 MB, whose real
  * content type (read with finfo, not the client's claim) matches its
  * extension. A file renamed to .jpg is rejected.
  */
@@ -61,7 +61,7 @@ class PassportScanFile implements ValidationRule
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
         if (! $value instanceof UploadedFile || ! $value->isValid()) {
-            $fail('The scan must be a file.');
+            $fail('The :attribute must be a file.');
 
             return;
         }
@@ -70,7 +70,7 @@ class PassportScanFile implements ValidationRule
         $extension = strtolower($value->getClientOriginalExtension());
 
         if (! isset(self::TYPES[$mime]) || ! in_array($extension, self::TYPES[$mime], true)) {
-            $fail('The scan must be a real JPG, PNG or PDF file.');
+            $fail('The :attribute must be a real JPG, PNG or PDF file.');
         }
     }
 }

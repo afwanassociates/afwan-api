@@ -12,7 +12,6 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
@@ -20,7 +19,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * address come from the party record. Create, edit and delete through
  * App\Services\CashReceiptService, which keeps the ledger line in step.
  */
-#[Fillable(['date', 'party_id', 'receipt_type', 'business_type', 'country_code', 'amount', 'payment_method', 'bank_name', 'bank_branch', 'bank_account_name', 'bank_account_number', 'mobile_provider', 'mobile_number', 'note'])]
+#[Fillable(['date', 'party_id', 'receipt_type', 'owner_loan_id', 'business_type', 'country_code', 'amount', 'payment_method', 'bank_name', 'bank_branch', 'bank_account_name', 'bank_account_number', 'mobile_provider', 'mobile_number', 'note'])]
 class CashReceipt extends Model
 {
     /** @use HasFactory<CashReceiptFactory> */
@@ -72,13 +71,13 @@ class CashReceipt extends Model
     }
 
     /**
-     * Payments that repay this receipt, when it is an owner loan.
+     * The owner loan (a cash payment) a loan return settles.
      *
-     * @return HasMany<CashPayment, $this>
+     * @return BelongsTo<CashPayment, $this>
      */
-    public function loanRepayments(): HasMany
+    public function ownerLoan(): BelongsTo
     {
-        return $this->hasMany(CashPayment::class, 'loan_receipt_id');
+        return $this->belongsTo(CashPayment::class, 'owner_loan_id');
     }
 
     /**

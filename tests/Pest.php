@@ -154,7 +154,7 @@ function financeSummary(string $url = '/api/finance/summary'): TestResponse
 
 function approveAllAccountsEntries(): void
 {
-    foreach (['cash_receipts', 'cash_payments', 'cash_transfers', 'party_transactions'] as $table) {
+    foreach (['cash_receipts', 'cash_payments', 'cash_transfers', 'party_transactions', 'owner_loan_bills'] as $table) {
         DB::table($table)->update(['status' => 'approved', 'approved_at' => now()]);
     }
 }

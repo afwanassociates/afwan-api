@@ -58,7 +58,7 @@ describe('cash receipts', function () {
             ->assertJsonPath('data.receipt_no', 'CR-2027-0001');
     });
 
-    it('writes the right ledger line for party and owner, cash and loan', function (string $partyType, string $receiptType, string $line) {
+    it('writes the right ledger line for party and owner cash', function (string $partyType, string $receiptType, string $line) {
         Sanctum::actingAs(User::factory()->accounts()->create());
         $party = Party::factory()->state(['type' => $partyType])->create();
 
@@ -78,7 +78,6 @@ describe('cash receipts', function () {
     })->with([
         'party cash is a payment' => ['client', 'cash', 'payment'],
         'owner cash is capital' => ['owner', 'cash', 'capital'],
-        'owner loan is a loan' => ['owner', 'loan', 'loan'],
     ]);
 
     it('requires the bank name, branch and account for a bank deposit', function () {
@@ -90,25 +89,21 @@ describe('cash receipts', function () {
             ->assertJsonValidationErrors(['bank_name', 'bank_branch', 'bank_account_name', 'bank_account_number']);
     });
 
-    it('refuses a loan from a party: only owners lend money', function () {
-        Sanctum::actingAs($user = User::factory()->accounts()->create());
+    it('takes a loan return from an owner only, naming the loan', function () {
+        Sanctum::actingAs(User::factory()->accounts()->create());
         $party = Party::factory()->create();
+        $owner = Party::factory()->owner()->create();
 
-        $this->postJson('/api/accounts/cash-receipts', receiptPayload($party, ['receipt_type' => 'loan']))
+        $this->postJson('/api/accounts/cash-receipts', receiptPayload($party, ['receipt_type' => 'loan_return', 'owner_loan_id' => 1]))
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['receipt_type' => 'Only a company owner can give a loan.']);
-
-        // A party loan saved before the rule can still be edited, and changed to cash.
-        $old = CashReceipt::factory()->create([
-            'party_id' => $party->id, 'receipt_type' => 'loan', 'date' => '2026-10-10', 'status' => 'pending', 'created_by' => $user->id,
-        ]);
-        $this->putJson("/api/accounts/cash-receipts/{$old->id}", receiptPayload($party, ['receipt_type' => 'loan', 'amount' => 300]))
-            ->assertOk();
-        $this->putJson("/api/accounts/cash-receipts/{$old->id}", receiptPayload($party))
-            ->assertOk()
-            ->assertJsonPath('data.receipt_type', 'cash');
+            ->assertJsonValidationErrors(['receipt_type' => 'Only a company owner returns a loan.']);
+        $this->postJson('/api/accounts/cash-receipts', receiptPayload($owner, ['receipt_type' => 'loan_return']))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['owner_loan_id' => 'Choose the loan being returned.']);
+        $this->postJson('/api/accounts/cash-receipts', receiptPayload($owner, ['receipt_type' => 'loan']))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('receipt_type');
     });
-
     it('requires how the money was received', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
 
@@ -183,7 +178,7 @@ describe('cash receipts', function () {
         $first->forceFill(['is_active' => false])->save();
         $this->putJson("/api/accounts/cash-receipts/{$id}", receiptPayload($first, ['amount' => 100]))->assertOk();
 
-        $this->putJson("/api/accounts/cash-receipts/{$id}", receiptPayload($second, ['amount' => 900, 'receipt_type' => 'loan', 'date' => '2027-03-01']))
+        $this->putJson("/api/accounts/cash-receipts/{$id}", receiptPayload($second, ['amount' => 900, 'date' => '2027-03-01']))
             ->assertOk()
             ->assertJsonPath('data.receipt_no', 'CR-2026-0001')
             ->assertJsonPath('data.party.id', $second->id)
@@ -191,7 +186,7 @@ describe('cash receipts', function () {
 
         expect($first->transactions()->count())->toBe(0);
         expect($second->transactions()->sole())
-            ->type->value->toBe('loan')
+            ->type->value->toBe('capital')
             ->amount->toBe('900.00')
             ->date->format('Y-m-d')->toBe('2027-03-01');
     });
@@ -225,7 +220,7 @@ describe('cash receipts', function () {
 
         $this->postJson('/api/accounts/cash-receipts', receiptPayload($client, ['date' => '2026-10-01', 'amount' => 100]));
         $this->postJson('/api/accounts/cash-receipts', receiptPayload($client, ['date' => '2026-10-02', 'amount' => 200, 'payment_method' => 'bank', 'bank_name' => 'DBBL', 'bank_branch' => 'Uttara', 'bank_account_name' => 'Afwan Associates', 'bank_account_number' => '1234567']));
-        $this->postJson('/api/accounts/cash-receipts', receiptPayload($owner, ['date' => '2026-10-03', 'amount' => 400, 'receipt_type' => 'loan']));
+        $this->postJson('/api/accounts/cash-receipts', receiptPayload($owner, ['date' => '2026-10-03', 'amount' => 400]));
 
         // Pending receipts are listed but totalled apart.
         $this->getJson('/api/accounts/cash-receipts')
@@ -245,7 +240,7 @@ describe('cash receipts', function () {
             ->assertJsonPath('data.*.receipt_no', ['CR-2026-0002']);
         $this->getJson('/api/accounts/cash-receipts?q=karim')
             ->assertJsonPath('meta.totals.amount', 300);
-        $this->getJson('/api/accounts/cash-receipts?receipt_type=loan')
+        $this->getJson('/api/accounts/cash-receipts?party_type=owner&receipt_type=cash')
             ->assertJsonPath('data.*.party.name', ['Chairman']);
         $this->getJson("/api/accounts/cash-receipts?party_id={$client->id}&payment_method=cash")
             ->assertJsonPath('meta.totals.amount', 100);

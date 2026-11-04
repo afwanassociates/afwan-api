@@ -27,6 +27,10 @@ class PartyResource extends JsonResource
             'type_label' => $this->type->label(),
             'rl_number' => $this->rl_number,
             'name' => $this->name,
+            // Clients only: the agency's owner (whose NID / passport is nid_passport).
+            'agency_owner_name' => $this->agency_owner_name,
+            'designation' => $this->designation?->value,
+            'designation_label' => $this->designation?->label(),
             'mobile' => $this->mobile,
             'address' => $this->address,
             'nid_passport' => $this->nid_passport,
@@ -47,7 +51,7 @@ class PartyResource extends JsonResource
 
     /**
      * The total of every ledger line type (receivable, payment, refund, loan,
-     * capital, loan_repayment, drawing), plus the closing balance: opening +
+     * capital, loan_repayment), plus the closing balance: opening +
      * debits − credits.
      *
      * @return array<string, float>

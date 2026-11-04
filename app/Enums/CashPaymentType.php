@@ -3,22 +3,21 @@
 namespace App\Enums;
 
 /**
- * What a cash payment is. Refund, loan repayment and drawing write a debit
- * line in the payee's party ledger; an expense (other payee) writes none.
+ * What a cash payment is. A refund (to a party) and an owner loan (money the
+ * company lends an owner) write a debit line in the payee's ledger; an
+ * expense (other payee) writes none.
  */
 enum CashPaymentType: string
 {
     case Refund = 'refund';
-    case LoanRepayment = 'loan_repayment';
-    case Drawing = 'drawing';
+    case OwnerLoan = 'owner_loan';
     case Expense = 'expense';
 
     public function label(): string
     {
         return match ($this) {
             self::Refund => 'Refund',
-            self::LoanRepayment => 'Loan repayment',
-            self::Drawing => 'Payment to owner',
+            self::OwnerLoan => 'Owner loan',
             self::Expense => 'Expense',
         };
     }
@@ -30,8 +29,7 @@ enum CashPaymentType: string
     {
         return match ($this) {
             self::Refund => PartyTransactionType::Refund,
-            self::LoanRepayment => PartyTransactionType::LoanRepayment,
-            self::Drawing => PartyTransactionType::Drawing,
+            self::OwnerLoan => PartyTransactionType::OwnerLoan,
             self::Expense => null,
         };
     }

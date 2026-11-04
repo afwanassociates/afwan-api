@@ -65,7 +65,7 @@ class CashReceiptController extends Controller
             ->first();
 
         $receipts = $query
-            ->with(['party', 'country', ...self::PEOPLE])
+            ->with(['party', 'country', 'ownerLoan:id,payment_no', ...self::PEOPLE])
             ->orderByDesc('date')
             ->orderByDesc('id')
             ->paginate($request->integer('per_page', 15))
@@ -89,7 +89,7 @@ class CashReceiptController extends Controller
     {
         Gate::authorize('view', $cashReceipt);
 
-        return new CashReceiptResource($cashReceipt->load(['party', 'country', ...self::PEOPLE]));
+        return new CashReceiptResource($cashReceipt->load(['party', 'country', 'ownerLoan:id,payment_no', ...self::PEOPLE]));
     }
 
     public function store(StoreCashReceiptRequest $request): CashReceiptResource
@@ -98,7 +98,7 @@ class CashReceiptController extends Controller
 
         $receipt = $this->receipts->create($request->validated(), $request->user());
 
-        return new CashReceiptResource($receipt->load(['party', 'country', ...self::PEOPLE]));
+        return new CashReceiptResource($receipt->load(['party', 'country', 'ownerLoan:id,payment_no', ...self::PEOPLE]));
     }
 
     public function update(StoreCashReceiptRequest $request, CashReceipt $cashReceipt): CashReceiptResource
@@ -107,7 +107,7 @@ class CashReceiptController extends Controller
 
         $receipt = $this->receipts->update($cashReceipt, $request->validated(), $request->user());
 
-        return new CashReceiptResource($receipt->load(['party', 'country', ...self::PEOPLE]));
+        return new CashReceiptResource($receipt->load(['party', 'country', 'ownerLoan:id,payment_no', ...self::PEOPLE]));
     }
 
     public function destroy(CashReceipt $cashReceipt): Response

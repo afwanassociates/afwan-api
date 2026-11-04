@@ -35,6 +35,11 @@ class CashReceiptResource extends JsonResource
             ]),
             'receipt_type' => $this->receipt_type->value,
             'receipt_type_label' => $this->receipt_type->label(),
+            // A loan return: the owner loan (a cash payment) it settles.
+            'owner_loan' => $this->whenLoaded('ownerLoan', fn () => $this->ownerLoan ? [
+                'id' => $this->ownerLoan->id,
+                'payment_no' => $this->ownerLoan->payment_no,
+            ] : null),
             'business_type' => $this->business_type?->value,
             'business_type_label' => $this->business_type?->label(),
             'country' => $this->country_code === null ? null : [

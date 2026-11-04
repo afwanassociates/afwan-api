@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Enums\BalanceType;
+use App\Enums\OwnerDesignation;
 use App\Enums\PartyType;
 use App\Models\Party;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -32,7 +33,7 @@ class PartyFactory extends Factory
 
     public function owner(): static
     {
-        return $this->state(fn (array $attributes) => ['type' => PartyType::Owner]);
+        return $this->state(fn (array $attributes) => ['type' => PartyType::Owner, 'designation' => OwnerDesignation::Director]);
     }
 
     public function inactive(): static

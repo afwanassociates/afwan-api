@@ -3,8 +3,8 @@
 use App\Models\CashSetting;
 use App\Models\Party;
 use App\Models\User;
-use Illuminate\Testing\TestResponse;
 use Illuminate\Support\Carbon;
+use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 
 /**
@@ -23,6 +23,7 @@ function receipt(Party $party, float $amount, string $date, string $method = 'ca
         'business_type' => 'recruitment', 'country_code' => 'MY',
         'receipt_type' => 'cash', 'amount' => $amount, 'payment_method' => $method,
         'bank_name' => 'Sonali', 'bank_branch' => 'Motijheel', 'bank_account_name' => 'Afwan Associates', 'bank_account_number' => '1234567',
+        'mobile_provider' => 'bkash', 'mobile_number' => '01712345678',
     ]);
 }
 
@@ -67,7 +68,7 @@ describe('cash opening balance', function () {
                 ->assertJsonPath('data.opening_balance', 10000)
                 ->assertJsonMissingPath('data.pending');
             $this->getJson('/api/accounts/cash-settings')->assertForbidden();
-            }
+        }
 
         Sanctum::actingAs(User::factory()->dataEntry()->create());
         $this->getJson('/api/accounts/cash-settings')->assertForbidden();
@@ -241,22 +242,25 @@ describe('cash transfers', function () {
 });
 
 describe('cash book', function () {
-    it("opens each day with the previous day's closing cash, worked out automatically", function () {
+    it("opens each day with the previous day's closing balances, worked out automatically", function () {
         Carbon::setTestNow(Carbon::parse('2026-10-06 10:00', 'Asia/Dhaka')->utc());
         Sanctum::actingAs(User::factory()->accountsHead()->create());
         $party = Party::factory()->create();
         setOpening(1000, '2026-10-01');
 
         receipt($party, 500, '2026-10-05')->assertCreated();
-        // Today's receipt and a bank receipt do not change today's opening.
+        // Today's receipt does not change today's opening; yesterday's bank receipt does.
         receipt($party, 200, '2026-10-06')->assertCreated();
         receipt($party, 9000, '2026-10-05', 'bank')->assertCreated();
+        receipt($party, 300, '2026-10-05', 'mobile_banking')->assertCreated();
         approveAllAccountsEntries();
 
+        // Today's opening: yesterday's closing cash in hand (1,500) + bank (9,000) + mobile banking (300).
         financeSummary()
             ->assertJsonPath('data.opening_balance', 1000)
-            ->assertJsonPath('data.opening_today', 1500)
+            ->assertJsonPath('data.opening_today', 10800)
             ->assertJsonPath('data.cash_in_hand', 1700);
+        // The cash book itself is cash in hand only.
         $this->getJson('/api/accounts/cash-book?from=2026-10-06&to=2026-10-06')
             ->assertJsonPath('days.0.opening', 1500);
     });
@@ -315,5 +319,75 @@ describe('cash book', function () {
             ->assertJsonPath('closing_balance', 500);
 
         $this->getJson('/api/accounts/cash-book?from=2026-10-05&to=2026-10-01')->assertUnprocessable();
+    });
+
+    it('keeps a bank book and a mobile banking book the same way, each starting at zero', function () {
+        Sanctum::actingAs(User::factory()->accountsHead()->create());
+        $party = Party::factory()->create(['name' => 'Karim', 'code' => null]);
+        setOpening(5000, '2026-10-01');
+
+        receipt($party, 9000, '2026-10-01', 'bank')->assertCreated();
+        receipt($party, 800, '2026-10-01', 'mobile_banking')->assertCreated();
+        receipt($party, 100, '2026-10-01')->assertCreated();
+        transfer('deposit', 2000, '2026-10-02')->assertCreated();
+        $this->postJson('/api/accounts/cash-payments', [
+            'date' => '2026-10-03', 'payee_type' => 'other', 'payee_name' => 'Landlord', 'payment_type' => 'expense',
+            'expense_category' => 'office_rent', 'purpose' => 'October rent', 'amount' => 3000, 'payment_method' => 'bank',
+            'bank_name' => 'Sonali', 'bank_branch' => 'Motijheel', 'bank_account_name' => 'Landlord', 'bank_account_number' => '999',
+        ])->assertCreated();
+        transfer('withdrawal', 500, '2026-10-04')->assertCreated();
+        approveAllAccountsEntries();
+
+        // Bank: 9000 received, 2000 deposited, 3000 paid, 500 withdrawn.
+        $this->getJson('/api/accounts/cash-book?book=bank')
+            ->assertOk()
+            ->assertJsonPath('book', 'bank')
+            ->assertJsonPath('opening_balance', 0)
+            ->assertJsonPath('days.*.date', ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04'])
+            ->assertJsonPath('days.*.closing', [9000, 11000, 8000, 7500])
+            ->assertJsonPath('days.0.lines.0.particulars', "Received from Karim ({$party->code})")
+            ->assertJsonPath('days.0.lines.0.detail', 'Cash · Sonali, Motijheel')
+            ->assertJsonPath('days.1.lines.0.particulars', 'Deposited from cash in hand')
+            ->assertJsonPath('days.1.lines.0.in', 2000)
+            ->assertJsonPath('days.2.lines.0.out', 3000)
+            ->assertJsonPath('days.3.lines.0.particulars', 'Withdrawn to cash in hand')
+            ->assertJsonPath('totals', ['in' => 11000, 'out' => 3500])
+            ->assertJsonPath('closing_balance', 7500);
+        financeSummary()->assertJsonPath('data.bank_balance', 7500)->assertJsonPath('data.mobile_banking_balance', 800);
+
+        // From a date: the bank balance before it is brought forward.
+        $this->getJson('/api/accounts/cash-book?book=bank&from=2026-10-03')
+            ->assertJsonPath('opening_balance', 11000)
+            ->assertJsonPath('closing_balance', 7500);
+
+        $this->getJson('/api/accounts/cash-book?book=mobile_banking')
+            ->assertJsonPath('book', 'mobile_banking')
+            ->assertJsonPath('opening_balance', 0)
+            ->assertJsonCount(1, 'days')
+            ->assertJsonPath('days.0.lines.0.detail', 'Cash · bKash, 01712345678')
+            ->assertJsonPath('closing_balance', 800);
+
+        // The hand cash book is unchanged: the default.
+        $this->getJson('/api/accounts/cash-book')->assertJsonPath('book', 'cash')->assertJsonPath('closing_balance', 5000 + 100 - 2000 + 500);
+        $this->getJson('/api/accounts/cash-book?book=cheque')->assertUnprocessable();
+
+        // All together: cash 3600 + bank 7500 + mobile 800. Deposits and withdrawals only move
+        // money between them: contra lines, nothing in or out.
+        $this->getJson('/api/accounts/cash-book?book=all')
+            ->assertOk()
+            ->assertJsonPath('book', 'all')
+            ->assertJsonPath('opening_balance', 5000)
+            ->assertJsonPath('days.0.lines.*.via', ['Bank', 'Mobile banking', 'Cash in hand'])
+            ->assertJsonPath('days.1.lines.0.via', 'Cash in hand → Bank')
+            ->assertJsonPath('days.1.lines.0.contra', 2000)
+            ->assertJsonPath('days.1.lines.0.in', 0)
+            ->assertJsonPath('days.1.lines.0.out', 0)
+            ->assertJsonPath('days.1.closing', 14900)
+            ->assertJsonPath('days.3.lines.0.particulars', 'Withdrawn from bank to cash in hand')
+            ->assertJsonPath('totals', ['in' => 9900, 'out' => 3000])
+            ->assertJsonPath('closing_balance', 11900);
+        $this->getJson('/api/accounts/cash-book?book=all&from=2026-10-03')
+            ->assertJsonPath('opening_balance', 3100 + 11000 + 800)
+            ->assertJsonPath('closing_balance', 11900);
     });
 });

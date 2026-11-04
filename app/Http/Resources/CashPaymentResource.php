@@ -38,10 +38,6 @@ class CashPaymentResource extends JsonResource
             'payee_name' => $this->payeeName(),
             'payment_type' => $this->payment_type->value,
             'payment_type_label' => $this->payment_type->label(),
-            'loan_receipt' => $this->whenLoaded('loanReceipt', fn () => $this->loanReceipt ? [
-                'id' => $this->loanReceipt->id,
-                'receipt_no' => $this->loanReceipt->receipt_no,
-            ] : null),
             'expense_category' => $this->expense_category?->value,
             'expense_category_label' => $this->expense_category?->label(),
             'purpose' => $this->purpose,

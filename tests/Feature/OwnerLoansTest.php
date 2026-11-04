@@ -1,135 +1,240 @@
 <?php
 
-use App\Models\CashPayment;
+use App\Models\OwnerLoanBill;
 use App\Models\Party;
 use App\Models\User;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 
-/** An owner receipt (cash = capital, or a loan), approved by an accounts head. */
-function ownerReceipt(Party $owner, float $amount, string $type = 'loan', string $date = '2026-10-01'): int
+/** Cash in hand to lend from: a party's cash receipt, approved. */
+function loanFund(float $amount, string $date = '2026-10-01'): void
 {
-    $id = test()->postJson('/api/accounts/cash-receipts', [
-        'date' => $date, 'party_type' => 'owner', 'party_id' => $owner->id,
-        'receipt_type' => $type, 'amount' => $amount, 'payment_method' => 'cash',
+    test()->postJson('/api/accounts/cash-receipts', [
+        'date' => $date, 'party_type' => 'client', 'party_id' => Party::factory()->create()->id,
+        'business_type' => 'recruitment', 'country_code' => 'MY',
+        'receipt_type' => 'cash', 'amount' => $amount, 'payment_method' => 'cash',
+    ])->assertCreated();
+    approveAllAccountsEntries();
+}
+
+/** Give an owner a loan from the company (a cash payment), approved. */
+function giveOwnerLoan(Party $owner, float $amount, array $overrides = []): int
+{
+    $id = test()->postJson('/api/accounts/cash-payments', [
+        'date' => '2026-10-05', 'payee_type' => 'owner', 'party_id' => $owner->id, 'payment_type' => 'owner_loan',
+        'amount' => $amount, 'payment_method' => 'cash', 'purpose' => 'Office setup', ...$overrides,
     ])->assertCreated()->json('data.id');
     approveAllAccountsEntries();
 
     return $id;
 }
 
-function repayment(Party $owner, ?int $loanId, float $amount, string $date = '2026-10-05'): TestResponse
+/** The owner returns money on a loan (a cash receipt of type loan_return). */
+function returnOwnerLoan(Party $owner, ?int $loanId, float $amount, array $overrides = []): TestResponse
 {
-    return test()->postJson('/api/accounts/cash-payments', [
-        'date' => $date, 'payee_type' => 'owner', 'party_id' => $owner->id, 'payment_type' => 'loan_repayment',
-        'loan_receipt_id' => $loanId, 'amount' => $amount, 'payment_method' => 'cash',
+    return test()->postJson('/api/accounts/cash-receipts', [
+        'date' => '2026-10-20', 'party_type' => 'owner', 'party_id' => $owner->id, 'receipt_type' => 'loan_return',
+        'owner_loan_id' => $loanId, 'amount' => $amount, 'payment_method' => 'cash', ...$overrides,
     ]);
 }
 
+/** The owner shows a company bill paid with the loan, with a copy. */
+function loanBill(int $loanId, float $amount, array $overrides = []): TestResponse
+{
+    return test()->post("/api/accounts/owner-loans/{$loanId}/bills", [
+        'date' => '2026-10-15', 'expense_category' => 'office_rent', 'purpose' => '  October   office rent ',
+        'bill_no' => 'R-10', 'amount' => $amount, 'bill_copy' => fakeScan('pdf', 'rent.pdf'), ...$overrides,
+    ], ['Accept' => 'application/json']);
+}
+
 describe('owner loans', function () {
-    it('lists each owner loan with what is repaid and still owed, and the owners\' capital', function () {
+    it('lends an owner money from the company and settles it with a bill and returned cash', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
-        $chairman = Party::factory()->owner()->create(['name' => 'Chairman']);
-        $md = Party::factory()->owner()->create(['name' => 'MD']);
+        loanFund(100000, '2026-10-01');
+        $owner = Party::factory()->owner()->create(['name' => 'Chairman']);
 
-        ownerReceipt($chairman, 500000, 'cash');
-        ownerReceipt($md, 200000, 'cash');
-        $big = ownerReceipt($chairman, 100000);
-        $small = ownerReceipt($md, 50000, date: '2026-10-02');
-
-        repayment($chairman, $big, 40000)->assertCreated()->assertJsonPath('data.loan_receipt.id', $big);
-        repayment($md, $small, 50000)->assertCreated();
-        // A payment to the owner lowers their capital.
-        $this->postJson('/api/accounts/cash-payments', [
-            'date' => '2026-10-06', 'payee_type' => 'owner', 'party_id' => $md->id, 'payment_type' => 'drawing',
-            'amount' => 20000, 'payment_method' => 'cash',
-        ])->assertCreated();
-
-        // Pending repayments are not repaid yet.
+        // 50,000 out of cash in hand.
+        $loan = giveOwnerLoan($owner, 50000);
+        financeSummary()->assertJsonPath('data.cash_in_hand', 50000);
+        expect($owner->transactions()->sole())->type->value->toBe('owner_loan')->amount->toBe('50000.00');
         $this->getJson('/api/accounts/owner-loans')
-            ->assertOk()
-            ->assertJsonPath('summary.loans_owed', 150000)
-            ->assertJsonPath('data.1.pending_repaid', 40000);
+            ->assertJsonPath('summary.loans_outstanding', 50000)
+            ->assertJsonPath('data.0.payment_no', 'CP-2026-0001')
+            ->assertJsonPath('data.0.payment_method_label', 'Cash in hand')
+            ->assertJsonPath('data.0.outstanding', 50000)
+            ->assertJsonPath('data.0.status', 'open');
+
+        // A 30,000 bill the owner paid: settles, no money moves.
+        $billId = loanBill($loan, 30000)
+            ->assertCreated()
+            ->assertJsonPath('data.purpose', 'October office rent')
+            ->assertJsonPath('data.status', 'pending')
+            ->assertJsonPath('data.has_copy', true)
+            ->assertJsonPath('data.copy_name', 'rent.pdf')
+            ->json('data.id');
+        Storage::disk('local')->assertExists(OwnerLoanBill::findOrFail($billId)->copy_path);
+
+        // 20,000 cash returned: back into cash in hand.
+        returnOwnerLoan($owner, $loan, 20000)
+            ->assertCreated()
+            ->assertJsonPath('data.receipt_type_label', 'Loan return')
+            ->assertJsonPath('data.owner_loan.payment_no', 'CP-2026-0001');
+
+        // Waiting for approval: not settled yet.
+        $this->getJson('/api/accounts/owner-loans')
+            ->assertJsonPath('data.0.pending_billed', 30000)
+            ->assertJsonPath('data.0.pending_returned', 20000)
+            ->assertJsonPath('data.0.outstanding', 50000);
 
         approveAllAccountsEntries();
 
         $this->getJson('/api/accounts/owner-loans')
-            ->assertJsonPath('summary.total_capital', 680000)
-            ->assertJsonPath('summary.loans_owed', 60000)
-            ->assertJsonPath('summary.open_count', 1)
+            ->assertJsonPath('summary.loans_outstanding', 0)
             ->assertJsonPath('summary.settled_count', 1)
-            ->assertJsonPath('summary.owners.0.name', 'Chairman')
-            ->assertJsonPath('summary.owners.0.capital', 500000)
-            ->assertJsonPath('summary.owners.0.loan_owed', 60000)
-            ->assertJsonPath('summary.owners.1.capital', 180000)
-            ->assertJsonPath('data.0.owner.name', 'MD')
+            ->assertJsonPath('data.0.billed', 30000)
+            ->assertJsonPath('data.0.returned', 20000)
+            ->assertJsonPath('data.0.outstanding', 0)
             ->assertJsonPath('data.0.status', 'settled')
-            ->assertJsonPath('data.1.amount', 100000)
-            ->assertJsonPath('data.1.repaid', 40000)
-            ->assertJsonPath('data.1.still_owed', 60000)
-            ->assertJsonPath('data.1.status', 'open');
-
-        $this->getJson('/api/accounts/owner-loans?status=open')->assertJsonCount(1, 'data');
-        $this->getJson("/api/accounts/owner-loans?party_id={$md->id}")->assertJsonCount(1, 'data');
+            ->assertJsonPath('data.0.bills.0.expense_category_label', 'Office rent');
+        financeSummary()->assertJsonPath('data.cash_in_hand', 70000);
+        $this->getJson("/api/accounts/parties/{$owner->id}")
+            ->assertJsonPath('data.totals.owner_loan', 50000)
+            ->assertJsonPath('data.totals.loan_bill', 30000)
+            ->assertJsonPath('data.totals.loan_return', 20000)
+            ->assertJsonPath('data.totals.closing_balance', 0);
     });
 
-    it('needs a loan of this owner, approved, and no more than is still owed', function () {
+    it('lends by bank or mobile banking too, out of that balance', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
         $owner = Party::factory()->owner()->create();
-        $other = Party::factory()->owner()->create();
-        ownerReceipt($owner, 500000, 'cash');
-        $loan = ownerReceipt($owner, 10000);
-        $othersLoan = ownerReceipt($other, 10000);
 
-        repayment($owner, null, 100)->assertUnprocessable()->assertJsonValidationErrors(['loan_receipt_id' => 'Choose the loan being repaid.']);
-        repayment($owner, $othersLoan, 100)->assertUnprocessable()->assertJsonValidationErrors(['loan_receipt_id' => 'Choose a loan of this owner.']);
-        repayment($owner, $loan, 10001)->assertUnprocessable()
-            ->assertJsonValidationErrors(['amount' => 'Only ৳10,000.00 is still owed on loan CR-2026-0002 (counting repayments waiting for approval).']);
+        giveOwnerLoan($owner, 5000, ['payment_method' => 'mobile_banking', 'mobile_provider' => 'bkash', 'mobile_number' => '01712345678']);
+        $bankLoan = giveOwnerLoan($owner, 8000, ['payment_method' => 'bank', 'bank_name' => 'DBBL', 'bank_branch' => 'Uttara', 'bank_account_name' => 'Afwan', 'bank_account_number' => '123']);
 
-        // Two pending repayments may not add up to more than the loan.
-        $first = repayment($owner, $loan, 6000)->assertCreated()->json('data.id');
-        repayment($owner, $loan, 5000)->assertUnprocessable()->assertJsonValidationErrors('amount');
-        // Editing a repayment does not count itself.
-        $this->putJson("/api/accounts/cash-payments/{$first}", [
-            'date' => '2026-10-05', 'payee_type' => 'owner', 'party_id' => $owner->id, 'payment_type' => 'loan_repayment',
-            'loan_receipt_id' => $loan, 'amount' => 10000, 'payment_method' => 'cash',
-        ])->assertOk();
+        financeSummary()
+            ->assertJsonPath('data.cash_in_hand', 0)
+            ->assertJsonPath('data.mobile_banking_balance', -5000)
+            ->assertJsonPath('data.bank_balance', -8000);
 
-        // A loan waiting for approval cannot be repaid yet.
-        $pending = $this->postJson('/api/accounts/cash-receipts', [
-            'date' => '2026-10-03', 'party_type' => 'owner', 'party_id' => $owner->id,
-            'receipt_type' => 'loan', 'amount' => 900, 'payment_method' => 'cash',
-        ])->json('data.id');
-        repayment($owner, $pending, 100)->assertUnprocessable()->assertJsonValidationErrors(['loan_receipt_id' => 'Loan CR-2026-0004 is not approved, so it cannot be repaid yet.']);
+        // The owner returns 8,000 into the bank.
+        returnOwnerLoan($owner, $bankLoan, 8000, ['payment_method' => 'bank', 'bank_name' => 'DBBL', 'bank_branch' => 'Uttara', 'bank_account_name' => 'Afwan', 'bank_account_number' => '123'])
+            ->assertCreated();
+        approveAllAccountsEntries();
+        financeSummary()->assertJsonPath('data.bank_balance', 0);
+        $this->getJson('/api/accounts/owner-loans?status=open')->assertJsonCount(1, 'data');
     });
 
-    it('checks again at approval, and keeps a repaid loan from being returned', function () {
+    it('never settles more than is outstanding, counting what waits for approval', function () {
+        Sanctum::actingAs(User::factory()->accounts()->create());
+        loanFund(100000);
+        $owner = Party::factory()->owner()->create();
+        $other = Party::factory()->owner()->create();
+        $loan = giveOwnerLoan($owner, 10000);
+        $othersLoan = giveOwnerLoan($other, 10000);
+
+        returnOwnerLoan($owner, $othersLoan, 100)->assertUnprocessable()
+            ->assertJsonValidationErrors(['owner_loan_id' => 'Choose a loan given to this owner.']);
+        returnOwnerLoan($owner, $loan, 10001)->assertUnprocessable()
+            ->assertJsonValidationErrors(['amount' => 'Only ৳10,000.00 is outstanding on loan CP-2026-0001 (counting returns and bills waiting for approval).']);
+
+        loanBill($loan, 6000)->assertCreated();
+        returnOwnerLoan($owner, $loan, 5000)->assertUnprocessable()->assertJsonValidationErrors('amount');
+        $receipt = returnOwnerLoan($owner, $loan, 4000)->assertCreated()->json('data.id');
+        loanBill($loan, 1)->assertUnprocessable()
+            ->assertJsonValidationErrors(['amount' => 'Loan CP-2026-0001 has nothing left to settle (counting returns and bills waiting for approval).']);
+        // Editing a return does not count itself.
+        $this->putJson("/api/accounts/cash-receipts/{$receipt}", [
+            'date' => '2026-10-20', 'party_type' => 'owner', 'party_id' => $owner->id, 'receipt_type' => 'loan_return',
+            'owner_loan_id' => $loan, 'amount' => 4000, 'payment_method' => 'cash',
+        ])->assertOk();
+
+        // A loan waiting for approval cannot be settled yet.
+        $pending = $this->postJson('/api/accounts/cash-payments', [
+            'date' => '2026-10-06', 'payee_type' => 'owner', 'party_id' => $owner->id, 'payment_type' => 'owner_loan',
+            'amount' => 500, 'payment_method' => 'cash',
+        ])->json('data.id');
+        loanBill($pending, 100)->assertUnprocessable()
+            ->assertJsonValidationErrors(['owner_loan_id' => 'Loan CP-2026-0003 is not approved yet, so it cannot be settled.']);
+    });
+
+    it('needs a bill copy, checks the bill, and replaces the copy on edit', function () {
+        Sanctum::actingAs(User::factory()->accounts()->create());
+        loanFund(100000);
+        $loan = giveOwnerLoan(Party::factory()->owner()->create(), 10000);
+
+        loanBill($loan, 100, ['bill_copy' => null])->assertUnprocessable()
+            ->assertJsonValidationErrors(['bill_copy' => 'Attach a copy of the bill (photo or PDF).']);
+        loanBill($loan, 100, ['bill_copy' => fakeScan('pdf', 'bill.jpg')])->assertUnprocessable()
+            ->assertJsonValidationErrors(['bill_copy' => 'The bill copy must be a real JPG, PNG or PDF file.']);
+        loanBill($loan, 0, ['expense_category' => 'nope', 'purpose' => ''])->assertUnprocessable()
+            ->assertJsonValidationErrors(['amount', 'expense_category', 'purpose']);
+
+        $id = loanBill($loan, 3000)->json('data.id');
+        $oldPath = OwnerLoanBill::findOrFail($id)->copy_path;
+
+        // Edit without a new copy keeps it; with one replaces it.
+        $this->post("/api/accounts/owner-loan-bills/{$id}", [
+            'date' => '2026-10-16', 'expense_category' => 'utility_bill', 'purpose' => 'Electricity', 'amount' => 2500,
+        ], ['Accept' => 'application/json'])->assertOk()->assertJsonPath('data.amount', 2500)->assertJsonPath('data.has_copy', true);
+        Storage::disk('local')->assertExists($oldPath);
+        $this->post("/api/accounts/owner-loan-bills/{$id}", [
+            'date' => '2026-10-16', 'expense_category' => 'utility_bill', 'purpose' => 'Electricity', 'amount' => 2500,
+            'bill_copy' => fakeScan('png', 'new.png'),
+        ], ['Accept' => 'application/json'])->assertOk()->assertJsonPath('data.copy_name', 'new.png');
+        Storage::disk('local')->assertMissing($oldPath);
+
+        $this->get("/api/accounts/owner-loan-bills/{$id}/copy")->assertOk()->assertHeader('Content-Type', 'image/png');
+
+        // Deleting the bill removes its copy and its ledger line.
+        $path = OwnerLoanBill::findOrFail($id)->copy_path;
+        $this->deleteJson("/api/accounts/owner-loan-bills/{$id}")->assertNoContent();
+        Storage::disk('local')->assertMissing($path);
+        expect(OwnerLoanBill::count())->toBe(0);
+    });
+
+    it('goes through approval: the queue shows bills, approval checks again, a settled loan is locked', function () {
         $clerk = User::factory()->accounts()->create();
         $head = User::factory()->accountsHead()->create();
-        $admin = User::factory()->admin()->create();
         Sanctum::actingAs($clerk);
-        $owner = Party::factory()->owner()->create();
-        ownerReceipt($owner, 500000, 'cash');
-        $loan = ownerReceipt($owner, 10000);
+        loanFund(100000);
+        $owner = Party::factory()->owner()->create(['name' => 'MD']);
+        $loan = giveOwnerLoan($owner, 10000);
+        $bill = loanBill($loan, 4000)->json('data.id');
 
-        $payment = repayment($owner, $loan, 4000)->assertCreated()->json('data.id');
-
-        // Returning the loan is refused while a repayment names it.
-        Sanctum::actingAs($admin);
-        $this->postJson("/api/accounts/approvals/cash-receipts/{$loan}/return", ['reason' => 'Wrong owner'])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors(['status' => 'Loan CR-2026-0002 already has repayments. Return those payments first.']);
-
-        // The loan was lowered behind the repayment's back: approval refuses it.
-        DB::table('cash_receipts')->where('id', $loan)->update(['amount' => 3000]);
         Sanctum::actingAs($head);
-        $this->postJson("/api/accounts/approvals/cash-payments/{$payment}/approve")
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors(['status' => 'Only ৳3,000.00 is still owed on loan CR-2026-0002.']);
-        DB::table('cash_receipts')->where('id', $loan)->update(['amount' => 10000]);
-        $this->postJson("/api/accounts/approvals/cash-payments/{$payment}/approve")->assertOk();
+        // The bill waits once: its ledger line is not a separate entry, nor in the count.
+        $this->getJson('/api/accounts/approvals')->assertJsonPath('data.*.kind', ['Owner loan bill']);
+        $this->getJson('/api/accounts/approvals/summary')->assertJsonPath('data.pending', 1);
+        $this->getJson('/api/accounts/approvals?type=owner-loan-bills')
+            ->assertJsonPath('data.0.kind', 'Owner loan bill')
+            ->assertJsonPath('data.0.reference', 'Bill R-10')
+            ->assertJsonPath('data.0.amount', 4000)
+            ->assertJsonPath('data.0.owner_loan', true)
+            ->assertJsonPath('data.0.has_copy', true);
+        // Approvers (admins too) may open the copy.
+        Sanctum::actingAs(User::factory()->admin()->create());
+        $this->get("/api/accounts/owner-loan-bills/{$bill}/copy")->assertOk();
 
-        expect(CashPayment::query()->findOrFail($payment)->loan_receipt_id)->toBe($loan);
+        // The loan was lowered behind the bill's back: approval refuses it.
+        DB::table('cash_payments')->where('id', $loan)->update(['amount' => 3000]);
+        Sanctum::actingAs($head);
+        $this->postJson("/api/accounts/approvals/owner-loan-bills/{$bill}/approve")
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['status' => 'Only ৳3,000.00 is outstanding on loan CP-2026-0001.']);
+        DB::table('cash_payments')->where('id', $loan)->update(['amount' => 10000]);
+        $this->postJson("/api/accounts/approvals/owner-loan-bills/{$bill}/approve")->assertOk();
+        expect($owner->transactions()->where('type', 'loan_bill')->sole()->status->value)->toBe('approved');
+
+        // The loan cannot be returned for correction while a bill settles it.
+        Sanctum::actingAs(User::factory()->admin()->create());
+        $this->postJson("/api/accounts/approvals/cash-payments/{$loan}/return", ['reason' => 'Wrong owner'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['status' => 'Loan CP-2026-0001 already has returns or bills. Return or delete those first.']);
+
+        // An approved bill is locked.
+        Sanctum::actingAs($clerk);
+        $this->deleteJson("/api/accounts/owner-loan-bills/{$bill}")->assertForbidden();
     });
 
     it('is for the accounts team only', function () {

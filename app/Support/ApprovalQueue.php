@@ -7,6 +7,7 @@ use App\Enums\TransferDirection;
 use App\Models\CashPayment;
 use App\Models\CashReceipt;
 use App\Models\CashTransfer;
+use App\Models\OwnerLoanBill;
 use App\Models\PartyTransaction;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
@@ -31,6 +32,7 @@ class ApprovalQueue
         'cash-payments' => CashPayment::class,
         'cash-transfers' => CashTransfer::class,
         'party-transactions' => PartyTransaction::class,
+        'owner-loan-bills' => OwnerLoanBill::class,
     ];
 
     /** Most entries returned at once (the queue is meant to stay short). */
@@ -42,7 +44,7 @@ class ApprovalQueue
      * The entry of a type by id, or null (a voucher-owned ledger line is not
      * approved on its own).
      */
-    public static function find(string $type, int $id): CashReceipt|CashPayment|CashTransfer|PartyTransaction|null
+    public static function find(string $type, int $id): CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill|null
     {
         $model = self::TYPES[$type] ?? null;
         $entry = $model ? $model::query()->find($id) : null;
@@ -74,9 +76,12 @@ class ApprovalQueue
             }
 
             $query = self::scoped($model, $status, $preparedBy)->with(self::PEOPLE)->limit(self::LIMIT);
-            if ($model !== CashTransfer::class) {
-                $query->with('party');
-            }
+            match ($model) {
+                CashTransfer::class => null,
+                OwnerLoanBill::class => $query->with('ownerLoan.party'),
+                CashReceipt::class => $query->with(['party', 'ownerLoan:id,payment_no']),
+                default => $query->with('party'),
+            };
 
             foreach ($query->get() as $entry) {
                 $items[] = [...self::describe($key, $entry), ...self::common($entry, $user)];
@@ -97,7 +102,9 @@ class ApprovalQueue
         return $model::query()
             ->where('status', $status->value)
             ->when($preparedBy, fn (Builder $q, User $user) => $q->where('created_by', $user->id))
-            ->when($model === PartyTransaction::class, fn (Builder $q) => $q->whereNull('cash_receipt_id')->whereNull('cash_payment_id'));
+            // Only hand-entered ledger lines: a line written by a receipt, payment or owner loan
+            // bill is approved with it.
+            ->when($model === PartyTransaction::class, fn (Builder $q) => $q->whereNull('cash_receipt_id')->whereNull('cash_payment_id')->whereNull('owner_loan_bill_id'));
     }
 
     /**
@@ -112,7 +119,9 @@ class ApprovalQueue
             $entry instanceof CashReceipt => [
                 'type' => $type, 'kind' => 'Cash receive', 'reference' => $entry->receipt_no,
                 'title' => 'From '.$entry->party->name.' ('.$entry->party->code.')',
-                'detail' => $entry->receipt_type->label().' · '.self::via($entry),
+                'detail' => $entry->receipt_type->label()
+                    .($entry->ownerLoan ? ' of loan '.$entry->ownerLoan->payment_no : '')
+                    .' · '.self::via($entry),
                 'party_id' => $entry->party_id, 'direction' => 'in',
             ],
             $entry instanceof CashPayment => [
@@ -133,6 +142,15 @@ class ApprovalQueue
                 ])),
                 'party_id' => null, 'direction' => $entry->direction === TransferDirection::Withdrawal ? 'in' : 'out',
             ],
+            // A company bill the owner paid with a loan: settles the loan, no money moves.
+            $entry instanceof OwnerLoanBill => [
+                'type' => $type, 'kind' => 'Owner loan bill', 'reference' => $entry->bill_no ? 'Bill '.$entry->bill_no : null,
+                'title' => $entry->ownerLoan->party->name.' ('.$entry->ownerLoan->party->code.') · loan '.$entry->ownerLoan->payment_no,
+                'detail' => $entry->expense_category->label().' · '.$entry->purpose,
+                'party_id' => $entry->ownerLoan->party_id, 'direction' => null,
+                'owner_loan' => true,
+                'has_copy' => $entry->copy_path !== null,
+            ],
             $entry instanceof PartyTransaction => [
                 'type' => $type, 'kind' => 'Ledger entry', 'reference' => null,
                 'title' => $entry->type->label().' · '.$entry->party->name.' ('.$entry->party->code.')',
@@ -145,7 +163,7 @@ class ApprovalQueue
     /**
      * @return array<string, mixed>
      */
-    private static function common(CashReceipt|CashPayment|CashTransfer|PartyTransaction $entry, User $user): array
+    private static function common(CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill $entry, User $user): array
     {
         return [
             'id' => $entry->id,

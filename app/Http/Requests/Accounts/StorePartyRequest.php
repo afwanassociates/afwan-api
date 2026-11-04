@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Accounts;
 
 use App\Enums\BalanceType;
+use App\Enums\OwnerDesignation;
 use App\Enums\PartyType;
 use App\Models\Party;
 use App\Support\Normalize;
@@ -26,7 +27,7 @@ class StorePartyRequest extends FormRequest
      */
     protected function prepareForValidation(): void
     {
-        foreach (['name', 'mobile', 'address', 'tin_bin'] as $field) {
+        foreach (['name', 'agency_owner_name', 'mobile', 'address', 'tin_bin'] as $field) {
             if (is_string($this->input($field))) {
                 $this->merge([$field => Normalize::name($this->input($field))]);
             }
@@ -62,6 +63,13 @@ class StorePartyRequest extends FormRequest
                 ? ['prohibited']
                 : [$required, 'string', 'max:50', Rule::unique('parties', 'rl_number')->ignore($this->party())],
             'name' => [$required, 'string', 'max:150'],
+            // A client is an agency: its owner's name (their NID / passport is nid_passport).
+            'agency_owner_name' => $this->partyType() === PartyType::Owner
+                ? ['prohibited']
+                : [$required, 'string', 'max:150'],
+            'designation' => $this->partyType() === PartyType::Owner
+                ? [$required, Rule::in(OwnerDesignation::values())]
+                : ['prohibited'],
             'mobile' => [$required, 'string', 'max:30', 'regex:'.self::MOBILE_PATTERN],
             'address' => [$required, 'string', 'max:500'],
             'nid_passport' => [$required, 'string', 'max:50', Rule::unique('parties', 'nid_passport')->ignore($this->party())],
@@ -83,11 +91,18 @@ class StorePartyRequest extends FormRequest
             'rl_number.required' => 'Enter the RL number.',
             'rl_number.prohibited' => 'Owners do not have an RL number.',
             'rl_number.unique' => 'A party with this RL number already exists.',
-            'name.required' => 'Enter the name.',
-            'mobile.required' => 'Enter the mobile number.',
+            'name.required' => $this->partyType() === PartyType::Owner ? 'Enter the name.' : 'Enter the agency name.',
+            'agency_owner_name.required' => 'Enter the agency owner name.',
+            'agency_owner_name.prohibited' => 'Company owners have no agency owner.',
+            'designation.required' => 'Choose the designation (Chairman, Managing Director or Director).',
+            'designation.in' => 'Choose Chairman, Managing Director or Director.',
+            'designation.prohibited' => 'Only owners have a designation.',
+            'mobile.required' => $this->partyType() === PartyType::Owner ? 'Enter the mobile number.' : "Enter the agency's mobile number.",
             'mobile.regex' => 'Enter a valid mobile number (digits, spaces or dashes, optional +).',
-            'address.required' => 'Enter the address.',
-            'nid_passport.required' => 'Enter the NID or passport number.',
+            'address.required' => $this->partyType() === PartyType::Owner ? 'Enter the address.' : "Enter the agency's address.",
+            'nid_passport.required' => $this->partyType() === PartyType::Owner
+                ? 'Enter the NID or passport number.'
+                : "Enter the agency owner's NID or passport number.",
             'nid_passport.unique' => 'A party with this NID/passport number already exists.',
             'opening_balance.min' => 'The opening balance cannot be negative; choose Payable instead.',
             'opening_balance.decimal' => 'The opening balance can have at most 2 decimal places.',

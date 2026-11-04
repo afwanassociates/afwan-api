@@ -3,38 +3,43 @@
 namespace App\Enums;
 
 /**
- * A line of a party ledger. Receivable, refund, loan repayment and drawing are
- * debits (the party owes us more, or we owe them less); payment, loan and
- * capital are credits. Receivable may be entered by hand on the ledger until
- * the Sales module exists; the others come from cash receipts and cash
- * payments (a refund is a cash payment, so it is never entered twice).
+ * A line of a party ledger. Receivable, refund and owner loan are debits (the
+ * party or owner owes us more, or we owe them less); payment, capital, loan
+ * return and loan bill are credits. Receivable may be entered by hand on the
+ * ledger until the Sales module exists; the others come from cash receipts,
+ * cash payments and owner loan bills (a refund is a cash payment, so it is
+ * never entered twice).
+ *
+ * Owner loans: the company lends an owner money (owner loan, a cash payment);
+ * the owner settles it by returning money (loan return, a cash receipt) or by
+ * showing company bills they paid with it (loan bill).
  */
 enum PartyTransactionType: string
 {
     case Receivable = 'receivable';
     case Payment = 'payment';
     case Refund = 'refund';
-    case Loan = 'loan';
     case Capital = 'capital';
-    case LoanRepayment = 'loan_repayment';
-    case Drawing = 'drawing';
+    case OwnerLoan = 'owner_loan';
+    case LoanReturn = 'loan_return';
+    case LoanBill = 'loan_bill';
 
     public function label(): string
     {
         return match ($this) {
             self::Receivable => 'Receivable',
             self::Payment => 'Payment received',
-            self::Refund => 'Refund',
-            self::Loan => 'Loan received',
+            self::Refund => 'Payment refund',
             self::Capital => 'Capital received',
-            self::LoanRepayment => 'Loan repaid',
-            self::Drawing => 'Payment to owner',
+            self::OwnerLoan => 'Loan given to owner',
+            self::LoanReturn => 'Loan returned',
+            self::LoanBill => 'Loan settled by bill',
         };
     }
 
     public function isDebit(): bool
     {
-        return in_array($this, [self::Receivable, self::Refund, self::LoanRepayment, self::Drawing], true);
+        return in_array($this, [self::Receivable, self::Refund, self::OwnerLoan], true);
     }
 
     /**

@@ -45,11 +45,6 @@ class StoreCashPaymentRequest extends FormRequest
         $currentPartyId = $this->payment()?->party_id;
         $isOther = $payee === PayeeType::Other;
         $allowedTypes = $payee ? array_map(fn (CashPaymentType $t) => $t->value, $payee->paymentTypes()) : CashPaymentType::values();
-        // A party loan repayment saved before only owners could lend may keep its type while edited.
-        $current = $this->payment();
-        if ($payee === PayeeType::Client && $current?->party?->type->value === 'client' && $current->payment_type === CashPaymentType::LoanRepayment) {
-            $allowedTypes[] = CashPaymentType::LoanRepayment->value;
-        }
 
         return [
             'date' => ['required', 'date_format:Y-m-d'],
@@ -68,10 +63,6 @@ class StoreCashPaymentRequest extends FormRequest
                 Rule::in($allowedTypes),
             ],
             'purpose' => [$isOther ? 'required' : 'nullable', 'string', 'max:150'],
-            // An owner loan repayment names the loan it pays back (App\Services\OwnerLoans).
-            'loan_receipt_id' => $payee === PayeeType::Owner && $this->input('payment_type') === CashPaymentType::LoanRepayment->value
-                ? ['required', 'integer']
-                : ['nullable'],
             'expense_category' => $isOther ? ['required', Rule::in(ExpenseCategory::values())] : ['nullable'],
             'bill_no' => ['nullable', 'string', 'max:50'],
             'amount' => ['required', 'numeric', 'decimal:0,2', 'gt:0', 'max:'.StorePartyRequest::MAX_AMOUNT],
@@ -101,11 +92,12 @@ class StoreCashPaymentRequest extends FormRequest
             'party_id.required' => 'Choose who the money is paid to.',
             'party_id.exists' => 'Choose an active '.($payee === PayeeType::Owner ? 'owner' : 'party').'.',
             'payee_name.required' => 'Enter the name of who you paid.',
-            'loan_receipt_id.required' => 'Choose the loan being repaid.',
             'expense_category.required' => 'Choose what the money was spent on.',
             'expense_category.in' => 'Choose what the money was spent on.',
             'payment_type.required' => 'Choose what the payment is for.',
-            'payment_type.in' => $allowed !== '' ? "A payment to this payee can only be a {$allowed}." : 'Choose what the payment is for.',
+            'payment_type.in' => $allowed !== ''
+                ? 'A payment to this payee can only be '.(preg_match('/^[aeiou]/', $allowed) ? 'an' : 'a')." {$allowed}."
+                : 'Choose what the payment is for.',
             'purpose.required' => 'Enter the purpose (e.g. office rent).',
             'amount.required' => 'Enter the amount.',
             'amount.gt' => 'The amount must be more than 0.',

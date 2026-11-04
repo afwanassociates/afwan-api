@@ -6,6 +6,7 @@ use App\Enums\ApprovalStatus;
 use App\Models\CashPayment;
 use App\Models\CashReceipt;
 use App\Models\CashTransfer;
+use App\Models\OwnerLoanBill;
 use App\Models\PartyTransaction;
 use App\Models\User;
 use Illuminate\Validation\ValidationException;
@@ -24,7 +25,7 @@ class ApprovalService
 {
     public function __construct(private readonly CashBook $cashBook, private readonly OwnerLoans $ownerLoans) {}
 
-    public function approve(CashReceipt|CashPayment|CashTransfer|PartyTransaction $entry, User $user): CashReceipt|CashPayment|CashTransfer|PartyTransaction
+    public function approve(CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill $entry, User $user): CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill
     {
         return $this->cashBook->guarded(function () use ($entry, $user) {
             $entry = $this->locked($entry);
@@ -32,9 +33,17 @@ class ApprovalService
             if (! $entry->isPending()) {
                 throw ValidationException::withMessages(['status' => 'This entry is no longer pending. Reload the page.']);
             }
-            if ($entry instanceof CashPayment && $entry->loan_receipt_id !== null) {
+            // An owner's loan return or bill may not settle more than is outstanding.
+            $settles = match (true) {
+                $entry instanceof CashReceipt && $entry->owner_loan_id !== null => fn () => $this->ownerLoans->assertSettleable(
+                    $entry->owner_loan_id, $entry->party_id, (float) $entry->amount, exceptReceiptId: $entry->id, atApproval: true),
+                $entry instanceof OwnerLoanBill => fn () => $this->ownerLoans->assertSettleable(
+                    $entry->owner_loan_id, null, (float) $entry->amount, exceptBillId: $entry->id, atApproval: true),
+                default => null,
+            };
+            if ($settles !== null) {
                 try {
-                    $this->ownerLoans->assertRepayable($entry->loan_receipt_id, $entry->party_id, (float) $entry->amount, $entry->id, atApproval: true);
+                    $settles();
                 } catch (ValidationException $e) {
                     throw ValidationException::withMessages(['status' => collect($e->errors())->flatten()->first()]);
                 }
@@ -51,7 +60,7 @@ class ApprovalService
         }, 'status');
     }
 
-    public function sendBack(CashReceipt|CashPayment|CashTransfer|PartyTransaction $entry, User $user, string $reason): CashReceipt|CashPayment|CashTransfer|PartyTransaction
+    public function sendBack(CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill $entry, User $user, string $reason): CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill
     {
         return $this->cashBook->guarded(function () use ($entry, $user, $reason) {
             $entry = $this->locked($entry);
@@ -59,8 +68,8 @@ class ApprovalService
             if ($entry->status === ApprovalStatus::Rejected) {
                 throw ValidationException::withMessages(['status' => 'This entry was already returned. Reload the page.']);
             }
-            if ($entry instanceof CashReceipt && $entry->isApproved()) {
-                $this->ownerLoans->assertNoRepayments($entry);
+            if ($entry instanceof CashPayment && $entry->isApproved()) {
+                $this->ownerLoans->assertNoSettlements($entry);
             }
 
             $entry->status = ApprovalStatus::Rejected;
@@ -80,22 +89,22 @@ class ApprovalService
     /**
      * The entry re-read under a row lock, so two approvers never act at once.
      *
-     * @template T of CashReceipt|CashPayment|CashTransfer|PartyTransaction
+     * @template T of CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill
      *
      * @param  T  $entry
      * @return T
      */
-    private function locked(CashReceipt|CashPayment|CashTransfer|PartyTransaction $entry): CashReceipt|CashPayment|CashTransfer|PartyTransaction
+    private function locked(CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill $entry): CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill
     {
         return $entry->newQuery()->lockForUpdate()->findOrFail($entry->getKey());
     }
 
     /**
-     * A receipt's or payment's ledger line follows its status.
+     * A receipt's, payment's or owner loan bill's ledger line follows its status.
      */
-    private function syncLedgerLine(CashReceipt|CashPayment|CashTransfer|PartyTransaction $entry): void
+    private function syncLedgerLine(CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill $entry): void
     {
-        if ($entry instanceof CashReceipt || $entry instanceof CashPayment) {
+        if ($entry instanceof CashReceipt || $entry instanceof CashPayment || $entry instanceof OwnerLoanBill) {
             $entry->ledgerLine()->update(['status' => $entry->status->value]);
         }
     }

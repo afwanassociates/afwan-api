@@ -7,6 +7,7 @@ use App\Enums\UserRole;
 use App\Models\CashPayment;
 use App\Models\CashReceipt;
 use App\Models\CashTransfer;
+use App\Models\OwnerLoanBill;
 use App\Models\PartyTransaction;
 use App\Models\User;
 use Illuminate\Auth\Access\Response;
@@ -31,7 +32,7 @@ abstract class AccountsEntryPolicy
         return $user->hasRole(...UserRole::accountsTeam());
     }
 
-    public function view(User $user, CashReceipt|CashPayment|CashTransfer|PartyTransaction $entry): bool
+    public function view(User $user, CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill $entry): bool
     {
         return $this->viewAny($user);
     }
@@ -41,17 +42,17 @@ abstract class AccountsEntryPolicy
         return $this->viewAny($user);
     }
 
-    public function update(User $user, CashReceipt|CashPayment|CashTransfer|PartyTransaction $entry): Response
+    public function update(User $user, CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill $entry): Response
     {
         return $this->change($user, $entry, 'edit');
     }
 
-    public function delete(User $user, CashReceipt|CashPayment|CashTransfer|PartyTransaction $entry): Response
+    public function delete(User $user, CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill $entry): Response
     {
         return $this->change($user, $entry, 'delete');
     }
 
-    public function approve(User $user, CashReceipt|CashPayment|CashTransfer|PartyTransaction $entry): Response
+    public function approve(User $user, CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill $entry): Response
     {
         if (! $user->hasRole(...UserRole::approvers())) {
             return Response::deny('Only the accounts & finance head or an admin can approve entries.');
@@ -68,7 +69,7 @@ abstract class AccountsEntryPolicy
         return Response::allow();
     }
 
-    public function sendBack(User $user, CashReceipt|CashPayment|CashTransfer|PartyTransaction $entry): Response
+    public function sendBack(User $user, CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill $entry): Response
     {
         return match ($entry->status) {
             ApprovalStatus::Pending => $user->hasRole(...UserRole::approvers())
@@ -81,7 +82,7 @@ abstract class AccountsEntryPolicy
         };
     }
 
-    protected function change(User $user, CashReceipt|CashPayment|CashTransfer|PartyTransaction $entry, string $verb): Response
+    protected function change(User $user, CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill $entry, string $verb): Response
     {
         if (! $this->viewAny($user)) {
             return Response::deny();

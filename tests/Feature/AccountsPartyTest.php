@@ -11,7 +11,9 @@ function partyPayload(array $overrides = []): array
 
     return [
         'type' => 'client',
-        ...($isOwner ? [] : ['rl_number' => 'RL-'.trim($overrides['nid_passport'] ?? 'AB123456')]),
+        ...($isOwner
+            ? ['designation' => 'director']
+            : ['rl_number' => 'RL-'.trim($overrides['nid_passport'] ?? 'AB123456'), 'agency_owner_name' => '  Abdul   Karim ']),
         'name' => '  Md   Karim  ',
         'mobile' => '01711-000000',
         'address' => 'Mirpur 10, Dhaka',
@@ -122,6 +124,56 @@ describe('parties', function () {
         $this->getJson('/api/accounts/parties?q=rl 12')
             ->assertOk()
             ->assertJsonPath('data.*.id', [$id]);
+    });
+
+    it('requires a designation for new owners and refuses one for clients', function () {
+        Sanctum::actingAs(User::factory()->accounts()->create());
+
+        $this->postJson('/api/accounts/parties', partyPayload(['nid_passport' => 'N1', 'type' => 'owner', 'designation' => null]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('designation');
+        $this->postJson('/api/accounts/parties', partyPayload(['nid_passport' => 'N1', 'type' => 'owner', 'designation' => 'ceo']))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('designation');
+        $this->postJson('/api/accounts/parties', partyPayload(['nid_passport' => 'N2', 'designation' => 'director']))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('designation');
+
+        $id = $this->postJson('/api/accounts/parties', partyPayload(['nid_passport' => 'N3', 'type' => 'owner', 'designation' => 'managing_director']))
+            ->assertCreated()
+            ->assertJsonPath('data.designation', 'managing_director')
+            ->assertJsonPath('data.designation_label', 'Managing Director')
+            ->json('data.id');
+
+        $this->patchJson("/api/accounts/parties/{$id}", ['designation' => 'chairman'])
+            ->assertOk()
+            ->assertJsonPath('data.designation_label', 'Chairman');
+        $this->patchJson("/api/accounts/parties/{$id}", ['designation' => null])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('designation');
+    });
+
+    it('requires the agency owner name for clients and refuses it for owners', function () {
+        Sanctum::actingAs(User::factory()->accounts()->create());
+
+        $id = $this->postJson('/api/accounts/parties', partyPayload(['nid_passport' => 'N1']))
+            ->assertCreated()
+            ->assertJsonPath('data.agency_owner_name', 'Abdul Karim')
+            ->json('data.id');
+        $this->postJson('/api/accounts/parties', partyPayload(['agency_owner_name' => ' ', 'nid_passport' => '']))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors([
+                'agency_owner_name' => 'Enter the agency owner name.',
+                'nid_passport' => "Enter the agency owner's NID or passport number.",
+            ]);
+        $this->postJson('/api/accounts/parties', partyPayload(['nid_passport' => 'N3', 'type' => 'owner', 'agency_owner_name' => 'X']))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('agency_owner_name');
+
+        $this->patchJson("/api/accounts/parties/{$id}", ['agency_owner_name' => 'Rahim Uddin'])
+            ->assertOk()
+            ->assertJsonPath('data.agency_owner_name', 'Rahim Uddin');
+        $this->getJson('/api/accounts/parties?q=rahim')->assertJsonPath('data.*.id', [$id]);
     });
 
     it('never deletes a party or owner, for anyone', function (string $role) {

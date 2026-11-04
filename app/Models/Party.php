@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\ApprovalStatus;
 use App\Enums\BalanceType;
+use App\Enums\OwnerDesignation;
 use App\Enums\PartyTransactionType;
 use App\Enums\PartyType;
 use App\Support\Normalize;
@@ -22,7 +23,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * ledger. type, sequence, code, is_active and created_by are deliberately not
  * fillable: the code is assigned once on insert and never changes.
  */
-#[Fillable(['rl_number', 'name', 'mobile', 'address', 'nid_passport', 'tin_bin', 'opening_balance', 'opening_balance_type'])]
+#[Fillable(['rl_number', 'name', 'agency_owner_name', 'designation', 'mobile', 'address', 'nid_passport', 'tin_bin', 'opening_balance', 'opening_balance_type'])]
 class Party extends Model
 {
     /** @use HasFactory<PartyFactory> */
@@ -35,6 +36,7 @@ class Party extends Model
     {
         return [
             'type' => PartyType::class,
+            'designation' => OwnerDesignation::class,
             'sequence' => 'integer',
             'opening_balance' => 'decimal:2',
             'opening_balance_type' => BalanceType::class,

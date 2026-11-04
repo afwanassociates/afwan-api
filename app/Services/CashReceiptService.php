@@ -19,7 +19,7 @@ use App\Support\YearlyNumber;
  */
 class CashReceiptService
 {
-    public function __construct(private readonly CashBook $cashBook) {}
+    public function __construct(private readonly CashBook $cashBook, private readonly OwnerLoans $ownerLoans) {}
 
     /**
      * Record a receipt with the next number of its year (CR-2026-0001).
@@ -32,6 +32,7 @@ class CashReceiptService
 
         return $this->cashBook->guarded(function () use ($data, $user) {
             $receipt = new CashReceipt($this->attributes($data));
+            $this->checkLoanReturn($receipt);
             $receipt->receipt_no = YearlyNumber::assign($receipt, $data['date'], 'CR');
             $receipt->created_by = $user->id;
             $receipt->updated_by = $user->id;
@@ -56,6 +57,7 @@ class CashReceiptService
 
         return $this->cashBook->guarded(function () use ($receipt, $data, $user) {
             $receipt->fill($this->attributes($data));
+            $this->checkLoanReturn($receipt);
             $receipt->updated_by = $user->id;
             $receipt->status = ApprovalStatus::Pending;
             $receipt->save();
@@ -73,6 +75,16 @@ class CashReceiptService
     public function delete(CashReceipt $receipt): void
     {
         $receipt->delete();
+    }
+
+    /**
+     * An owner's loan return may not exceed what is outstanding on the loan it names.
+     */
+    private function checkLoanReturn(CashReceipt $receipt): void
+    {
+        if ($receipt->receipt_type === CashReceiptType::LoanReturn) {
+            $this->ownerLoans->assertSettleable($receipt->owner_loan_id, $receipt->party_id, (float) $receipt->amount, $receipt->id);
+        }
     }
 
     /**
@@ -102,6 +114,8 @@ class CashReceiptService
             'date' => $data['date'],
             'party_id' => $data['party_id'],
             'receipt_type' => $data['receipt_type'],
+            // A loan return names the owner loan it settles.
+            'owner_loan_id' => $data['receipt_type'] === CashReceiptType::LoanReturn->value ? $data['owner_loan_id'] : null,
             'business_type' => $business,
             'country_code' => $business === BusinessType::Recruitment->value ? $data['country_code'] : null,
             'amount' => $data['amount'],

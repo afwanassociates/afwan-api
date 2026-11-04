@@ -53,7 +53,7 @@ describe('cash payments', function () {
             ->assertJsonPath('data.payment_no', 'CP-2027-0001');
     });
 
-    it('writes a debit line in the payee ledger for a refund, loan repayment and drawing', function (string $partyType, string $paymentType) {
+    it('writes a debit line in the payee ledger for a refund', function (string $partyType, string $paymentType) {
         Sanctum::actingAs(User::factory()->accounts()->create());
         receiveCash(5000);
         $party = Party::factory()->state(['type' => $partyType])->create();
@@ -80,7 +80,6 @@ describe('cash payments', function () {
             ->assertJsonPath('lines.0.debit', 500);
     })->with([
         'party refund' => ['client', 'refund'],
-        'owner drawing' => ['owner', 'drawing'],
     ]);
 
     it('only allows the payment types of the payee', function () {
@@ -92,8 +91,11 @@ describe('cash payments', function () {
             ->assertUnprocessable()->assertJsonValidationErrors('payment_type');
         $this->postJson('/api/accounts/cash-payments', paymentPayload(['payee_type' => 'owner', 'party_id' => $owner->id, 'payment_type' => 'refund']))
             ->assertUnprocessable()->assertJsonValidationErrors('payment_type');
-        // Only owners lend money, so a party gets no loan repayment.
-        $this->postJson('/api/accounts/cash-payments', paymentPayload(['payee_type' => 'client', 'party_id' => $client->id, 'payment_type' => 'loan_repayment']))
+        // Owners do not draw money out of capital: a payment to an owner is a loan the company gives them.
+        $this->postJson('/api/accounts/cash-payments', paymentPayload(['payee_type' => 'owner', 'party_id' => $owner->id, 'payment_type' => 'drawing']))
+            ->assertUnprocessable()->assertJsonValidationErrors(['payment_type' => 'A payment to this payee can only be an owner loan.']);
+        // Only owners get loans from the company.
+        $this->postJson('/api/accounts/cash-payments', paymentPayload(['payee_type' => 'client', 'party_id' => $client->id, 'payment_type' => 'owner_loan']))
             ->assertUnprocessable()->assertJsonValidationErrors(['payment_type' => 'A payment to this payee can only be a refund.']);
         $this->postJson('/api/accounts/cash-payments', paymentPayload(['payment_type' => 'refund']))
             ->assertUnprocessable()->assertJsonValidationErrors('payment_type');
@@ -104,22 +106,6 @@ describe('cash payments', function () {
             ->assertUnprocessable()->assertJsonValidationErrors(['payee_name', 'purpose']);
         $this->postJson('/api/accounts/cash-payments', paymentPayload(['payment_method' => 'bank']))
             ->assertUnprocessable()->assertJsonValidationErrors(['bank_name', 'bank_branch', 'bank_account_name', 'bank_account_number']);
-    });
-
-    it('keeps an old party loan repayment editable, so it can be changed to a refund', function () {
-        Sanctum::actingAs(User::factory()->accounts()->create());
-        receiveCash(5000);
-        $party = Party::factory()->create();
-        // Saved as a party loan repayment before the rule.
-        $id = $this->postJson('/api/accounts/cash-payments', paymentPayload(['payee_type' => 'client', 'party_id' => $party->id, 'payment_type' => 'refund']))->json('data.id');
-        $old = CashPayment::query()->findOrFail($id);
-        $old->forceFill(['payment_type' => 'loan_repayment'])->save();
-
-        $this->putJson("/api/accounts/cash-payments/{$old->id}", paymentPayload(['payee_type' => 'client', 'party_id' => $party->id, 'payment_type' => 'loan_repayment', 'amount' => 300]))
-            ->assertOk();
-        $this->putJson("/api/accounts/cash-payments/{$old->id}", paymentPayload(['payee_type' => 'client', 'party_id' => $party->id, 'payment_type' => 'refund']))
-            ->assertOk()
-            ->assertJsonPath('data.payment_type', 'refund');
     });
 
     it('pays by mobile banking to any payee, leaving cash in hand alone', function (string $payeeType, string $paymentType) {
@@ -149,7 +135,6 @@ describe('cash payments', function () {
         $this->getJson('/api/accounts/cash-book?from=2026-10-10&to=2026-10-10')->assertJsonPath('days', []);
     })->with([
         'party refund' => ['client', 'refund'],
-        'owner drawing' => ['owner', 'drawing'],
         'other expense' => ['other', 'expense'],
     ]);
 
@@ -186,12 +171,12 @@ describe('cash payments', function () {
         $this->getJson('/api/accounts/cash-payments?q=2231')->assertJsonPath('meta.total', 1);
 
         // A party or owner payment keeps neither.
-        $owner = Party::factory()->owner()->create();
+        $client = Party::factory()->create();
         $this->postJson('/api/accounts/cash-payments', paymentPayload([
-            'payee_type' => 'owner', 'party_id' => $owner->id, 'payment_type' => 'drawing', 'bill_no' => 'X1',
+            'payee_type' => 'client', 'party_id' => $client->id, 'payment_type' => 'refund', 'bill_no' => 'X1',
         ]))
             ->assertCreated()
-            ->assertJsonPath('data.payment_type_label', 'Payment to owner')
+            ->assertJsonPath('data.payment_type_label', 'Refund')
             ->assertJsonPath('data.expense_category', null)
             ->assertJsonPath('data.bill_no', null);
     });
@@ -219,10 +204,10 @@ describe('cash payments', function () {
     it('moves the ledger line when a payment is edited, and drops it when it becomes an expense', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
         receiveCash(5000);
-        $party = Party::factory()->owner()->create();
+        $party = Party::factory()->create();
 
-        $id = $this->postJson('/api/accounts/cash-payments', paymentPayload(['payee_type' => 'owner', 'party_id' => $party->id, 'payment_type' => 'drawing']))->json('data.id');
-        $this->putJson("/api/accounts/cash-payments/{$id}", paymentPayload(['payee_type' => 'owner', 'party_id' => $party->id, 'payment_type' => 'drawing', 'amount' => 700, 'date' => '2026-10-12']))
+        $id = $this->postJson('/api/accounts/cash-payments', paymentPayload(['payee_type' => 'client', 'party_id' => $party->id, 'payment_type' => 'refund']))->json('data.id');
+        $this->putJson("/api/accounts/cash-payments/{$id}", paymentPayload(['payee_type' => 'client', 'party_id' => $party->id, 'payment_type' => 'refund', 'amount' => 700, 'date' => '2026-10-12']))
             ->assertOk()
             ->assertJsonPath('data.payment_no', 'CP-2026-0001');
         expect($party->transactions()->sole())->amount->toBe('700.00')->date->format('Y-m-d')->toBe('2026-10-12');
@@ -234,14 +219,14 @@ describe('cash payments', function () {
     it('deletes an approved payment only after an admin returns it, removing its ledger line', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
         receiveCash(5000);
-        $party = Party::factory()->owner()->create();
-        $id = $this->postJson('/api/accounts/cash-payments', paymentPayload(['payee_type' => 'owner', 'party_id' => $party->id, 'payment_type' => 'drawing']))->json('data.id');
+        $party = Party::factory()->create();
+        $id = $this->postJson('/api/accounts/cash-payments', paymentPayload(['payee_type' => 'client', 'party_id' => $party->id, 'payment_type' => 'refund']))->json('data.id');
         approveAllAccountsEntries();
 
         Sanctum::actingAs(User::factory()->accountsHead()->create());
         $this->deleteJson("/api/accounts/cash-payments/{$id}")->assertForbidden();
         Sanctum::actingAs(User::factory()->admin()->create());
-        $this->postJson("/api/accounts/approvals/cash-payments/{$id}/return", ['reason' => 'Wrong owner'])->assertOk();
+        $this->postJson("/api/accounts/approvals/cash-payments/{$id}/return", ['reason' => 'Wrong party'])->assertOk();
 
         // The accounts head deletes it.
         Sanctum::actingAs(User::factory()->accountsHead()->create());
@@ -252,17 +237,17 @@ describe('cash payments', function () {
     it('filters the list and totals every matching payment', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
         receiveCash(5000);
-        $owner = Party::factory()->owner()->create(['name' => 'Chairman']);
+        $client = Party::factory()->create(['name' => 'Karim Traders']);
 
         $this->postJson('/api/accounts/cash-payments', paymentPayload(['amount' => 100]));
-        $this->postJson('/api/accounts/cash-payments', paymentPayload(['amount' => 200, 'payee_type' => 'owner', 'party_id' => $owner->id, 'payment_type' => 'drawing', 'purpose' => null]));
+        $this->postJson('/api/accounts/cash-payments', paymentPayload(['amount' => 200, 'payee_type' => 'client', 'party_id' => $client->id, 'payment_type' => 'refund', 'purpose' => null]));
         $this->postJson('/api/accounts/cash-payments', paymentPayload(['amount' => 400, 'payment_method' => 'bank', 'bank_name' => 'DBBL', 'bank_branch' => 'Uttara', 'bank_account_name' => 'Afwan Associates', 'bank_account_number' => '1234567']));
         approveAllAccountsEntries();
 
         $this->getJson('/api/accounts/cash-payments')
             ->assertOk()
             ->assertJsonPath('meta.totals', ['count' => 3, 'amount' => 700, 'cash' => 300, 'bank' => 400, 'mobile_banking' => 0]);
-        $this->getJson('/api/accounts/cash-payments?q=chairman')->assertJsonPath('data.*.payment_type', ['drawing']);
+        $this->getJson('/api/accounts/cash-payments?q=karim')->assertJsonPath('data.*.payment_type', ['refund']);
         $this->getJson('/api/accounts/cash-payments?q=office rent')->assertJsonPath('meta.totals.count', 2);
         $this->getJson('/api/accounts/cash-payments?payee_type=other&payment_method=cash')->assertJsonPath('meta.totals.amount', 100);
     });

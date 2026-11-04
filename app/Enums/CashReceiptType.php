@@ -3,30 +3,32 @@
 namespace App\Enums;
 
 /**
- * What received money is: a normal cash receipt or a loan we must pay back.
+ * What received money is: cash (from a party, a payment against what they
+ * owe; from an owner, capital) or an owner returning money the company lent
+ * them (loan return, naming the loan).
  */
 enum CashReceiptType: string
 {
     case Cash = 'cash';
-    case Loan = 'loan';
+    case LoanReturn = 'loan_return';
 
     public function label(): string
     {
         return match ($this) {
             self::Cash => 'Cash',
-            self::Loan => 'Loan',
+            self::LoanReturn => 'Loan return',
         };
     }
 
     /**
      * The ledger line a receipt of this type writes for the party: cash from a
      * client is a payment against their receivable, cash from an owner is
-     * capital, and a loan from either is a loan.
+     * capital, and an owner's loan return settles their loan.
      */
     public function ledgerType(PartyType $party): PartyTransactionType
     {
         return match (true) {
-            $this === self::Loan => PartyTransactionType::Loan,
+            $this === self::LoanReturn => PartyTransactionType::LoanReturn,
             $party === PartyType::Owner => PartyTransactionType::Capital,
             default => PartyTransactionType::Payment,
         };

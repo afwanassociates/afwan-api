@@ -14,8 +14,9 @@ use Illuminate\Validation\Rule;
 
 /**
  * Record or edit a cash receipt (the whole form is sent both times).
- * "Received from" (party_type) picks a party or an owner (only owners
- * may lend: a loan from a party is refused); the chosen
+ * "Received from" (party_type) picks a party or an owner. An owner's money
+ * is capital, or the return of a loan the company gave them (naming the
+ * loan); the chosen
  * party must be of that type and active (when editing, the receipt's
  * current party stays valid even if deactivated since). A party's receipt
  * names its business (recruitment, land, solar, railway); recruitment also
@@ -65,17 +66,17 @@ class StoreCashReceiptRequest extends FormRequest
             'receipt_type' => [
                 'required',
                 Rule::in(CashReceiptType::values()),
-                // Only owners lend money. A party receipt saved as a loan before this
-                // rule may keep it while edited, so it can be changed to cash later.
+                // Only an owner returns a loan the company gave them.
                 function (string $attribute, mixed $value, \Closure $fail) {
-                    $receipt = $this->receipt();
-                    $keepsOldLoan = $receipt?->receipt_type === CashReceiptType::Loan
-                        && $receipt->party?->type->value === $this->input('party_type');
-                    if ($value === CashReceiptType::Loan->value && $this->input('party_type') !== PartyType::Owner->value && ! $keepsOldLoan) {
-                        $fail('Only a company owner can give a loan.');
+                    if ($value === CashReceiptType::LoanReturn->value && $this->input('party_type') !== PartyType::Owner->value) {
+                        $fail('Only a company owner returns a loan.');
                     }
                 },
             ],
+            // The loan a return settles (App\Services\OwnerLoans checks it is this owner's and outstanding).
+            'owner_loan_id' => $this->input('receipt_type') === CashReceiptType::LoanReturn->value
+                ? ['required', 'integer']
+                : ['nullable'],
             'business_type' => $isClient
                 ? ['required', Rule::in(BusinessType::values())]
                 : ['nullable'],
@@ -106,7 +107,8 @@ class StoreCashReceiptRequest extends FormRequest
             'party_type.required' => 'Choose whether the money is from a party or an owner.',
             'party_id.required' => 'Choose who the money is from.',
             'party_id.exists' => 'Choose an active '.($this->input('party_type') === PartyType::Owner->value ? 'owner' : 'party').'.',
-            'receipt_type.required' => 'Choose cash or loan.',
+            'receipt_type.required' => 'Choose what the money is.',
+            'owner_loan_id.required' => 'Choose the loan being returned.',
             'business_type.required' => 'Choose the business.',
             'business_type.in' => 'Choose the business.',
             'country_code.required' => 'Choose the country.',

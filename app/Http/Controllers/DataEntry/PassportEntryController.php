@@ -69,8 +69,8 @@ class PassportEntryController extends Controller
 
         $entries = PassportEntry::query()
             ->with($overview ? PassportOverviewResource::RELATIONS : PassportEntryResource::RELATIONS)
-            // Returned passports leave the working lists; All Passports still shows them.
-            ->when(! $overview, fn (Builder $query) => $query->notReturned())
+            // Returned passports leave every list, All Passports too: they have their own page.
+            ->notReturned()
             ->withCurrentMedical()
             // Unfit passports have their own list (medical_status=unfit) and are
             // left out by default; medical_status=all applies no medical filter.

@@ -11,6 +11,7 @@ use App\Models\Concerns\HasApproval;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
@@ -19,7 +20,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * purpose). Write through App\Services\CashPaymentService, which keeps the
  * ledger line in step and the cash in hand from going negative.
  */
-#[Fillable(['date', 'payee_type', 'party_id', 'payee_name', 'payment_type', 'loan_receipt_id', 'expense_category', 'purpose', 'bill_no', 'amount', 'payment_method', 'bank_name', 'bank_branch', 'bank_account_name', 'bank_account_number', 'mobile_provider', 'mobile_number', 'note'])]
+#[Fillable(['date', 'payee_type', 'party_id', 'payee_name', 'payment_type', 'expense_category', 'purpose', 'bill_no', 'amount', 'payment_method', 'bank_name', 'bank_branch', 'bank_account_name', 'bank_account_number', 'mobile_provider', 'mobile_number', 'note'])]
 class CashPayment extends Model
 {
     use HasApproval;
@@ -80,13 +81,23 @@ class CashPayment extends Model
     }
 
     /**
-     * The owner loan (a loan cash receipt) a loan repayment pays back.
+     * Money the owner returned on this owner loan (loan return receipts).
      *
-     * @return BelongsTo<CashReceipt, $this>
+     * @return HasMany<CashReceipt, $this>
      */
-    public function loanReceipt(): BelongsTo
+    public function loanReturns(): HasMany
     {
-        return $this->belongsTo(CashReceipt::class, 'loan_receipt_id');
+        return $this->hasMany(CashReceipt::class, 'owner_loan_id');
+    }
+
+    /**
+     * Company bills the owner paid with this owner loan.
+     *
+     * @return HasMany<OwnerLoanBill, $this>
+     */
+    public function loanBills(): HasMany
+    {
+        return $this->hasMany(OwnerLoanBill::class, 'owner_loan_id');
     }
 
     /**

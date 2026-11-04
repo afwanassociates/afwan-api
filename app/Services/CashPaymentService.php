@@ -18,7 +18,7 @@ use App\Support\YearlyNumber;
  */
 class CashPaymentService
 {
-    public function __construct(private readonly CashBook $cashBook, private readonly OwnerLoans $ownerLoans) {}
+    public function __construct(private readonly CashBook $cashBook) {}
 
     /**
      * Record a payment with the next number of its year (CP-2026-0001).
@@ -31,7 +31,6 @@ class CashPaymentService
 
         return $this->cashBook->guarded(function () use ($data, $user) {
             $payment = new CashPayment($this->attributes($data));
-            $this->checkLoan($payment);
             $payment->payment_no = YearlyNumber::assign($payment, $data['date'], 'CP');
             $payment->created_by = $user->id;
             $payment->updated_by = $user->id;
@@ -55,7 +54,6 @@ class CashPaymentService
 
         return $this->cashBook->guarded(function () use ($payment, $data, $user) {
             $payment->fill($this->attributes($data));
-            $this->checkLoan($payment);
             $payment->updated_by = $user->id;
             $payment->status = ApprovalStatus::Pending;
             $payment->save();
@@ -73,16 +71,6 @@ class CashPaymentService
     public function delete(CashPayment $payment): void
     {
         $payment->delete();
-    }
-
-    /**
-     * An owner loan repayment may not exceed what is still owed on its loan.
-     */
-    private function checkLoan(CashPayment $payment): void
-    {
-        if ($payment->loan_receipt_id !== null) {
-            $this->ownerLoans->assertRepayable($payment->loan_receipt_id, $payment->party_id, (float) $payment->amount, $payment->id);
-        }
     }
 
     /**
@@ -113,9 +101,6 @@ class CashPaymentService
             'party_id' => $isOther ? null : $data['party_id'],
             'payee_name' => $isOther ? $data['payee_name'] : null,
             'payment_type' => $data['payment_type'],
-            'loan_receipt_id' => $data['payee_type'] === PayeeType::Owner->value && $data['payment_type'] === CashPaymentType::LoanRepayment->value
-                ? $data['loan_receipt_id']
-                : null,
             // Category and bill number describe an expense (another payee) only.
             'expense_category' => $isOther ? $data['expense_category'] : null,
             'purpose' => $data['purpose'] ?? null,

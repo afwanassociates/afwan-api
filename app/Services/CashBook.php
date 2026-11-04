@@ -164,21 +164,38 @@ class CashBook
     }
 
     /**
-     * The cash book for a date range: the balance brought forward, then each
-     * day with its opening, lines (running balance), totals and closing.
+     * A book for a date range: the balance brought forward, then each day with
+     * its opening, lines (running balance), totals and closing. $book picks
+     * which money: cash in hand (the hand cash book, from the cash opening
+     * balance), the bank or mobile banking (each starting at zero, like their
+     * balances on the summary), or null for all three together (the all cash
+     * book: a deposit or withdrawal only moves money between them, so it is
+     * listed as a contra line that adds nothing in or out).
      *
      * @return array<string, mixed>
      */
-    public function report(?string $from, ?string $to): array
+    public function report(?string $from, ?string $to, ?PaymentMethod $book = PaymentMethod::Cash): array
     {
-        $opening = $this->openingCents() + ($from !== null ? array_sum($this->dailyNet(before: $from)) : 0);
+        $cashOpening = fn () => $this->openingCents() + ($from !== null ? array_sum($this->dailyNet(before: $from)) : 0);
+        $accountOpening = fn (PaymentMethod $account) => $from !== null ? $this->accountNetBefore($account, $from) : 0;
+        $opening = match ($book) {
+            PaymentMethod::Cash => $cashOpening(),
+            null => $cashOpening() + $accountOpening(PaymentMethod::Bank) + $accountOpening(PaymentMethod::MobileBanking),
+            default => $accountOpening($book),
+        };
 
         $balance = $opening;
         $totalIn = 0;
         $totalOut = 0;
         $days = [];
 
-        foreach ($this->lines($from, $to) as $line) {
+        $lines = match ($book) {
+            PaymentMethod::Cash => $this->lines($from, $to),
+            null => $this->allLines($from, $to),
+            default => $this->accountLines($book, $from, $to),
+        };
+
+        foreach ($lines as $line) {
             $date = $line['date'];
 
             if (! isset($days[$date])) {
@@ -201,6 +218,7 @@ class CashBook
         }
 
         return [
+            'book' => $book->value ?? 'all',
             'from' => $from,
             'to' => $to,
             'opening_balance' => self::money($opening),
@@ -307,6 +325,125 @@ class CashBook
                 $isWithdrawal ? self::cents($t->amount) : 0, $isWithdrawal ? 0 : self::cents($t->amount), null);
         }
 
+        return self::inBookOrder($lines);
+    }
+
+    /**
+     * Net movement (paisa) of the bank or mobile banking before the given day:
+     * approved receipts and cash put in, less approved payments and cash taken out.
+     */
+    private function accountNetBefore(PaymentMethod $account, string $before): int
+    {
+        $before = fn (string $table) => DB::table($table)
+            ->where('status', ApprovalStatus::Approved->value)
+            ->where('date', '<', $before);
+        $transfers = $before('cash_transfers')->where('channel', $account->value)
+            ->selectRaw('COALESCE(SUM(CASE WHEN direction = ? THEN amount ELSE -amount END), 0) as net', [TransferDirection::Deposit->value])
+            ->value('net');
+
+        return self::cents($before('cash_receipts')->where('payment_method', $account->value)->sum('amount'))
+            - self::cents($before('cash_payments')->where('payment_method', $account->value)->sum('amount'))
+            + self::cents($transfers);
+    }
+
+    /**
+     * Every bank (or mobile banking) entry in the range, in book order: receipts
+     * and cash deposited in; payments and cash withdrawn out.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function accountLines(PaymentMethod $account, ?string $from, ?string $to): array
+    {
+        $range = fn ($query) => $query
+            ->when($from, fn ($q) => $q->where('date', '>=', $from))
+            ->when($to, fn ($q) => $q->where('date', '<=', $to));
+
+        $lines = [];
+
+        foreach ($range(CashReceipt::query()->approved()->where('payment_method', $account->value)->with('party'))->get() as $r) {
+            $detail = implode(' · ', array_filter([$r->receipt_type->label(), self::accountOf($r), $r->note]));
+            $lines[] = $this->line($r, 'receipt', $r->receipt_no, 'Received from '.$r->party->name.' ('.$r->party->code.')',
+                $detail, self::cents($r->amount), 0, $r->party_id);
+        }
+
+        foreach ($range(CashPayment::query()->approved()->where('payment_method', $account->value)->with('party'))->get() as $p) {
+            $who = $p->party ? $p->party->name.' ('.$p->party->code.')' : $p->payee_name;
+            $detail = implode(' · ', array_filter([$p->summary(), self::accountOf($p), $p->note]));
+            $lines[] = $this->line($p, 'payment', $p->payment_no, 'Paid to '.$who, $detail, 0, self::cents($p->amount), $p->party_id);
+        }
+
+        foreach ($range(CashTransfer::query()->approved()->where('channel', $account->value))->get() as $t) {
+            $isDeposit = $t->direction === TransferDirection::Deposit;
+            $detail = implode(' · ', array_filter([self::accountOf($t), $t->note]));
+            $lines[] = $this->line($t, 'transfer', $t->transfer_no,
+                $isDeposit ? 'Deposited from cash in hand' : 'Withdrawn to cash in hand', $detail ?: null,
+                $isDeposit ? self::cents($t->amount) : 0, $isDeposit ? 0 : self::cents($t->amount), null);
+        }
+
+        return self::inBookOrder($lines);
+    }
+
+    /**
+     * Every entry in the range across cash in hand, bank and mobile banking, in
+     * book order, each with the money it went through ("via"). A deposit or
+     * withdrawal is a contra line: its amount is shown, but nothing comes in
+     * or goes out of the company.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function allLines(?string $from, ?string $to): array
+    {
+        $range = fn ($query) => $query
+            ->when($from, fn ($q) => $q->where('date', '>=', $from))
+            ->when($to, fn ($q) => $q->where('date', '<=', $to));
+
+        $lines = [];
+
+        foreach ($range(CashReceipt::query()->approved()->with('party'))->get() as $r) {
+            $detail = implode(' · ', array_filter([$r->receipt_type->label(), $r->payment_method === PaymentMethod::Cash ? null : self::accountOf($r), $r->note]));
+            $lines[] = [...$this->line($r, 'receipt', $r->receipt_no, 'Received from '.$r->party->name.' ('.$r->party->code.')',
+                $detail, self::cents($r->amount), 0, $r->party_id), 'via' => $r->payment_method->label()];
+        }
+
+        foreach ($range(CashPayment::query()->approved()->with('party'))->get() as $p) {
+            $who = $p->party ? $p->party->name.' ('.$p->party->code.')' : $p->payee_name;
+            $detail = implode(' · ', array_filter([$p->summary(), $p->payment_method === PaymentMethod::Cash ? null : self::accountOf($p), $p->note]));
+            $lines[] = [...$this->line($p, 'payment', $p->payment_no, 'Paid to '.$who, $detail, 0, self::cents($p->amount), $p->party_id),
+                'via' => $p->payment_method->label()];
+        }
+
+        foreach ($range(CashTransfer::query()->approved())->get() as $t) {
+            $isDeposit = $t->direction === TransferDirection::Deposit;
+            $account = $t->channel->label();
+            $detail = implode(' · ', array_filter(['Contra: ৳'.number_format((float) $t->amount, 2).' moved, total unchanged', self::accountOf($t), $t->note]));
+            $lines[] = [...$this->line($t, 'transfer', $t->transfer_no,
+                $isDeposit ? 'Deposited from cash in hand to '.strtolower($account) : 'Withdrawn from '.strtolower($account).' to cash in hand',
+                $detail, 0, 0, null), 'via' => $isDeposit ? 'Cash in hand → '.$account : $account.' → Cash in hand', 'contra' => self::money(self::cents($t->amount))];
+        }
+
+        return self::inBookOrder($lines);
+    }
+
+    /**
+     * Which bank account or mobile wallet an entry went through.
+     */
+    private static function accountOf(CashReceipt|CashPayment|CashTransfer $voucher): ?string
+    {
+        $channel = $voucher instanceof CashTransfer ? $voucher->channel : $voucher->payment_method;
+
+        $parts = $channel === PaymentMethod::MobileBanking
+            ? [$voucher->mobile_provider?->label(), $voucher->mobile_number]
+            : [$voucher->bank_name, $voucher->bank_branch];
+
+        return implode(', ', array_filter($parts)) ?: null;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $lines
+     * @return list<array<string, mixed>>
+     */
+    private static function inBookOrder(array $lines): array
+    {
         usort($lines, fn (array $a, array $b) => [$a['date'], $a['sort']] <=> [$b['date'], $b['sort']]);
 
         return array_map(function (array $line) {

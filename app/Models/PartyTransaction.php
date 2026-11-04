@@ -9,9 +9,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * One line of a party ledger. Lines with a cash_receipt_id or cash_payment_id
- * belong to that voucher and change only through it (App\Services\CashReceiptService,
- * App\Services\CashPaymentService).
+ * One line of a party ledger. Lines with a cash_receipt_id, cash_payment_id or
+ * owner_loan_bill_id belong to that voucher and change only through it
+ * (App\Services\CashReceiptService, App\Services\CashPaymentService,
+ * App\Services\OwnerLoans).
  */
 #[Fillable(['date', 'type', 'amount', 'note'])]
 class PartyTransaction extends Model
@@ -35,7 +36,7 @@ class PartyTransaction extends Model
      */
     public function isManual(): bool
     {
-        return $this->cash_receipt_id === null && $this->cash_payment_id === null;
+        return $this->cash_receipt_id === null && $this->cash_payment_id === null && $this->owner_loan_bill_id === null;
     }
 
     /**
@@ -60,6 +61,14 @@ class PartyTransaction extends Model
     public function cashPayment(): BelongsTo
     {
         return $this->belongsTo(CashPayment::class);
+    }
+
+    /**
+     * @return BelongsTo<OwnerLoanBill, $this>
+     */
+    public function ownerLoanBill(): BelongsTo
+    {
+        return $this->belongsTo(OwnerLoanBill::class);
     }
 
     /**

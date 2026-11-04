@@ -37,6 +37,7 @@ class PartyController extends Controller
                 $query->where('name', 'like', $pattern)
                     ->orWhere('code', 'like', $pattern)
                     ->orWhere('rl_number', 'like', $pattern)
+                    ->orWhere('agency_owner_name', 'like', $pattern)
                     ->orWhere('mobile', 'like', $pattern)
                     ->orWhere('nid_passport', 'like', $pattern);
             }))

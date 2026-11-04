@@ -5,6 +5,7 @@ use App\Http\Controllers\Accounts\CashBookController;
 use App\Http\Controllers\Accounts\CashPaymentController;
 use App\Http\Controllers\Accounts\CashReceiptController;
 use App\Http\Controllers\Accounts\CashTransferController;
+use App\Http\Controllers\Accounts\ExpenseController;
 use App\Http\Controllers\Accounts\OwnerLoanController;
 use App\Http\Controllers\Accounts\PartyController;
 use App\Http\Controllers\Accounts\PartyLedgerController;
@@ -255,9 +256,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/approvals', [ApprovalController::class, 'index'])->name('approvals.index');
         Route::get('/approvals/summary', [ApprovalController::class, 'summary'])->name('approvals.summary');
         Route::post('/approvals/{type}/{id}/approve', [ApprovalController::class, 'approve'])
-            ->where(['type' => 'cash-receipts|cash-payments|cash-transfers|party-transactions', 'id' => '[0-9]+'])->name('approvals.approve');
+            ->where(['type' => 'cash-receipts|cash-payments|cash-transfers|party-transactions|owner-loan-bills', 'id' => '[0-9]+'])->name('approvals.approve');
         Route::post('/approvals/{type}/{id}/return', [ApprovalController::class, 'sendBack'])
-            ->where(['type' => 'cash-receipts|cash-payments|cash-transfers|party-transactions', 'id' => '[0-9]+'])->name('approvals.return');
+            ->where(['type' => 'cash-receipts|cash-payments|cash-transfers|party-transactions|owner-loan-bills', 'id' => '[0-9]+'])->name('approvals.return');
+        // The copy of a bill an owner paid with a company loan (approvers need to see it too).
+        Route::get('/owner-loan-bills/{bill}/copy', [OwnerLoanController::class, 'billCopy'])->name('owner-loan-bills.copy');
     });
 
     // Parties and cash: the accounts team only (accounts and the accounts head).
@@ -284,8 +287,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('cash-payments', CashPaymentController::class);
         Route::apiResource('cash-transfers', CashTransferController::class);
         Route::get('/cash-book', [CashBookController::class, 'index'])->name('cash-book');
-        // Owner capital and loans (each loan open until fully repaid).
-        Route::get('/owner-loans', OwnerLoanController::class)->name('owner-loans');
+        // What the company spent: expense payments and approved owner loan bills (export=csv).
+        Route::get('/expenses', ExpenseController::class)->name('expenses');
+        // Loans the company gave owners (each open until the owner returns the money or shows
+        // bills paid with it), and the owners' capital. Bills carry a copy of the bill.
+        Route::get('/owner-loans', [OwnerLoanController::class, 'index'])->name('owner-loans');
+        Route::post('/owner-loans/{loan}/bills', [OwnerLoanController::class, 'storeBill'])->name('owner-loans.bills.store');
+        // POST (not PUT): a new copy may be uploaded with the edit (multipart).
+        Route::post('/owner-loan-bills/{bill}', [OwnerLoanController::class, 'updateBill'])->name('owner-loan-bills.update');
+        Route::delete('/owner-loan-bills/{bill}', [OwnerLoanController::class, 'destroyBill'])->name('owner-loan-bills.destroy');
         // The opening cash in hand (set by the accounts head) and today's balance.
         Route::get('/cash-settings', [CashBookController::class, 'show'])->name('cash-settings.show');
     });

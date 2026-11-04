@@ -112,7 +112,7 @@ describe('returning a passport', function () {
             ->toContain($passport->id);
     });
 
-    it('takes passports out of the Passport Entry List and the medical lists, but not All Passports', function () {
+    it('takes passports out of the Passport Entry List, the medical lists and All Passports', function () {
         $entered = PassportEntry::factory()->create();
         $pending = PassportEntry::factory()->withMedicalSlip('2026-04-20')->create();
         Sanctum::actingAs(User::factory()->operationHead()->create());
@@ -126,11 +126,12 @@ describe('returning a passport', function () {
             ->and($this->getJson('/api/data-entry/medical/queue')->json('data.*.id'))->not->toContain($pending->id)
             ->and($this->getJson('/api/data-entry/workflow/summary')->json('data.step2.pending'))->toBe(0);
 
-        $overview = collect($this->getJson('/api/reports/passports?view=overview&medical_status=all')->assertOk()->json('data'));
-
-        expect($overview->pluck('id')->all())->toContain($entered->id, $pending->id)
-            ->and($overview->firstWhere('id', $entered->id)['returned']['receiver_name'])->toBe('Rahim Uddin')
-            ->and($overview->firstWhere('id', $entered->id)['latest_status']['status'])->toBe('returned');
+        // Only the Returned Passports page lists them.
+        expect($this->getJson('/api/reports/passports?view=overview&medical_status=all')->assertOk()->json('data.*.id'))
+            ->not->toContain($entered->id)
+            ->not->toContain($pending->id)
+            ->and($this->getJson('/api/reports/returned-passports')->assertOk()->json('data.*.passport.id'))
+            ->toContain($entered->id, $pending->id);
     });
 
     it('is for the operations head only', function (string $role) {

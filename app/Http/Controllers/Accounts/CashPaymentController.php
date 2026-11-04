@@ -68,7 +68,7 @@ class CashPaymentController extends Controller
             ->first();
 
         $payments = $query
-            ->with(['party', 'loanReceipt:id,receipt_no', ...self::PEOPLE])
+            ->with(['party', ...self::PEOPLE])
             ->orderByDesc('date')
             ->orderByDesc('id')
             ->paginate($request->integer('per_page', 15))
@@ -92,7 +92,7 @@ class CashPaymentController extends Controller
     {
         Gate::authorize('view', $cashPayment);
 
-        return new CashPaymentResource($cashPayment->load(['party', 'loanReceipt:id,receipt_no', ...self::PEOPLE]));
+        return new CashPaymentResource($cashPayment->load(['party', ...self::PEOPLE]));
     }
 
     public function store(StoreCashPaymentRequest $request): CashPaymentResource
@@ -101,7 +101,7 @@ class CashPaymentController extends Controller
 
         $payment = $this->payments->create($request->validated(), $request->user());
 
-        return new CashPaymentResource($payment->load(['party', 'loanReceipt:id,receipt_no', ...self::PEOPLE]));
+        return new CashPaymentResource($payment->load(['party', ...self::PEOPLE]));
     }
 
     public function update(StoreCashPaymentRequest $request, CashPayment $cashPayment): CashPaymentResource
@@ -110,7 +110,7 @@ class CashPaymentController extends Controller
 
         $payment = $this->payments->update($cashPayment, $request->validated(), $request->user());
 
-        return new CashPaymentResource($payment->load(['party', 'loanReceipt:id,receipt_no', ...self::PEOPLE]));
+        return new CashPaymentResource($payment->load(['party', ...self::PEOPLE]));
     }
 
     public function destroy(CashPayment $cashPayment): Response

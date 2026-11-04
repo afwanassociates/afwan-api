@@ -46,8 +46,8 @@ class DataReset
         ],
         'accounts' => [
             'label' => 'Accounts',
-            'description' => 'Parties and owners, cash receipts, payments and transfers, ledgers, approvals and the cash opening balance.',
-            'tables' => ['party_transactions', 'cash_receipts', 'cash_payments', 'cash_transfers', 'parties'],
+            'description' => 'Parties and owners, cash receipts, payments and transfers, owner loans and their bill copies, ledgers, approvals and the cash opening balance.',
+            'tables' => ['party_transactions', 'owner_loan_bills', 'cash_receipts', 'cash_payments', 'cash_transfers', 'parties'],
         ],
     ];
 
