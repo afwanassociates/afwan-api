@@ -1,0 +1,14 @@
+# Hostinger serves this folder as the website root, but Laravel's front door is public/.
+# Send every request into public/ (public/.htaccess then hands it to index.php), so /api/...
+# works and nothing outside public/ (.env, app/, vendor/, storage/) can ever be downloaded.
+# This file is part of the repo so every deploy brings it back.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_URI} !^/public/
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
+
+# Without mod_rewrite, refuse everything rather than expose the project files.
+<IfModule !mod_rewrite.c>
+    Require all denied
+</IfModule>
