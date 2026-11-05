@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\PartyKind;
+use App\Models\CashReceipt;
 use App\Models\Party;
 use App\Models\PassportEntry;
 use App\Models\User;
@@ -68,16 +69,53 @@ describe('reference management', function () {
         $this->getJson('/api/admin/references?is_active=1')->assertJsonPath('data.*.id', [$busy->id]);
     });
 
-    it('never deletes a reference: deactivating works instead', function () {
-        $reference = Party::factory()->create();
+    it('deletes a reference that has no passports and nothing in accounts', function () {
+        $unused = Party::factory()->person()->create();
         Sanctum::actingAs(User::factory()->operationHead()->create());
 
-        $this->deleteJson("/api/admin/references/{$reference->id}")->assertMethodNotAllowed();
+        $this->getJson('/api/admin/references')->assertJsonPath('data.0.can_delete', true);
+        $this->deleteJson("/api/admin/references/{$unused->id}")->assertNoContent();
+        expect(Party::find($unused->id))->toBeNull();
+    });
+
+    it('refuses to delete a reference with passports, deleted ones included, and offers to deactivate', function () {
+        $reference = Party::factory()->create();
+        PassportEntry::factory()->create(['reference_id' => $reference->id])->delete();
+        Sanctum::actingAs(User::factory()->operationHead()->create());
+
+        $this->getJson('/api/admin/references')
+            ->assertJsonPath('data.0.passports_count', 0)
+            ->assertJsonPath('data.0.can_delete', false);
+        $this->deleteJson("/api/admin/references/{$reference->id}")
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'reference_has_passports');
         expect(Party::find($reference->id))->not->toBeNull();
 
         $this->patchJson("/api/admin/references/{$reference->id}", ['is_active' => false])
             ->assertOk()
             ->assertJsonPath('data.is_active', false);
+    });
+
+    it('refuses to delete a reference with records in accounts', function () {
+        $withReceipt = Party::factory()->create(['name' => 'A With Receipt']);
+        CashReceipt::factory()->create(['party_id' => $withReceipt->id]);
+        $withOpening = Party::factory()->create(['name' => 'B With Opening', 'opening_balance' => 500]);
+        Sanctum::actingAs(User::factory()->operationHead()->create());
+
+        $this->getJson('/api/admin/references')->assertJsonPath('data.*.can_delete', [false, false]);
+        foreach ([$withReceipt, $withOpening] as $party) {
+            $this->deleteJson("/api/admin/references/{$party->id}")
+                ->assertUnprocessable()
+                ->assertJsonPath('code', 'reference_has_accounts');
+        }
+        expect(Party::count())->toBe(2);
+    });
+
+    it('never deletes an owner from the references page', function () {
+        $owner = Party::factory()->owner()->create();
+        Sanctum::actingAs(User::factory()->operationHead()->create());
+
+        $this->deleteJson("/api/admin/references/{$owner->id}")->assertForbidden();
     });
 
     it('rejects a duplicate name of the same kind', function () {
@@ -96,6 +134,7 @@ describe('reference management', function () {
         $this->getJson('/api/admin/references')->assertForbidden();
         $this->postJson('/api/admin/references', ['type' => 'person', 'name' => 'X', 'phone' => '01711000000'])->assertForbidden();
         $this->patchJson("/api/admin/references/{$reference->id}", ['is_active' => false])->assertForbidden();
+        $this->deleteJson("/api/admin/references/{$reference->id}")->assertForbidden();
     })->with(['dataEntry', 'accounts', 'accountsHead', 'admin', 'superAdmin']);
 
     it('rejects unauthenticated requests', function () {

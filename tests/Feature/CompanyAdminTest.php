@@ -49,7 +49,14 @@ describe('company admin CRUD', function () {
     it('blocks deleting a company with passports, deleted passports included', function () {
         $company = Company::factory()->create();
         PassportEntry::factory()->create(['company_id' => $company->id])->delete();
+        $unused = Company::factory()->create(['name' => 'Zz Unused']);
         Sanctum::actingAs(User::factory()->operationHead()->create());
+
+        // The list says which ones may be deleted (the page shows Delete only for those).
+        $this->getJson('/api/admin/companies?q='.urlencode($company->name))
+            ->assertJsonPath('data.0.passports_count', 0)
+            ->assertJsonPath('data.0.can_delete', false);
+        $this->getJson('/api/admin/companies?q=zz unused')->assertJsonPath('data.0.can_delete', true);
 
         $this->deleteJson("/api/admin/companies/{$company->id}")
             ->assertUnprocessable()

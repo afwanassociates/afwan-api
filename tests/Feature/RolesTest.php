@@ -29,6 +29,7 @@ describe('role hierarchy', function () {
         $this->getJson('/api/reports/passports')->assertOk();
         $this->getJson('/api/data-entry/passports')->assertForbidden();
         $this->getJson('/api/admin/companies')->assertForbidden();
+        $this->getJson('/api/admin/references')->assertForbidden();
         $this->getJson('/api/accounts/parties')->assertOk();
     });
 

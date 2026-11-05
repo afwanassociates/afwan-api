@@ -8,8 +8,8 @@ use App\Models\User;
 
 /**
  * The passport team searches and creates company records; only the operations
- * head manages them (the full list, edit, deactivate, delete). Everyone else
- * with reports reads the company report.
+ * head manages them (the full list, edit, deactivate, delete an unused one).
+ * Everyone else with reports reads the company report.
  */
 class CompanyPolicy
 {

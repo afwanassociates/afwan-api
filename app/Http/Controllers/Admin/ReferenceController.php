@@ -10,15 +10,18 @@ use App\Http\Requests\DataEntry\UpdateReferenceRequest;
 use App\Http\Resources\ReferenceResource;
 use App\Models\Party;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 /**
  * Reference management for the operations head: client parties (agencies and
  * persons), the same records the accounts team keeps on the Party / Owner
- * page. Nobody deletes a party: deactivate it instead. The passport team keeps
- * the search dropdown and Quick Add (DataEntry\ReferenceController).
+ * page. Only a reference with no passports and nothing in accounts can be
+ * deleted; otherwise deactivate it. The passport team keeps the search
+ * dropdown and Quick Add (DataEntry\ReferenceController).
  */
 class ReferenceController extends Controller
 {
@@ -34,6 +37,7 @@ class ReferenceController extends Controller
         $references = Party::query()
             ->clients()
             ->withCount('passportEntries')
+            ->withDeletable()
             ->when($search !== '', fn (Builder $query) => $query->referenceSearch($search))
             ->when($request->validated('type'), fn (Builder $query, string $type) => $query->where('kind', $type))
             ->when($request->has('is_active'), fn (Builder $query) => $query->where('is_active', $request->boolean('is_active')))
@@ -57,7 +61,7 @@ class ReferenceController extends Controller
         $reference->created_by = $request->user()->id;
         DB::transaction(fn () => $reference->save());
 
-        return new ReferenceResource($reference->loadCount('passportEntries'));
+        return new ReferenceResource($this->withCounts($reference));
     }
 
     /**
@@ -75,6 +79,38 @@ class ReferenceController extends Controller
 
         $reference->save();
 
-        return new ReferenceResource($reference->loadCount('passportEntries'));
+        return new ReferenceResource($this->withCounts($reference));
+    }
+
+    /**
+     * Delete a reference no passport has ever named (deleted ones included)
+     * and that has nothing in accounts. Any other one is deactivated instead.
+     */
+    public function destroy(Party $reference): Response|JsonResponse
+    {
+        Gate::authorize('deleteReference', $reference);
+
+        if (! $reference->canBeDeleted()) {
+            $hasPassports = $reference->passportEntries()->withTrashed()->exists();
+
+            return response()->json([
+                'message' => $hasPassports
+                    ? 'This reference has passports, so it cannot be deleted. Deactivate it instead.'
+                    : 'This party has records in accounts, so it cannot be deleted. Deactivate it instead.',
+                'code' => $hasPassports ? 'reference_has_passports' : 'reference_has_accounts',
+            ], 422);
+        }
+
+        $reference->delete();
+
+        return response()->noContent();
+    }
+
+    /**
+     * The passport count and the delete check, as the list shows them.
+     */
+    private function withCounts(Party $reference): Party
+    {
+        return $reference->loadCount('passportEntries')->loadExists(Party::deleteBlockers());
     }
 }

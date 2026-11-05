@@ -10,7 +10,9 @@ use App\Http\Resources\PartyResource;
 use App\Models\Party;
 use App\Support\Like;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -30,6 +32,7 @@ class PartyController extends Controller
 
         $parties = Party::query()
             ->withTotals()
+            ->withDeletable()
             ->when($request->validated('type'), fn (Builder $query, string $type) => $query->where('type', $type))
             ->when($request->validated('kind'), fn (Builder $query, string $kind) => $query->where('kind', $kind))
             ->when($request->has('is_active'), fn (Builder $query) => $query->where('is_active', $request->boolean('is_active')))
@@ -95,9 +98,33 @@ class PartyController extends Controller
         return $this->resource($party);
     }
 
+    /**
+     * Delete a party or owner no passport has ever named and that has nothing
+     * in accounts (the accounts head only). Any other one is deactivated.
+     */
+    public function destroy(Party $party): Response|JsonResponse
+    {
+        Gate::authorize('delete', $party);
+
+        if (! $party->canBeDeleted()) {
+            $hasPassports = $party->passportEntries()->withTrashed()->exists();
+
+            return response()->json([
+                'message' => $hasPassports
+                    ? 'This party has passports, so it cannot be deleted. Deactivate it instead.'
+                    : 'This party has records in accounts, so it cannot be deleted. Deactivate it instead.',
+                'code' => $hasPassports ? 'party_has_passports' : 'party_has_accounts',
+            ], 422);
+        }
+
+        $party->delete();
+
+        return response()->noContent();
+    }
+
     private function resource(Party $party): PartyResource
     {
-        $fresh = Party::query()->withTotals()->findOrFail($party->id);
+        $fresh = Party::query()->withTotals()->withDeletable()->findOrFail($party->id);
         // Keep the 201 status of a newly created party.
         $fresh->wasRecentlyCreated = $party->wasRecentlyCreated;
 

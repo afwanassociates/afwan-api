@@ -46,9 +46,10 @@ class CompanyReport
     }
 
     /**
-     * Companies with their counts, filtered and sorted. `company_id` keeps one
-     * company; `reference_id` counts only that reference's passports and keeps
-     * only companies that have some (the balance still uses every passport).
+     * Companies that have passports (deleted ones left out), with their
+     * counts, filtered and sorted. `company_id` keeps one company;
+     * `reference_id` counts only that reference's passports and keeps only
+     * companies that have some (the balance still uses every passport).
      *
      * @param  array{search?: string|null, country_code?: string|null, company_id?: int|string|null, reference_id?: int|string|null, sort?: string|null}  $filters
      * @return Builder<Company>
@@ -63,12 +64,12 @@ class CompanyReport
 
         $counts = array_map(fn (string $column) => "coalesce(stats.{$column}, 0) as {$column}", $this->countColumns());
 
+        // Inner joins: companies without (matching) passports drop out.
         if ($referenceId === null) {
             $query = Company::query()
-                ->leftJoinSub($this->passportCounts('company_id'), 'stats', 'stats.company_id', '=', 'companies.id');
+                ->joinSub($this->passportCounts('company_id'), 'stats', 'stats.company_id', '=', 'companies.id');
             $allTotal = 'stats.total';
         } else {
-            // Inner join: companies without passports from this reference drop out.
             $query = Company::query()
                 ->joinSub($this->passportCounts('company_id', $referenceId), 'stats', 'stats.company_id', '=', 'companies.id')
                 ->leftJoinSub(

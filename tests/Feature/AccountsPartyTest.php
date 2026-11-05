@@ -1,6 +1,8 @@
 <?php
 
+use App\Models\CashReceipt;
 use App\Models\Party;
+use App\Models\PassportEntry;
 use App\Models\User;
 use Laravel\Sanctum\Sanctum;
 
@@ -216,15 +218,44 @@ describe('parties', function () {
             ->assertJsonPath('data.kind', 'agency');
     });
 
-    it('never deletes a party or owner, for anyone', function (string $role) {
+    it('lets the accounts head delete an unused party or owner', function () {
         $party = Party::factory()->create();
         $owner = Party::factory()->owner()->create();
+        Sanctum::actingAs(User::factory()->accountsHead()->create());
+
+        $this->getJson('/api/accounts/parties?type=client')->assertJsonPath('data.0.can_delete', true);
+        $this->deleteJson("/api/accounts/parties/{$party->id}")->assertNoContent();
+        $this->deleteJson("/api/accounts/parties/{$owner->id}")->assertNoContent();
+        expect(Party::count())->toBe(0);
+    });
+
+    it('refuses to delete a party with passports or records in accounts', function () {
+        $withPassport = Party::factory()->create();
+        PassportEntry::factory()->create(['reference_id' => $withPassport->id])->delete();
+        $withReceipt = Party::factory()->owner()->create();
+        CashReceipt::factory()->create(['party_id' => $withReceipt->id]);
+        $withOpening = Party::factory()->create(['opening_balance' => 100]);
+        Sanctum::actingAs(User::factory()->accountsHead()->create());
+
+        $this->deleteJson("/api/accounts/parties/{$withPassport->id}")
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'party_has_passports');
+        foreach ([$withReceipt, $withOpening] as $party) {
+            $this->deleteJson("/api/accounts/parties/{$party->id}")
+                ->assertUnprocessable()
+                ->assertJsonPath('code', 'party_has_accounts');
+        }
+        $this->getJson("/api/accounts/parties/{$withOpening->id}")->assertJsonPath('data.can_delete', false);
+        expect(Party::count())->toBe(3);
+    });
+
+    it('lets nobody else delete a party or owner', function (string $role) {
+        $party = Party::factory()->create();
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
-        $this->deleteJson("/api/accounts/parties/{$party->id}")->assertMethodNotAllowed();
-        $this->deleteJson("/api/accounts/parties/{$owner->id}")->assertMethodNotAllowed();
-        expect(Party::count())->toBe(2);
-    })->with(['accounts', 'accountsHead', 'admin', 'superAdmin']);
+        $this->deleteJson("/api/accounts/parties/{$party->id}")->assertForbidden();
+        expect(Party::count())->toBe(1);
+    })->with(['accounts', 'admin', 'superAdmin', 'dataEntry', 'operationHead']);
 
     it('keeps parties and cash from admins: they only approve', function (string $role) {
         $party = Party::factory()->create();

@@ -144,6 +144,16 @@ enum UserRole: string
     }
 
     /**
+     * Roles that delete an unused party or owner on the Party / Owner page.
+     *
+     * @return list<UserRole>
+     */
+    public static function partyDeleters(): array
+    {
+        return [self::AccountsHead];
+    }
+
+    /**
      * Roles that work in accounts: parties, cash, ledgers. Admins only approve
      * (see approvers()); they have no parties or cash.
      *

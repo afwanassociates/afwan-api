@@ -60,7 +60,7 @@ function companyPassport(Company $company, string $state): PassportEntry
 
 /**
  * Three companies: A (quota 10) with passports at every point, B (no quota)
- * with one pending passport, C (quota 3) with none.
+ * with one pending passport, C (quota 3) with none (left out of the report).
  *
  * @return array{a: Company, b: Company, c: Company}
  */
@@ -138,7 +138,8 @@ describe('company report', function () {
 
         $response = $this->getJson('/api/reports/companies')->assertOk();
 
-        expect($response->json('data.*.name'))->toBe(['Alpha Builders', 'Beta Foods', 'Gamma Care'])
+        // Gamma Care has no passports, so it is not listed.
+        expect($response->json('data.*.name'))->toBe(['Alpha Builders', 'Beta Foods'])
             ->and($response->json('data.0'))->toBe([
                 'id' => $a->id,
                 'name' => 'Alpha Builders',
@@ -160,11 +161,10 @@ describe('company report', function () {
                 'balance' => 2,
             ])
             ->and($response->json('data.1'))->toMatchArray(['total' => 1, 'medical_pending' => 1, 'in_process' => 1, 'quota' => null, 'balance' => null])
-            ->and($response->json('data.2'))->toMatchArray(['total' => 0, 'medical_fit' => 0, 'quota' => 3, 'balance' => 3])
             ->and($response->json('totals'))->toBe([
-                'quota' => 13, 'total' => 9, 'medical_fit' => 5, 'medical_unfit' => 2, 'medical_pending' => 2, 'not_started' => 0,
+                'quota' => 10, 'total' => 9, 'medical_fit' => 5, 'medical_unfit' => 2, 'medical_pending' => 2, 'not_started' => 0,
                 'calling_done' => 3, 'visa_done' => 2, 'bmet_done' => 2, 'flight_done' => 1, 'in_process' => 6, 'returned' => 0,
-                'balance' => 5,
+                'balance' => 2,
             ]);
     });
 
@@ -173,12 +173,13 @@ describe('company report', function () {
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         expect($this->getJson('/api/reports/companies?search=alpha')->json('data.*.id'))->toBe([$a->id])
-            ->and($this->getJson('/api/reports/companies?country_code=my')->json('data.*.id'))->toBe([$a->id, $c->id])
+            ->and($this->getJson('/api/reports/companies?country_code=my')->json('data.*.id'))->toBe([$a->id])
             ->and($this->getJson('/api/reports/companies?country_code=MY')->json('totals.total'))->toBe(8)
-            ->and($this->getJson('/api/reports/companies?sort=-total')->json('data.*.id'))->toBe([$a->id, $b->id, $c->id])
-            ->and($this->getJson('/api/reports/companies?sort=total')->json('data.*.id'))->toBe([$c->id, $b->id, $a->id])
-            ->and($this->getJson('/api/reports/companies?sort=-balance')->json('data.*.id'))->toBe([$c->id, $a->id, $b->id])
-            ->and($this->getJson('/api/reports/companies?sort=-name&per_page=2')->json('data.*.id'))->toBe([$c->id, $b->id]);
+            ->and($this->getJson('/api/reports/companies?sort=-total')->json('data.*.id'))->toBe([$a->id, $b->id])
+            ->and($this->getJson('/api/reports/companies?sort=total')->json('data.*.id'))->toBe([$b->id, $a->id])
+            ->and($this->getJson('/api/reports/companies?sort=-balance')->json('data.*.id'))->toBe([$a->id, $b->id])
+            ->and($this->getJson('/api/reports/companies?sort=-name&per_page=1')->json('data.*.id'))->toBe([$b->id])
+            ->and($this->getJson('/api/reports/companies?search=gamma')->json('data'))->toBe([]);
 
         $this->getJson('/api/reports/companies?sort=bogus')->assertUnprocessable()->assertJsonValidationErrors('sort');
         $this->getJson('/api/reports/companies?export=pdf')->assertUnprocessable()->assertJsonValidationErrors('export');
@@ -215,10 +216,10 @@ describe('company report', function () {
             // 1 May 2026 in Dhaka (still 30 April in UTC).
             ->and($response->headers->get('Content-Disposition'))->toContain('company-report-01-05-2026.csv')
             ->and($rows[0])->toBe(['ID', 'Company', 'Country', 'Quota', 'Total', 'Medical fit', 'Medical unfit', 'Medical pending', 'Not started', 'Calling done', 'Visa done', 'Bmet done', 'Flight done', 'In process', 'Returned', 'Balance'])
-            ->and($rows)->toHaveCount(5)
+            ->and($rows)->toHaveCount(4)
             ->and($rows[1])->toBe([(string) $a->id, '\'=HYPERLINK("x")', 'MY', '10', '8', '5', '2', '1', '0', '3', '2', '2', '1', '5', '0', '2'])
             ->and($rows[2][15])->toBe('')
-            ->and($rows[4])->toBe(['Total', '', '', '13', '9', '5', '2', '2', '0', '3', '2', '2', '1', '6', '0', '5']);
+            ->and($rows[3])->toBe(['Total', '', '', '10', '9', '5', '2', '2', '0', '3', '2', '2', '1', '6', '0', '2']);
     });
 });
 

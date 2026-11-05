@@ -36,9 +36,10 @@ class ReferenceReport
     }
 
     /**
-     * References with their counts, filtered and sorted. `reference_id` keeps
-     * one reference; `company_id` counts only that company's passports and
-     * keeps only references that have some.
+     * References that have passports (deleted ones left out), with their
+     * counts, filtered and sorted. `reference_id` keeps one reference;
+     * `company_id` counts only that company's passports and keeps only
+     * references that have some.
      *
      * @param  array{search?: string|null, type?: string|null, reference_id?: int|string|null, company_id?: int|string|null, sort?: string|null}  $filters
      * @return Builder<Party>
@@ -56,12 +57,8 @@ class ReferenceReport
 
         // References are client parties (agencies and persons).
         return Party::query()
-            // Inner join with a company filter: references without its passports drop out.
-            ->when(
-                $companyId === null,
-                fn (Builder $query) => $query->leftJoinSub($stats, 'stats', 'stats.reference_id', '=', 'parties.id'),
-                fn (Builder $query) => $query->joinSub($stats, 'stats', 'stats.reference_id', '=', 'parties.id'),
-            )
+            // Inner join: references without (that company's) passports drop out.
+            ->joinSub($stats, 'stats', 'stats.reference_id', '=', 'parties.id')
             ->where('parties.type', PartyType::Client->value)
             ->select(['parties.id', 'parties.code', 'parties.name', 'parties.kind', 'parties.mobile', 'parties.rl_number', 'parties.is_active'])
             ->selectRaw(implode(', ', $counts))

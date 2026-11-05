@@ -33,6 +33,7 @@ class CompanyController extends Controller
         $companies = Company::query()
             ->with('country')
             ->withCount('passportEntries')
+            ->withDeletable()
             ->when($search !== '', fn (Builder $query) => $query->where('name', 'like', Like::contains($search)))
             ->when($request->validated('country_code'), fn (Builder $query, string $code) => $query->where('country_code', $code))
             ->when($request->has('is_active'), fn (Builder $query) => $query->where('is_active', $request->boolean('is_active')))
@@ -50,7 +51,7 @@ class CompanyController extends Controller
     {
         Gate::authorize('manage', Company::class);
 
-        return new CompanyResource($company->load('country')->loadCount('passportEntries'));
+        return new CompanyResource($company->load('country')->loadCount('passportEntries')->loadExists(['passportEntries as has_any_passports' => fn (Builder $query) => $query->withTrashed()]));
     }
 
     /**
@@ -65,7 +66,7 @@ class CompanyController extends Controller
         $company->created_by = $request->user()->id;
         $company->save();
 
-        return new CompanyResource($company->load('country')->loadCount('passportEntries'));
+        return new CompanyResource($company->load('country')->loadCount('passportEntries')->loadExists(['passportEntries as has_any_passports' => fn (Builder $query) => $query->withTrashed()]));
     }
 
     /**
@@ -83,7 +84,7 @@ class CompanyController extends Controller
 
         $company->save();
 
-        return new CompanyResource($company->load('country')->loadCount('passportEntries'));
+        return new CompanyResource($company->load('country')->loadCount('passportEntries')->loadExists(['passportEntries as has_any_passports' => fn (Builder $query) => $query->withTrashed()]));
     }
 
     /**
@@ -94,7 +95,7 @@ class CompanyController extends Controller
     {
         Gate::authorize('delete', $company);
 
-        if ($company->passportEntries()->withTrashed()->exists()) {
+        if (! $company->canBeDeleted()) {
             return response()->json([
                 'message' => 'This company has passports, so it cannot be deleted. Deactivate it instead.',
                 'code' => 'company_has_passports',

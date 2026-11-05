@@ -144,6 +144,60 @@ class Party extends Model
     }
 
     /**
+     * Add the has_* flags canBeDeleted() reads: passports (deleted ones
+     * included), cash receipts, cash payments and ledger lines.
+     *
+     * @param  Builder<Party>  $query
+     */
+    #[Scope]
+    protected function withDeletable(Builder $query): void
+    {
+        $query->withExists(self::deleteBlockers());
+    }
+
+    /**
+     * The relations that keep a party from being deleted, as has_* flags.
+     *
+     * @return array<string, \Closure>
+     */
+    public static function deleteBlockers(): array
+    {
+        return [
+            'passportEntries as has_any_passports' => fn (Builder $query) => $query->withTrashed(),
+            'cashReceipts as has_cash_receipts' => fn (Builder $query) => $query,
+            'cashPayments as has_cash_payments' => fn (Builder $query) => $query,
+            'transactions as has_transactions' => fn (Builder $query) => $query,
+        ];
+    }
+
+    /**
+     * Only a party or owner that no passport has ever named (deleted ones
+     * included) and that has nothing in accounts (no receipts, payments,
+     * ledger lines or opening balance; owner loans are receipts) may be deleted.
+     */
+    public function canBeDeleted(): bool
+    {
+        if ((float) $this->opening_balance !== 0.0) {
+            return false;
+        }
+
+        foreach (self::deleteBlockers() as $relation => $constraint) {
+            [$name, $flag] = explode(' as ', $relation);
+            if (array_key_exists($flag, $this->attributes)) {
+                $exists = (bool) $this->attributes[$flag];
+            } else {
+                $exists = $constraint($this->{$name}()->getQuery())->exists();
+            }
+
+            if ($exists) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * Add the ledger totals of approved lines per line type as <type>_total
      * columns (receivable_total, payment_total, …).
      *

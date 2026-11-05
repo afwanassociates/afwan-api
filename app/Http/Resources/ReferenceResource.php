@@ -32,6 +32,11 @@ class ReferenceResource extends JsonResource
             'notes' => $this->notes,
             'is_active' => $this->is_active,
             'passports_count' => $this->whenCounted('passportEntries'),
+            // Management list only (withDeletable): no passports and nothing in accounts.
+            'can_delete' => $this->when(
+                array_key_exists('has_any_passports', $this->resource->getAttributes()),
+                fn () => $this->resource->canBeDeleted(),
+            ),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

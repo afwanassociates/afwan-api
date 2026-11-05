@@ -43,6 +43,12 @@ class PartyResource extends JsonResource
             'opening_balance_type' => $this->opening_balance_type->value,
             'is_active' => $this->is_active,
             'totals' => $this->when($this->hasTotals(), fn () => $this->totals()),
+            // With withDeletable(): no passports and nothing in accounts. Only the accounts head
+            // deletes (the page shows Delete for them, on these rows only).
+            'can_delete' => $this->when(
+                array_key_exists('has_any_passports', $this->resource->getAttributes()),
+                fn () => $this->resource->canBeDeleted(),
+            ),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

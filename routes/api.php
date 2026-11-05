@@ -100,11 +100,12 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // Full company and reference management: the operations head only (CompanyPolicy "manage"
-    // and PartyPolicy "manageReferences"). References are client parties and are never
-    // deleted. Admins see companies through the read-only reports.
+    // and PartyPolicy "manageReferences"). A company or reference is
+    // deleted only while it has no passports (a reference also nothing in accounts). Admins see
+    // companies through the read-only reports.
     Route::prefix('admin')->name('admin.')->middleware('role:operation_head')->group(function () {
         Route::apiResource('companies', AdminCompanyController::class);
-        Route::apiResource('references', AdminReferenceController::class)->except(['show', 'destroy']);
+        Route::apiResource('references', AdminReferenceController::class)->except('show');
     });
 
     // Staff accounts: admins manage the heads, accounts and data entry users; the accounts head
@@ -272,8 +273,9 @@ Route::middleware('auth:sanctum')->group(function () {
         ]))->name('dashboard');
 
         // Party / client management (clients and owners) and their ledgers.
-        // Parties and owners are never deleted (deactivate instead), by anyone.
-        Route::apiResource('parties', PartyController::class)->except('destroy');
+        // Only the accounts head deletes, and only a party or owner with no passports and
+        // nothing in accounts (PartyPolicy "delete"); any other one is deactivated.
+        Route::apiResource('parties', PartyController::class);
         Route::get('/parties/{party}/ledger', PartyLedgerController::class)->name('parties.ledger');
         // Receivable and refund lines entered by hand (payments come from cash receipts).
         Route::post('/parties/{party}/transactions', [PartyTransactionController::class, 'store'])->name('parties.transactions.store');

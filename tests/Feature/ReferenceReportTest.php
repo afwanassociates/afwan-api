@@ -25,6 +25,7 @@ describe('reference report', function () {
     beforeEach(function () {
         $this->karim = Party::factory()->person()->create(['name' => 'Abdul Karim', 'mobile' => '01711-000000']);
         $this->star = Party::factory()->agency()->create(['name' => 'Sea Star Overseas']);
+        // No passports: left out of the report.
         $this->idle = Party::factory()->person()->create(['name' => 'Zahid Hasan']);
         $this->gulf = Company::factory()->create(['name' => 'Gulf Star']);
 
@@ -42,7 +43,7 @@ describe('reference report', function () {
 
         $response = $this->getJson('/api/reports/reference-report')->assertOk();
 
-        expect($response->json('data.*.name'))->toBe(['Abdul Karim', 'Sea Star Overseas', 'Zahid Hasan'])
+        expect($response->json('data.*.name'))->toBe(['Abdul Karim', 'Sea Star Overseas'])
             ->and($response->json('data.0'))->toMatchArray([
                 'id' => $this->karim->id,
                 'type' => 'person',
@@ -60,10 +61,9 @@ describe('reference report', function () {
             ])
             ->and($response->json('data.0'))->not->toHaveKeys(['quota', 'balance'])
             ->and($response->json('data.1'))->toMatchArray(['total' => 1, 'medical_pending' => 1, 'calling_done' => 0])
-            ->and($response->json('data.2.total'))->toBe(0)
             ->and($response->json('totals'))->toMatchArray(['total' => 5, 'medical_unfit' => 1, 'in_process' => 3])
             ->and($response->json('totals'))->not->toHaveKeys(['quota', 'balance'])
-            ->and($response->json('meta.total'))->toBe(3);
+            ->and($response->json('meta.total'))->toBe(2);
     });
 
     it('filters by search, type and reference, and sorts', function () {
@@ -72,8 +72,9 @@ describe('reference report', function () {
         expect($this->getJson('/api/reports/reference-report?search=0171')->json('data.*.name'))->toBe(['Abdul Karim'])
             ->and($this->getJson('/api/reports/reference-report?type=agency')->json('data.*.name'))->toBe(['Sea Star Overseas'])
             ->and($this->getJson("/api/reports/reference-report?reference_id={$this->star->id}")->json('data.*.name'))->toBe(['Sea Star Overseas'])
-            ->and($this->getJson('/api/reports/reference-report?sort=-total')->json('data.*.name'))->toBe(['Abdul Karim', 'Sea Star Overseas', 'Zahid Hasan'])
-            ->and($this->getJson('/api/reports/reference-report?sort=-type')->json('data.*.name'))->toBe(['Abdul Karim', 'Zahid Hasan', 'Sea Star Overseas']);
+            ->and($this->getJson('/api/reports/reference-report?sort=-total')->json('data.*.name'))->toBe(['Abdul Karim', 'Sea Star Overseas'])
+            ->and($this->getJson('/api/reports/reference-report?sort=-type')->json('data.*.name'))->toBe(['Abdul Karim', 'Sea Star Overseas'])
+            ->and($this->getJson('/api/reports/reference-report?search=zahid')->json('data'))->toBe([]);
 
         $this->getJson('/api/reports/reference-report?sort=balance')->assertUnprocessable()->assertJsonValidationErrors('sort');
         $this->getJson('/api/reports/reference-report?sort=quota')->assertUnprocessable()->assertJsonValidationErrors('sort');
