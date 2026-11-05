@@ -3,8 +3,8 @@
 namespace Database\Factories;
 
 use App\Models\Company;
+use App\Models\Party;
 use App\Models\PassportEntry;
-use App\Models\Reference;
 use App\Models\User;
 use App\Services\WorkflowService;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -27,7 +27,7 @@ class PassportEntryFactory extends Factory
             'passport_number' => fake()->unique()->bothify('??#######'),
             'country_code' => 'BD',
             'date_of_birth' => fake()->dateTimeBetween('-50 years', '-18 years'),
-            'reference_id' => Reference::factory(),
+            'reference_id' => Party::factory(),
             'company_id' => Company::factory(),
             'passport_received_date' => fake()->dateTimeBetween('-1 year', 'now'),
             'passport_expiry_date' => fake()->dateTimeBetween('+1 year', '+10 years'),

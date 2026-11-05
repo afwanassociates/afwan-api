@@ -24,7 +24,7 @@ use Illuminate\Support\Facades\Storage;
 #[Signature('app:reset-business-data
     {--force : Skip the confirmation (in production the database name is still asked)}
     {--dry-run : Only print the lists and row counts; change nothing}
-    {--keep-companies : Keep the companies and references tables}')]
+    {--keep-companies : Keep the companies table}')]
 #[Description('Remove all passport / business data; keep users, settings, countries and lookups')]
 class ResetBusinessData extends Command
 {
@@ -71,7 +71,6 @@ class ResetBusinessData extends Command
         'passport_returns',
         'passport_entries',
         'companies',
-        'references',
     ];
 
     /**
@@ -79,7 +78,7 @@ class ResetBusinessData extends Command
      *
      * @var list<string>
      */
-    public const COMPANY_TABLES = ['companies', 'references'];
+    public const COMPANY_TABLES = ['companies'];
 
     /**
      * Tables checked row by row after the reset (key = ordering column).
@@ -92,7 +91,6 @@ class ResetBusinessData extends Command
         'app_settings' => 'key',
         'medical_centers' => 'id',
         'companies' => 'id',
-        'references' => 'id',
     ];
 
     /**

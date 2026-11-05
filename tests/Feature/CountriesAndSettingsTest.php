@@ -3,8 +3,8 @@
 use App\Models\AppSetting;
 use App\Models\Company;
 use App\Models\Country;
+use App\Models\Party;
 use App\Models\PassportEntry;
-use App\Models\Reference;
 use App\Models\User;
 use App\Support\Settings;
 use Illuminate\Support\Facades\Cache;
@@ -231,7 +231,7 @@ describe('passport entries', function () {
 
     it('filters by company country together with the other filters and search', function () {
         Sanctum::actingAs(User::factory()->dataEntry()->create());
-        $reference = Reference::factory()->create();
+        $reference = Party::factory()->create();
         $malaysian = Company::factory()->create(['country_code' => 'MY']);
         $saudi = Company::factory()->create(['country_code' => 'SA']);
 

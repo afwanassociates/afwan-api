@@ -3,7 +3,7 @@
 namespace App\Http\Requests\DataEntry;
 
 use App\Enums\MedicalStatus;
-use App\Enums\ReferenceType;
+use App\Enums\PartyKind;
 use App\Support\Normalize;
 use App\Support\Workflow;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -86,7 +86,7 @@ class ListPassportEntriesRequest extends FormRequest
             // company_id stays for exact matches).
             'company' => ['sometimes', 'nullable', 'string', 'max:100'],
             'reference_id' => ['sometimes', 'integer'],
-            'reference_type' => ['sometimes', Rule::enum(ReferenceType::class)],
+            'reference_type' => ['sometimes', Rule::enum(PartyKind::class)],
             'company_id' => ['sometimes', 'integer'],
             'company_country_code' => ['sometimes', 'string', 'size:2'],
             'received_from' => ['sometimes', 'date_format:Y-m-d'],

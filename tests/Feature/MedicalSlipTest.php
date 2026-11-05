@@ -3,9 +3,9 @@
 use App\Models\Company;
 use App\Models\MedicalCenter;
 use App\Models\MedicalRecord;
+use App\Models\Party;
 use App\Models\PassportEntry;
 use App\Models\PassportStepRecord;
-use App\Models\Reference;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -54,7 +54,7 @@ describe('medical pending only after the slip date', function () {
             'passport_number' => 'AB1234567',
             'country_code' => 'BD',
             'date_of_birth' => '1995-04-12',
-            'reference_id' => Reference::factory()->create()->id,
+            'reference_id' => Party::factory()->create()->id,
             'company_id' => Company::factory()->create()->id,
             'passport_received_date' => '2026-04-10',
             'passport_expiry_date' => '2031-04-10',

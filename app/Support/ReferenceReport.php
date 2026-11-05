@@ -2,7 +2,8 @@
 
 namespace App\Support;
 
-use App\Models\Reference;
+use App\Enums\PartyType;
+use App\Models\Party;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -40,7 +41,7 @@ class ReferenceReport
      * keeps only references that have some.
      *
      * @param  array{search?: string|null, type?: string|null, reference_id?: int|string|null, company_id?: int|string|null, sort?: string|null}  $filters
-     * @return Builder<Reference>
+     * @return Builder<Party>
      */
     public function query(array $filters = []): Builder
     {
@@ -53,29 +54,37 @@ class ReferenceReport
         $counts = array_map(fn (string $column) => "coalesce(stats.{$column}, 0) as {$column}", $this->countColumns());
         $stats = $this->companies->passportCounts('reference_id', companyId: $companyId);
 
-        return Reference::query()
+        // References are client parties (agencies and persons).
+        return Party::query()
             // Inner join with a company filter: references without its passports drop out.
             ->when(
                 $companyId === null,
-                fn (Builder $query) => $query->leftJoinSub($stats, 'stats', 'stats.reference_id', '=', 'references.id'),
-                fn (Builder $query) => $query->joinSub($stats, 'stats', 'stats.reference_id', '=', 'references.id'),
+                fn (Builder $query) => $query->leftJoinSub($stats, 'stats', 'stats.reference_id', '=', 'parties.id'),
+                fn (Builder $query) => $query->joinSub($stats, 'stats', 'stats.reference_id', '=', 'parties.id'),
             )
-            ->select(['references.id', 'references.name', 'references.type', 'references.phone', 'references.is_active'])
+            ->where('parties.type', PartyType::Client->value)
+            ->select(['parties.id', 'parties.code', 'parties.name', 'parties.kind', 'parties.mobile', 'parties.rl_number', 'parties.is_active'])
             ->selectRaw(implode(', ', $counts))
             ->when($search !== '', fn (Builder $query) => $query->where(fn (Builder $query) => $query
-                ->where('references.name', 'like', Like::contains($search))
-                ->orWhere('references.phone', 'like', Like::contains($search))))
-            ->when($filters['type'] ?? null, fn (Builder $query, string $type) => $query->where('references.type', $type))
-            ->when($filters['reference_id'] ?? null, fn (Builder $query, int|string $id) => $query->where('references.id', (int) $id))
-            ->orderBy(in_array($sort, ['name', 'type'], true) ? "references.{$sort}" : $sort, $direction)
-            ->orderBy('references.name')
-            ->orderBy('references.id');
+                ->where('parties.name', 'like', Like::contains($search))
+                ->orWhere('parties.mobile', 'like', Like::contains($search))
+                ->orWhere('parties.code', 'like', Like::contains($search))
+                ->orWhere('parties.rl_number', 'like', Like::contains($search))))
+            ->when($filters['type'] ?? null, fn (Builder $query, string $type) => $query->where('parties.kind', $type))
+            ->when($filters['reference_id'] ?? null, fn (Builder $query, int|string $id) => $query->where('parties.id', (int) $id))
+            ->orderBy(match ($sort) {
+                'name' => 'parties.name',
+                'type' => 'parties.kind',
+                default => $sort,
+            }, $direction)
+            ->orderBy('parties.name')
+            ->orderBy('parties.id');
     }
 
     /**
      * Sums of every count column over the filtered references, for the totals row.
      *
-     * @param  Builder<Reference>  $query
+     * @param  Builder<Party>  $query
      * @return array<string, int>
      */
     public function totals(Builder $query): array
@@ -98,14 +107,16 @@ class ReferenceReport
      *
      * @return array<string, mixed>
      */
-    public function row(Reference $reference): array
+    public function row(Party $reference): array
     {
         return [
             'id' => $reference->id,
+            'code' => $reference->code,
             'name' => $reference->name,
-            'type' => $reference->type->value,
-            'type_label' => $reference->type->label(),
-            'phone' => $reference->phone,
+            'type' => $reference->kind?->value,
+            'type_label' => $reference->kind?->label(),
+            'phone' => $reference->mobile,
+            'rl_number' => $reference->rl_number,
             'is_active' => (bool) $reference->is_active,
             ...collect($this->countColumns())->mapWithKeys(fn (string $column) => [$column => (int) $reference->getAttribute($column)])->all(),
         ];

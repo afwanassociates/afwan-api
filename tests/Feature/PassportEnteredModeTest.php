@@ -1,10 +1,10 @@
 <?php
 
-use App\Enums\ReferenceType;
+use App\Enums\PartyKind;
 use App\Models\Company;
 use App\Models\MedicalRecord;
+use App\Models\Party;
 use App\Models\PassportEntry;
-use App\Models\Reference;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
@@ -103,8 +103,8 @@ describe('reference and company search in the mode', function () {
     it('matches partially, in any case, and combines with each other and the search', function () {
         $rose = Company::factory()->create(['name' => 'Desert Rose Construction']);
         $gulf = Company::factory()->create(['name' => 'Gulf Star Catering']);
-        $karim = Reference::factory()->create(['type' => ReferenceType::Person, 'name' => 'Abdul Karim']);
-        $agency = Reference::factory()->create(['type' => ReferenceType::Agency, 'name' => 'Sea Star Overseas']);
+        $karim = Party::factory()->create(['kind' => PartyKind::Person, 'name' => 'Abdul Karim']);
+        $agency = Party::factory()->create(['kind' => PartyKind::Agency, 'name' => 'Sea Star Overseas']);
 
         $roseKarim = PassportEntry::factory()->create(['company_id' => $rose->id, 'reference_id' => $karim->id, 'passport_number' => 'RK1111111']);
         $roseAgency = PassportEntry::factory()->create(['company_id' => $rose->id, 'reference_id' => $agency->id, 'passport_number' => 'RA2222222']);
@@ -134,7 +134,7 @@ describe('other modes and params', function () {
             ->and($ids('stage=passport'))->toEqualCanonicalizing([$p['entered']->id, $p['entered2']->id])
             ->and($ids("company_id={$p['fit']->company_id}"))->toBe([$p['fit']->id])
             ->and($ids("reference_id={$p['slipped']->reference_id}"))->toBe([$p['slipped']->id])
-            ->and($ids('reference_type='.$p['fit']->reference->type->value.'&medical_status=all'))->toContain($p['fit']->id)
+            ->and($ids('reference_type='.$p['fit']->reference->kind->value.'&medical_status=all'))->toContain($p['fit']->id)
             ->and($ids("company_country_code={$p['fit']->company->country_code}"))->toContain($p['fit']->id);
 
         // The exact filters also still combine with the mode for other callers.

@@ -31,6 +31,7 @@ class PartyController extends Controller
         $parties = Party::query()
             ->withTotals()
             ->when($request->validated('type'), fn (Builder $query, string $type) => $query->where('type', $type))
+            ->when($request->validated('kind'), fn (Builder $query, string $kind) => $query->where('kind', $kind))
             ->when($request->has('is_active'), fn (Builder $query) => $query->where('is_active', $request->boolean('is_active')))
             ->when($search !== '', fn (Builder $query) => $query->where(function (Builder $query) use ($search) {
                 $pattern = Like::contains($search);

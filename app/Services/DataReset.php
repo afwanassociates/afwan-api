@@ -40,13 +40,13 @@ class DataReset
             'scans' => true,
         ],
         'companies' => [
-            'label' => 'Companies & references',
-            'description' => 'Employer companies and references (agents and individuals). Passports must be deleted too.',
-            'tables' => ['companies', 'references'],
+            'label' => 'Companies',
+            'description' => 'Employer companies. Passports must be deleted too.',
+            'tables' => ['companies'],
         ],
         'accounts' => [
             'label' => 'Accounts',
-            'description' => 'Parties and owners, cash receipts, payments and transfers, owner loans and their bill copies, ledgers, approvals and the cash opening balance.',
+            'description' => 'Parties (the passports\' references, agencies and persons) and owners, cash receipts, payments and transfers, owner loans and their bill copies, ledgers, approvals and the cash opening balance.',
             'tables' => ['party_transactions', 'owner_loan_bills', 'cash_receipts', 'cash_payments', 'cash_transfers', 'parties'],
         ],
     ];
@@ -92,8 +92,8 @@ class DataReset
     }
 
     /**
-     * Back up, then delete the chosen groups. Refused (422) if companies are chosen without
-     * passports: passports point at companies.
+     * Back up, then delete the chosen groups. Refused (422) if companies or accounts are chosen without
+     * passports: passports point at companies and at their reference party.
      *
      * @param  list<string>  $groups
      * @return array{deleted: array<string, int>, files: int, backup: string}
@@ -104,7 +104,13 @@ class DataReset
 
         if (in_array('companies', $groups, true) && ! in_array('passports', $groups, true)) {
             throw ValidationException::withMessages([
-                'groups' => 'Companies & references can only be deleted together with Passports & workflow, because passports belong to companies.',
+                'groups' => 'Companies can only be deleted together with Passports & workflow, because passports belong to companies.',
+            ]);
+        }
+
+        if (in_array('accounts', $groups, true) && ! in_array('passports', $groups, true)) {
+            throw ValidationException::withMessages([
+                'groups' => 'Accounts can only be deleted together with Passports & workflow, because a passport\'s reference is a party.',
             ]);
         }
 
@@ -204,6 +210,68 @@ class DataReset
      * @return array{restored: array<string, int>, files: int}
      */
     /**
+     * Backups made before references were merged into parties (2026-11-05): every old
+     * reference becomes a client party with the next ID and PT- number (after the backup's
+     * and, with $maxId / $maxSequence, the database's) and its passports point to it. Old
+     * clients are agencies. Every parties row gets the same columns, for one bulk insert.
+     *
+     * @param  array<string, list<array<string, mixed>>>  $tables
+     * @return array<string, list<array<string, mixed>>>
+     */
+    public static function mergeReferences(array $tables, int $maxId = 0, int $maxSequence = 0): array
+    {
+        if (! isset($tables['references']) && ! isset($tables['parties'])) {
+            return $tables;
+        }
+
+        $parties = array_map(
+            fn (array $row) => $row['type'] === 'client' && ! array_key_exists('kind', $row) ? [...$row, 'kind' => 'agency'] : $row,
+            $tables['parties'] ?? [],
+        );
+
+        if (isset($tables['references'])) {
+            $id = max($maxId, (int) collect($parties)->max('id'));
+            $sequence = max($maxSequence, (int) collect($parties)->where('type', 'client')->max('sequence'));
+            $partyIds = [];
+
+            foreach (collect($tables['references'])->sortBy('id') as $reference) {
+                $partyIds[$reference['id']] = ++$id;
+                $sequence++;
+
+                $parties[] = [
+                    'id' => $id,
+                    'type' => 'client',
+                    'kind' => $reference['type'],
+                    'sequence' => $sequence,
+                    'code' => 'PT-'.str_pad((string) $sequence, 4, '0', STR_PAD_LEFT),
+                    'name' => $reference['name'],
+                    'mobile' => $reference['phone'] ?? null,
+                    'notes' => $reference['notes'] ?? null,
+                    'opening_balance' => 0,
+                    'opening_balance_type' => 'receivable',
+                    'is_active' => ($reference['is_active'] ?? true) && ($reference['deleted_at'] ?? null) === null,
+                    'created_by' => $reference['created_by'] ?? null,
+                    'created_at' => $reference['created_at'] ?? null,
+                    'updated_at' => $reference['updated_at'] ?? null,
+                ];
+            }
+
+            if (isset($tables['passport_entries'])) {
+                $tables['passport_entries'] = array_map(
+                    fn (array $row) => [...$row, 'reference_id' => $partyIds[$row['reference_id']] ?? $row['reference_id']],
+                    $tables['passport_entries'],
+                );
+            }
+            unset($tables['references']);
+        }
+
+        $columns = array_fill_keys(array_unique(array_merge(...array_map('array_keys', $parties ?: [[]]))), null);
+        $tables['parties'] = array_map(fn (array $row) => [...$columns, ...$row], $parties);
+
+        return $tables;
+    }
+
+    /**
      * Backups made before the entry number existed: number those passports by id, after the
      * highest number the backup has. Rows that have a number keep it.
      *
@@ -224,10 +292,19 @@ class DataReset
     {
         $data = json_decode((string) file_get_contents($archive['data.json']->getPathname()), true, flags: JSON_THROW_ON_ERROR);
 
+        // A backup without accounts but with old references puts them into a parties table
+        // that may already have rows: those are kept, the new ones are numbered after them.
+        $addedParties = isset($data['tables']['references']) && ! isset($data['tables']['parties']);
+        $data['tables'] = self::mergeReferences(
+            $data['tables'],
+            $addedParties ? (int) DB::table('parties')->max('id') : 0,
+            $addedParties ? (int) DB::table('parties')->where('type', 'client')->max('sequence') : 0,
+        );
+
         // Parents first (the reverse of the delete order).
         $tables = array_reverse(array_keys($data['tables']));
         foreach ($tables as $table) {
-            if (DB::table($table)->exists()) {
+            if (! ($addedParties && $table === 'parties') && DB::table($table)->exists()) {
                 throw new RuntimeException("The table {$table} is not empty; restore only puts data back into empty tables.");
             }
         }

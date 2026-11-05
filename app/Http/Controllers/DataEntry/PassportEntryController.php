@@ -92,7 +92,7 @@ class PassportEntryController extends Controller
             ->when($request->has('stage'), fn (Builder $query) => $query->where('passport_entries.current_stage', $request->validated('stage')))
             ->when($request->has('stage_status'), fn (Builder $query) => $query->where('passport_entries.stage_status', $request->validated('stage_status')))
             ->when($request->has('reference_id'), fn (Builder $query) => $query->where('reference_id', $request->integer('reference_id')))
-            ->when($request->has('reference_type'), fn (Builder $query) => $query->whereHas('reference', fn (Builder $query) => $query->where('type', $request->validated('reference_type'))))
+            ->when($request->has('reference_type'), fn (Builder $query) => $query->whereHas('reference', fn (Builder $query) => $query->where('kind', $request->validated('reference_type'))))
             ->when($request->has('company_id'), fn (Builder $query) => $query->where('company_id', $request->integer('company_id')))
             ->when($request->has('company_country_code'), fn (Builder $query) => $query->whereHas('company', fn (Builder $query) => $query->where('country_code', $request->validated('company_country_code'))))
             ->when($request->has('received_from'), fn (Builder $query) => $query->whereDate('passport_received_date', '>=', $request->validated('received_from')))

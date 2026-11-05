@@ -1,11 +1,11 @@
 <?php
 
-use App\Enums\ReferenceType;
+use App\Enums\PartyKind;
 use App\Models\Company;
 use App\Models\MedicalCenter;
 use App\Models\MedicalRecord;
+use App\Models\Party;
 use App\Models\PassportEntry;
-use App\Models\Reference;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
@@ -51,8 +51,8 @@ describe('tabs and search', function () {
     it('matches company and reference partially, in any case, combined, on every tab', function (string $tab) {
         $rose = Company::factory()->create(['name' => 'Desert Rose Construction']);
         $gulf = Company::factory()->create(['name' => 'Gulf Star Catering']);
-        $karim = Reference::factory()->create(['type' => ReferenceType::Person, 'name' => 'Abdul Karim']);
-        $agency = Reference::factory()->create(['type' => ReferenceType::Agency, 'name' => 'Sea Star Overseas']);
+        $karim = Party::factory()->create(['kind' => PartyKind::Person, 'name' => 'Abdul Karim']);
+        $agency = Party::factory()->create(['kind' => PartyKind::Agency, 'name' => 'Sea Star Overseas']);
 
         $roseKarim = medicalTabPassport($tab, ['company_id' => $rose->id, 'reference_id' => $karim->id, 'passport_number' => 'RK1111111']);
         $roseAgency = medicalTabPassport($tab, ['company_id' => $rose->id, 'reference_id' => $agency->id, 'passport_number' => 'RA2222222']);
@@ -87,7 +87,7 @@ describe('tabs and search', function () {
 describe('payload', function () {
     it('includes the reference and medical centre, and no waiting days', function () {
         $center = MedicalCenter::query()->where('name', 'Meem Medical Center')->sole();
-        $reference = Reference::factory()->create(['name' => 'Abdul Karim']);
+        $reference = Party::factory()->create(['name' => 'Abdul Karim']);
         medicalTabPassport('pending', ['reference_id' => $reference->id, 'medical_center_id' => $center->id]);
 
         $row = $this->getJson('/api/data-entry/passports?mode=medical&medical_status=pending')->assertOk()->json('data.0');

@@ -1,107 +1,137 @@
 <?php
 
-use App\Enums\ReferenceType;
+use App\Enums\PartyKind;
+use App\Enums\PartyType;
 use App\Models\Company;
+use App\Models\Party;
 use App\Models\PassportEntry;
-use App\Models\Reference;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Laravel\Sanctum\Sanctum;
 
 describe('references', function () {
-    it('lets data entry create a reference, normalizing the name and setting created_by', function () {
+    it('lets data entry quick-add a reference as a client party, normalizing the name and setting created_by', function () {
         $clerk = User::factory()->dataEntry()->create();
         Sanctum::actingAs($clerk);
 
         $this->postJson('/api/data-entry/references', ['type' => 'person', 'name' => '  Karim   Uddin ', 'phone' => '01711000000'])
             ->assertCreated()
             ->assertJsonPath('data.name', 'Karim Uddin')
-            ->assertJsonPath('data.type_label', 'Person');
+            ->assertJsonPath('data.type_label', 'Person')
+            ->assertJsonPath('data.phone', '01711000000')
+            ->assertJsonPath('data.code', 'PT-0001')
+            ->assertJsonPath('data.rl_number', null);
 
-        expect(Reference::sole()->created_by)->toBe($clerk->id);
+        expect(Party::sole())
+            ->created_by->toBe($clerk->id)
+            ->type->toBe(PartyType::Client)
+            ->kind->toBe(PartyKind::Person)
+            ->mobile->toBe('01711000000')
+            ->address->toBeNull()
+            ->nid_passport->toBeNull();
     });
 
-    it('allows the same name once as a person and once as an agency, but not twice in one type', function () {
+    it('requires a phone, and an RL number for an agency only', function () {
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        $this->postJson('/api/data-entry/references', ['type' => 'person', 'name' => 'Karim Uddin'])->assertCreated();
-        $this->postJson('/api/data-entry/references', ['type' => 'agency', 'name' => 'Karim Uddin'])->assertCreated();
-
-        $this->postJson('/api/data-entry/references', ['type' => 'person', 'name' => 'KARIM  uddin'])
+        $this->postJson('/api/data-entry/references', ['type' => 'person', 'name' => 'Karim'])
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['name' => 'A reference with this name already exists.']);
+            ->assertJsonValidationErrors(['phone' => 'Enter the phone number.']);
+        $this->postJson('/api/data-entry/references', ['type' => 'agency', 'name' => 'Sea Star', 'phone' => '01711000000'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['rl_number' => 'Enter the RL number of the agency.']);
+        $this->postJson('/api/data-entry/references', ['type' => 'person', 'name' => 'Karim', 'phone' => '01711000000', 'rl_number' => 'RL-1'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['rl_number' => 'Only agencies have an RL number.']);
+
+        $this->postJson('/api/data-entry/references', ['type' => 'agency', 'name' => 'Sea Star', 'phone' => '01711000000', 'rl_number' => ' rl-1234 '])
+            ->assertCreated()
+            ->assertJsonPath('data.type', 'agency')
+            ->assertJsonPath('data.rl_number', 'RL-1234');
+        $this->postJson('/api/data-entry/references', ['type' => 'agency', 'name' => 'Other', 'phone' => '01711000000', 'rl_number' => 'RL-1234'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['rl_number' => 'A party with this RL number already exists.']);
+    });
+
+    it('allows the same name once as a person and once as an agency, but not twice in one kind', function () {
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        $this->postJson('/api/data-entry/references', ['type' => 'person', 'name' => 'Karim Uddin', 'phone' => '01711000000'])->assertCreated();
+        $this->postJson('/api/data-entry/references', ['type' => 'agency', 'name' => 'Karim Uddin', 'phone' => '01711000000', 'rl_number' => 'RL-1'])->assertCreated();
+
+        $this->postJson('/api/data-entry/references', ['type' => 'person', 'name' => 'KARIM  uddin', 'phone' => '01711000000'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['name' => 'A person with this name already exists.']);
     });
 
     it('stores a reference created without a type as a person', function () {
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        $this->postJson('/api/data-entry/references', ['name' => 'New Agent', 'phone' => null])
+        $this->postJson('/api/data-entry/references', ['name' => 'New Agent', 'phone' => '01711000000'])
             ->assertCreated()
             ->assertJsonPath('data.type', 'person');
-
-        $this->postJson('/api/data-entry/references', ['name' => 'new  AGENT'])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors(['name' => 'A reference with this name already exists.']);
     });
 
     it('rejects an unknown type', function () {
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        $this->postJson('/api/data-entry/references', ['type' => 'friend', 'name' => 'X'])
+        $this->postJson('/api/data-entry/references', ['type' => 'friend', 'name' => 'X', 'phone' => '01711000000'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('type');
     });
 
-    it('lookup filters by type, hides inactive references and returns at most 20 ordered by name', function () {
-        Reference::factory()->person()->count(25)->create();
-        Reference::factory()->agency()->count(3)->create();
-        Reference::factory()->person()->inactive()->create(['name' => 'Aaa Inactive']);
+    it('lookup lists active clients only, filters by type and returns at most 20 ordered by name', function () {
+        Party::factory()->person()->count(25)->create();
+        Party::factory()->agency()->count(3)->create();
+        Party::factory()->person()->inactive()->create(['name' => 'Aaa Inactive']);
+        Party::factory()->owner()->create(['name' => 'Aaa Owner']);
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $rows = $this->getJson('/api/data-entry/references?type=person')->assertOk()->assertJsonCount(20, 'data')->json('data');
 
         expect(collect($rows)->pluck('type')->unique()->all())->toBe(['person'])
-            ->and(collect($rows)->pluck('name')->all())->toBe(collect($rows)->pluck('name')->sort(SORT_NATURAL | SORT_FLAG_CASE)->values()->all())
             ->and(collect($rows)->pluck('name'))->not->toContain('Aaa Inactive');
 
         $this->getJson('/api/data-entry/references?type=agency')->assertOk()->assertJsonCount(3, 'data');
+        $this->getJson('/api/data-entry/references?q=aaa')->assertOk()->assertJsonCount(0, 'data');
     });
 
-    it('lookup searches by name', function () {
-        Reference::factory()->agency()->create(['name' => 'Sea Star Overseas']);
-        Reference::factory()->person()->create(['name' => 'Abdul Karim']);
+    it('lookup searches by name, phone, party ID and RL number', function () {
+        $star = Party::factory()->agency()->create(['name' => 'Sea Star Overseas', 'rl_number' => 'RL-777', 'mobile' => '01811000000']);
+        Party::factory()->person()->create(['name' => 'Abdul Karim', 'mobile' => '01911000000']);
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        $this->getJson('/api/data-entry/references?q=star')
-            ->assertOk()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.name', 'Sea Star Overseas');
+        foreach (['star', 'RL-777', '01811', $star->code] as $q) {
+            $this->getJson('/api/data-entry/references?q='.urlencode($q))
+                ->assertOk()
+                ->assertJsonCount(1, 'data')
+                ->assertJsonPath('data.0.name', 'Sea Star Overseas');
+        }
     });
 
-    it('forbids data entry from editing, deleting or listing all references', function () {
-        $reference = Reference::factory()->create();
+    it('forbids data entry from editing or listing all references, and nobody deletes one', function () {
+        $reference = Party::factory()->create();
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->patchJson("/api/data-entry/references/{$reference->id}", ['is_active' => false])->assertForbidden();
-        $this->deleteJson("/api/data-entry/references/{$reference->id}")->assertForbidden();
         $this->getJson('/api/data-entry/references?all=1')->assertForbidden();
+        $this->deleteJson("/api/data-entry/references/{$reference->id}")->assertMethodNotAllowed();
     });
 
-    it('keeps deactivating and deleting a reference from data entry and admins', function (string $role) {
-        $reference = Reference::factory()->create();
+    it('keeps deactivating a reference from data entry and admins', function (string $role) {
+        $reference = Party::factory()->create();
         PassportEntry::factory()->create(['reference_id' => $reference->id]);
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
         $this->patchJson("/api/data-entry/references/{$reference->id}", ['is_active' => false])->assertForbidden();
-        $this->deleteJson("/api/data-entry/references/{$reference->id}")->assertForbidden();
-        expect($reference->fresh())->is_active->toBeTrue()->trashed()->toBeFalse();
+        expect($reference->fresh())->is_active->toBeTrue();
     })->with(['admin', 'superAdmin', 'dataEntry']);
 
-    it('cannot hard delete a reference that has passport entries', function () {
-        $reference = Reference::factory()->create();
+    it('cannot delete a party that has passport entries', function () {
+        $reference = Party::factory()->create();
         PassportEntry::factory()->create(['reference_id' => $reference->id]);
 
-        expect(fn () => $reference->forceDelete())->toThrow(QueryException::class);
+        expect(fn () => $reference->delete())->toThrow(QueryException::class);
     });
 
     it('rejects the accounts role and guests', function () {
@@ -109,13 +139,13 @@ describe('references', function () {
 
         Sanctum::actingAs(User::factory()->accounts()->create());
         $this->getJson('/api/data-entry/references')->assertForbidden();
-        $this->postJson('/api/data-entry/references', ['type' => ReferenceType::Person->value, 'name' => 'X'])->assertForbidden();
+        $this->postJson('/api/data-entry/references', ['type' => 'person', 'name' => 'X', 'phone' => '01711000000'])->assertForbidden();
     });
 
-    it('lets the operations head deactivate and list inactive references, but not delete one with entries', function (string $role) {
-        $reference = Reference::factory()->create();
+    it('lets the operations head deactivate and list inactive references', function () {
+        $reference = Party::factory()->create();
         PassportEntry::factory()->create(['reference_id' => $reference->id]);
-        Sanctum::actingAs(User::factory()->{$role}()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
         $this->patchJson("/api/data-entry/references/{$reference->id}", ['is_active' => false])
             ->assertOk()
@@ -124,12 +154,14 @@ describe('references', function () {
             ->assertOk()
             ->assertJsonPath('data.0.id', $reference->id)
             ->assertJsonPath('meta.total', 1);
+    });
 
-        $this->deleteJson("/api/data-entry/references/{$reference->id}")
-            ->assertUnprocessable()
-            ->assertJsonPath('code', 'reference_has_passports');
-        $this->assertNotSoftDeleted($reference);
-    })->with(['operationHead']);
+    it('does not let the operations head edit an owner as a reference', function () {
+        $owner = Party::factory()->owner()->create();
+        Sanctum::actingAs(User::factory()->operationHead()->create());
+
+        $this->patchJson("/api/data-entry/references/{$owner->id}", ['is_active' => false])->assertForbidden();
+    });
 });
 
 describe('companies', function () {

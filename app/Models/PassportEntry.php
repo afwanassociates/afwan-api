@@ -137,13 +137,13 @@ class PassportEntry extends Model
     }
 
     /**
-     * Includes soft-deleted reference records, so old entries still show theirs.
+     * The client party who gave the passport. Parties are never deleted.
      *
-     * @return BelongsTo<Reference, $this>
+     * @return BelongsTo<Party, $this>
      */
     public function reference(): BelongsTo
     {
-        return $this->belongsTo(Reference::class)->withTrashed();
+        return $this->belongsTo(Party::class, 'reference_id');
     }
 
     /**

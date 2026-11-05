@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\DataEntry;
 
+use App\Enums\PartyType;
 use App\Support\StepList;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -27,7 +28,7 @@ class ListStepPassportsRequest extends FormRequest
             'reference' => ['sometimes', 'nullable', 'string', 'max:100'],
             // The Filter by company / Filter by reference dropdowns.
             'company_id' => ['sometimes', 'nullable', 'integer', 'exists:companies,id'],
-            'reference_id' => ['sometimes', 'nullable', 'integer', 'exists:references,id'],
+            'reference_id' => ['sometimes', 'nullable', 'integer', Rule::exists('parties', 'id')->where('type', PartyType::Client->value)],
             'receive_date_from' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'receive_date_to' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'booking_date_from' => ['sometimes', 'nullable', 'date_format:Y-m-d'],

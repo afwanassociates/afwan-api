@@ -1,8 +1,8 @@
 <?php
 
 use App\Models\Company;
+use App\Models\Party;
 use App\Models\PassportEntry;
-use App\Models\Reference;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Support\Carbon;
@@ -30,7 +30,7 @@ it('moves the slip to passports, keeps results, and is reversible and idempotent
 
     // Data as it was before the migration.
     $user = User::factory()->dataEntry()->create();
-    $reference = Reference::factory()->create();
+    $reference = Party::factory()->create();
     $company = Company::factory()->create();
     $center = DB::table('medical_centers')->where('name', 'Meem Medical Center')->value('id');
 

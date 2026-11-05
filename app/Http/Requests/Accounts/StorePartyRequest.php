@@ -4,7 +4,9 @@ namespace App\Http\Requests\Accounts;
 
 use App\Enums\BalanceType;
 use App\Enums\OwnerDesignation;
+use App\Enums\PartyKind;
 use App\Enums\PartyType;
+use App\Http\Requests\Accounts\Concerns\ValidatesClientParty;
 use App\Models\Party;
 use App\Support\Normalize;
 use Illuminate\Foundation\Http\FormRequest;
@@ -15,6 +17,8 @@ use Illuminate\Validation\Rule;
  */
 class StorePartyRequest extends FormRequest
 {
+    use ValidatesClientParty;
+
     /** Digits, spaces and dashes, with an optional leading +. */
     public const MOBILE_PATTERN = '/^\+?[0-9][0-9 \-]{5,28}$/';
 
@@ -41,7 +45,7 @@ class StorePartyRequest extends FormRequest
             $this->merge(['rl_number' => Normalize::passportName($this->input('rl_number'))]);
         }
 
-        foreach (['tin_bin', 'rl_number'] as $field) {
+        foreach (['tin_bin', 'rl_number', 'agency_owner_name', 'address', 'nid_passport', 'notes'] as $field) {
             if ($this->input($field) === '') {
                 $this->merge([$field => null]);
             }
@@ -49,31 +53,40 @@ class StorePartyRequest extends FormRequest
     }
 
     /**
+     * A client is an agency or a person (kind). An agency has an RL number; a
+     * person does not. Data entry quick-adds clients with only a name and a
+     * mobile, so a client's address, NID / passport and agency owner name are
+     * optional (the accounts team fills them in later). Owners need them all.
+     *
      * @return array<string, array<int, mixed>>
      */
     public function rules(): array
     {
         $required = $this->party() ? 'sometimes' : 'required';
+        $isOwner = $this->partyType() === PartyType::Owner;
+        $ownerOnly = $isOwner ? [$required] : ['sometimes', 'nullable'];
 
         return [
             'type' => $this->party()
                 ? ['prohibited']
                 : ['required', Rule::in(PartyType::values())],
-            'rl_number' => $this->partyType() === PartyType::Owner
+            'kind' => $isOwner
                 ? ['prohibited']
-                : [$required, 'string', 'max:50', Rule::unique('parties', 'rl_number')->ignore($this->party())],
-            'name' => [$required, 'string', 'max:150'],
-            // A client is an agency: its owner's name (their NID / passport is nid_passport).
-            'agency_owner_name' => $this->partyType() === PartyType::Owner
+                : [$required, Rule::enum(PartyKind::class)],
+            'rl_number' => $this->rlNumberRules(),
+            'name' => [$required, 'string', 'max:150', ...($isOwner ? [] : $this->clientNameRules())],
+            // An agency's owner (their NID / passport is nid_passport).
+            'agency_owner_name' => $isOwner || $this->clientKind() === PartyKind::Person
                 ? ['prohibited']
-                : [$required, 'string', 'max:150'],
-            'designation' => $this->partyType() === PartyType::Owner
+                : ['sometimes', 'nullable', 'string', 'max:150'],
+            'designation' => $isOwner
                 ? [$required, Rule::in(OwnerDesignation::values())]
                 : ['prohibited'],
             'mobile' => [$required, 'string', 'max:30', 'regex:'.self::MOBILE_PATTERN],
-            'address' => [$required, 'string', 'max:500'],
-            'nid_passport' => [$required, 'string', 'max:50', Rule::unique('parties', 'nid_passport')->ignore($this->party())],
+            'address' => [...$ownerOnly, 'string', 'max:500'],
+            'nid_passport' => [...$ownerOnly, 'string', 'max:50', Rule::unique('parties', 'nid_passport')->ignore($this->party())],
             'tin_bin' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'notes' => ['sometimes', 'nullable', 'string', 'max:2000'],
             'opening_balance' => ['sometimes', 'numeric', 'decimal:0,2', 'min:0', 'max:'.self::MAX_AMOUNT],
             'opening_balance_type' => ['sometimes', Rule::in(BalanceType::values())],
             'is_active' => $this->party() ? ['sometimes', 'boolean'] : ['prohibited'],
@@ -85,24 +98,24 @@ class StorePartyRequest extends FormRequest
      */
     public function messages(): array
     {
+        $isOwner = $this->partyType() === PartyType::Owner;
+        $isPerson = $this->clientKind() === PartyKind::Person;
+
         return [
+            ...$this->clientMessages(),
             'type.required' => 'Choose whether this is a party or an owner.',
             'type.prohibited' => 'The type of a party cannot be changed.',
-            'rl_number.required' => 'Enter the RL number.',
-            'rl_number.prohibited' => 'Owners do not have an RL number.',
-            'rl_number.unique' => 'A party with this RL number already exists.',
-            'name.required' => $this->partyType() === PartyType::Owner ? 'Enter the name.' : 'Enter the agency name.',
-            'agency_owner_name.required' => 'Enter the agency owner name.',
-            'agency_owner_name.prohibited' => 'Company owners have no agency owner.',
+            'kind.required' => 'Choose whether the party is an agency or a person.',
+            'kind.prohibited' => 'Owners are not an agency or a person.',
+            'name.required' => $isOwner || $isPerson ? 'Enter the name.' : 'Enter the agency name.',
+            'agency_owner_name.prohibited' => $isOwner ? 'Company owners have no agency owner.' : 'Only agencies have an agency owner.',
             'designation.required' => 'Choose the designation (Chairman, Managing Director or Director).',
             'designation.in' => 'Choose Chairman, Managing Director or Director.',
             'designation.prohibited' => 'Only owners have a designation.',
-            'mobile.required' => $this->partyType() === PartyType::Owner ? 'Enter the mobile number.' : "Enter the agency's mobile number.",
+            'mobile.required' => $isOwner || $isPerson ? 'Enter the mobile number.' : "Enter the agency's mobile number.",
             'mobile.regex' => 'Enter a valid mobile number (digits, spaces or dashes, optional +).',
-            'address.required' => $this->partyType() === PartyType::Owner ? 'Enter the address.' : "Enter the agency's address.",
-            'nid_passport.required' => $this->partyType() === PartyType::Owner
-                ? 'Enter the NID or passport number.'
-                : "Enter the agency owner's NID or passport number.",
+            'address.required' => 'Enter the address.',
+            'nid_passport.required' => 'Enter the NID or passport number.',
             'nid_passport.unique' => 'A party with this NID/passport number already exists.',
             'opening_balance.min' => 'The opening balance cannot be negative; choose Payable instead.',
             'opening_balance.decimal' => 'The opening balance can have at most 2 decimal places.',
@@ -115,6 +128,11 @@ class StorePartyRequest extends FormRequest
     private function partyType(): ?PartyType
     {
         return $this->party()?->type ?? PartyType::tryFrom((string) $this->input('type'));
+    }
+
+    protected function kindField(): string
+    {
+        return 'kind';
     }
 
     /**

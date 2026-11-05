@@ -2,12 +2,15 @@
 
 namespace App\Http\Resources;
 
-use App\Models\Reference;
+use App\Models\Party;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * @mixin Reference
+ * A client party as the passport team sees it (a passport's reference):
+ * `type` is its kind (person or agency) and `phone` its mobile.
+ *
+ * @mixin Party
  */
 class ReferenceResource extends JsonResource
 {
@@ -20,10 +23,12 @@ class ReferenceResource extends JsonResource
     {
         return [
             'id' => $this->id,
-            'type' => $this->type->value,
-            'type_label' => $this->type->label(),
+            'code' => $this->code,
+            'type' => $this->kind?->value,
+            'type_label' => $this->kind?->label(),
             'name' => $this->name,
-            'phone' => $this->phone,
+            'phone' => $this->mobile,
+            'rl_number' => $this->rl_number,
             'notes' => $this->notes,
             'is_active' => $this->is_active,
             'passports_count' => $this->whenCounted('passportEntries'),

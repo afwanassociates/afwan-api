@@ -1,12 +1,12 @@
 <?php
 
-use App\Enums\ReferenceType;
+use App\Enums\PartyKind;
 use App\Enums\StepStatus;
 use App\Models\Company;
 use App\Models\MedicalRecord;
+use App\Models\Party;
 use App\Models\PassportEntry;
 use App\Models\PassportStepRecord;
-use App\Models\Reference;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
@@ -133,7 +133,7 @@ describe('tabs', function () {
     });
 
     it('returns the row fields for the step page', function () {
-        $karim = Reference::factory()->create(['type' => ReferenceType::Person, 'name' => 'Abdul Karim']);
+        $karim = Party::factory()->create(['kind' => PartyKind::Person, 'name' => 'Abdul Karim']);
         $rose = Company::factory()->create(['name' => 'Desert Rose Construction']);
         $passport = stepsRecords(stepsPassport('fit', ['reference_id' => $karim->id, 'company_id' => $rose->id, 'passport_number' => 'AB1234567']), ['calling', 'visa'], StepStatus::InProcess);
         PassportStepRecord::query()->where('step_key', 'visa')->update(['reference_no' => 'V-1', 'valid_until' => '2026-10-01']);
@@ -171,8 +171,8 @@ describe('search', function () {
     it('matches name, number, company and reference, partially and in any case, combined', function () {
         $rose = Company::factory()->create(['name' => 'Desert Rose Construction']);
         $gulf = Company::factory()->create(['name' => 'Gulf Star Catering']);
-        $karim = Reference::factory()->create(['type' => ReferenceType::Person, 'name' => 'Abdul Karim']);
-        $agency = Reference::factory()->create(['type' => ReferenceType::Agency, 'name' => 'Sea Star Overseas']);
+        $karim = Party::factory()->create(['kind' => PartyKind::Person, 'name' => 'Abdul Karim']);
+        $agency = Party::factory()->create(['kind' => PartyKind::Agency, 'name' => 'Sea Star Overseas']);
         $roseKarim = stepsPassport('fit', ['company_id' => $rose->id, 'reference_id' => $karim->id, 'passport_number' => 'RK1111111', 'passport_name' => 'Rahim Uddin']);
         $roseAgency = stepsPassport('fit', ['company_id' => $rose->id, 'reference_id' => $agency->id, 'passport_number' => 'RA2222222']);
         $gulfKarim = stepsPassport('fit', ['company_id' => $gulf->id, 'reference_id' => $karim->id, 'passport_number' => 'GK3333333']);

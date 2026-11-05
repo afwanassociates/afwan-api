@@ -20,7 +20,6 @@ class DuplicateEntry
      */
     public const FIELDS = [
         'passport_entries_passport_number_unique' => ['passport_number', 'This passport number is already entered.'],
-        'references_type_name_unique' => ['name', 'A reference with this name already exists.'],
         'companies_name_unique' => ['name', 'A company with this name already exists.'],
     ];
 

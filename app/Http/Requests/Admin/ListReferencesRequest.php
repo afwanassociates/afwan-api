@@ -2,7 +2,7 @@
 
 namespace App\Http\Requests\Admin;
 
-use App\Enums\ReferenceType;
+use App\Enums\PartyKind;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -18,7 +18,7 @@ class ListReferencesRequest extends FormRequest
     {
         return [
             'q' => ['sometimes', 'nullable', 'string', 'max:100'],
-            'type' => ['sometimes', 'nullable', Rule::enum(ReferenceType::class)],
+            'type' => ['sometimes', 'nullable', Rule::enum(PartyKind::class)],
             'is_active' => ['sometimes', 'boolean'],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ];

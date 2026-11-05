@@ -7,10 +7,10 @@ use App\Models\Company;
 use App\Models\Country;
 use App\Models\MedicalCenter;
 use App\Models\MedicalRecord;
+use App\Models\Party;
 use App\Models\PassportEntry;
 use App\Models\PassportReturn;
 use App\Models\PassportStepRecord;
-use App\Models\Reference;
 use App\Models\User;
 use App\Services\PassportScanService;
 use Illuminate\Console\Command;
@@ -147,7 +147,8 @@ it('prints the KEEP and CLEAR lists with their row counts', function () {
             ['KEEP', 'countries', Country::query()->count()],
             ['KEEP', 'app_settings', AppSetting::query()->count()],
             ['KEEP', 'medical_centers', MedicalCenter::query()->count()],
-            ['KEEP', 'parties', 0],
+            // The passport's reference: parties are never cleared.
+            ['KEEP', 'parties', 1],
             ['KEEP', 'cash_receipts', 0],
             ['KEEP', 'party_transactions', 0],
             ['KEEP', 'cash_payments', 0],
@@ -157,7 +158,6 @@ it('prints the KEEP and CLEAR lists with their row counts', function () {
             ['CLEAR', 'medical_records', 1],
             ['CLEAR', 'passport_entries', 1],
             ['CLEAR', 'companies', 1],
-            ['CLEAR', 'references', 1],
             ['CLEAR', 'files: passport-scans/', 2],
         ])
         ->assertSuccessful();
@@ -178,17 +178,17 @@ it('changes nothing with --dry-run', function () {
         ->and($this->optimized)->toBeFalse();
 });
 
-it('keeps companies and references with --keep-companies', function () {
+it('keeps companies (and references, which are parties) with --keep-companies', function () {
     $companies = Company::query()->orderBy('id')->get()->toArray();
-    $references = Reference::query()->orderBy('id')->get()->toArray();
+    $references = Party::query()->orderBy('id')->get()->toArray();
 
     $this->artisan('app:reset-business-data', ['--force' => true, '--keep-companies' => true])
         ->doesntExpectOutputToContain('Truncated companies.')
-        ->doesntExpectOutputToContain('Truncated references.')
+        ->doesntExpectOutputToContain('Truncated parties.')
         ->assertSuccessful();
 
     expect(Company::query()->orderBy('id')->get()->toArray())->toEqual($companies)
-        ->and(Reference::query()->orderBy('id')->get()->toArray())->toEqual($references)
+        ->and(Party::query()->orderBy('id')->get()->toArray())->toEqual($references)
         ->and(PassportEntry::query()->count())->toBe(0)
         ->and(PassportStepRecord::query()->withTrashed()->count())->toBe(0)
         ->and(MedicalRecord::query()->withTrashed()->count())->toBe(0);

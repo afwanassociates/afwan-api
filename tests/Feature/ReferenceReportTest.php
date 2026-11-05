@@ -1,8 +1,8 @@
 <?php
 
 use App\Models\Company;
+use App\Models\Party;
 use App\Models\PassportEntry;
-use App\Models\Reference;
 use App\Models\User;
 use Laravel\Sanctum\Sanctum;
 
@@ -10,7 +10,7 @@ use Laravel\Sanctum\Sanctum;
  * A passport of the reference at a stored workflow position (the report reads
  * only current_stage and stage_status).
  */
-function referencePassport(Reference $reference, string $stage, string $status = 'waiting', ?Company $company = null): PassportEntry
+function referencePassport(Party $reference, string $stage, string $status = 'waiting', ?Company $company = null): PassportEntry
 {
     $passport = PassportEntry::factory()->create([
         'reference_id' => $reference->id,
@@ -23,9 +23,9 @@ function referencePassport(Reference $reference, string $stage, string $status =
 
 describe('reference report', function () {
     beforeEach(function () {
-        $this->karim = Reference::factory()->person()->create(['name' => 'Abdul Karim', 'phone' => '01711-000000']);
-        $this->star = Reference::factory()->agency()->create(['name' => 'Sea Star Overseas']);
-        $this->idle = Reference::factory()->person()->create(['name' => 'Zahid Hasan']);
+        $this->karim = Party::factory()->person()->create(['name' => 'Abdul Karim', 'mobile' => '01711-000000']);
+        $this->star = Party::factory()->agency()->create(['name' => 'Sea Star Overseas']);
+        $this->idle = Party::factory()->person()->create(['name' => 'Zahid Hasan']);
         $this->gulf = Company::factory()->create(['name' => 'Gulf Star']);
 
         referencePassport($this->karim, 'passport', 'not_started');

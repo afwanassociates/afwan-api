@@ -1,8 +1,8 @@
 <?php
 
 use App\Models\Company;
+use App\Models\Party;
 use App\Models\PassportEntry;
-use App\Models\Reference;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
@@ -26,7 +26,7 @@ function overviewCsv(string $query = ''): array
 describe('All Passports CSV export', function () {
     it('downloads every passport with the overview columns and the latest status', function () {
         $company = Company::factory()->create(['name' => 'Alpha Builders', 'country_code' => 'MY']);
-        $reference = Reference::factory()->agency()->create(['name' => 'Sea Star']);
+        $reference = Party::factory()->agency()->create(['name' => 'Sea Star']);
         PassportEntry::factory()->create([
             'passport_name' => 'MD RAHIM',
             'passport_number' => 'A1234567',

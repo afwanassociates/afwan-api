@@ -3,15 +3,17 @@
 namespace App\Enums;
 
 /**
- * Who referred a passport: a person or an agency.
+ * What kind of client a party is: an agency (with an RL number) or a person.
+ * Owners have no kind. Passports name the party who gave them as their
+ * reference (passport_entries.reference_id).
  */
-enum ReferenceType: string
+enum PartyKind: string
 {
     case Person = 'person';
     case Agency = 'agency';
 
     /**
-     * Human readable name of the type.
+     * Human readable name of the kind.
      */
     public function label(): string
     {
@@ -22,7 +24,7 @@ enum ReferenceType: string
     }
 
     /**
-     * All type values as strings.
+     * All kind values as strings.
      *
      * @return list<string>
      */

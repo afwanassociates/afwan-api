@@ -1,8 +1,8 @@
 <?php
 
 use App\Models\Company;
+use App\Models\Party;
 use App\Models\PassportEntry;
-use App\Models\Reference;
 use App\Models\User;
 use App\Services\PassportScanService;
 use Illuminate\Http\UploadedFile;
@@ -27,7 +27,7 @@ function scanForm(UploadedFile|string|null $scan, string $number = 'SC1234567'):
         'passport_number' => $number,
         'country_code' => 'BD',
         'date_of_birth' => '1995-04-12',
-        'reference_id' => Reference::factory()->create()->id,
+        'reference_id' => Party::factory()->create()->id,
         'company_id' => Company::factory()->create()->id,
         'passport_received_date' => now()->subDay()->toDateString(),
         'passport_expiry_date' => now()->addYears(5)->toDateString(),

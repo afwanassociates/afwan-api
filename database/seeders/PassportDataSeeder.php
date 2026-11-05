@@ -2,11 +2,12 @@
 
 namespace Database\Seeders;
 
-use App\Enums\ReferenceType;
+use App\Enums\PartyKind;
+use App\Enums\PartyType;
 use App\Enums\UserRole;
 use App\Models\Company;
+use App\Models\Party;
 use App\Models\PassportEntry;
-use App\Models\Reference;
 use App\Models\User;
 use App\Support\Settings;
 use Illuminate\Database\Seeder;
@@ -14,16 +15,16 @@ use Illuminate\Database\Seeder;
 class PassportDataSeeder extends Seeder
 {
     /**
-     * Sample references: three people and two agencies.
+     * Sample references (client parties): three people and two agencies.
      *
-     * @var array<string, ReferenceType>
+     * @var array<string, PartyKind>
      */
     protected array $references = [
-        'Abdul Karim' => ReferenceType::Person,
-        'Rahima Begum' => ReferenceType::Person,
-        'Jamal Hossain' => ReferenceType::Person,
-        'Sea Star Overseas' => ReferenceType::Agency,
-        'Green Field Recruiting Agency' => ReferenceType::Agency,
+        'Abdul Karim' => PartyKind::Person,
+        'Rahima Begum' => PartyKind::Person,
+        'Jamal Hossain' => PartyKind::Person,
+        'Sea Star Overseas' => PartyKind::Agency,
+        'Green Field Recruiting Agency' => PartyKind::Agency,
     ];
 
     /**
@@ -52,14 +53,21 @@ class PassportDataSeeder extends Seeder
 
         $creator = User::query()->where('role', UserRole::DataEntry)->first();
 
-        $references = collect($this->references)->map(function (ReferenceType $type, string $name) use ($creator) {
-            $reference = Reference::withTrashed()->firstOrNew(['type' => $type, 'name' => $name]);
+        $references = collect(array_keys($this->references))->map(function (string $name, int $index) use ($creator) {
+            $reference = Party::query()->firstOrNew(['type' => PartyType::Client, 'name' => $name]);
+            $reference->kind = $this->references[$name];
+            $reference->mobile ??= '0171100000'.$index;
+            $reference->rl_number ??= $reference->kind === PartyKind::Agency ? 'RL-'.(1001 + $index) : null;
             $reference->is_active = true;
             $reference->created_by ??= $creator?->id;
+            // Seeders may run without model events: number a new party here.
+            if (! $reference->exists) {
+                $reference->assignCode();
+            }
             $reference->save();
 
             return $reference;
-        })->values();
+        });
 
         $companies = collect($this->companies)->map(function (string $name) use ($creator) {
             $company = Company::withTrashed()->firstOrNew(['name' => $name]);

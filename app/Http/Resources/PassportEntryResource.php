@@ -50,8 +50,8 @@ class PassportEntryResource extends JsonResource
             // Null only on old entries saved without a reference.
             'reference' => $this->reference ? [
                 'id' => $this->reference->id,
-                'type' => $this->reference->type->value,
-                'type_label' => $this->reference->type->label(),
+                'type' => $this->reference->kind?->value,
+                'type_label' => $this->reference->kind?->label(),
                 'name' => $this->reference->name,
             ] : null,
             'company' => [

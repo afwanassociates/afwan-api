@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Reports;
 
+use App\Enums\PartyType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Reports\CompanyPassportsRequest;
 use App\Http\Requests\Reports\ReferenceReportRequest;
@@ -9,7 +10,7 @@ use App\Http\Resources\CompanyPassportResource;
 use App\Http\Resources\PassportEntryResource;
 use App\Http\Resources\PassportOverviewResource;
 use App\Models\Company;
-use App\Models\Reference;
+use App\Models\Party;
 use App\Support\LocalDate;
 use App\Support\PassportOverviewCsv;
 use App\Support\ReferenceReport;
@@ -34,7 +35,7 @@ class ReferenceReportController extends Controller
      */
     public function index(ReferenceReportRequest $request): JsonResponse|StreamedResponse
     {
-        Gate::authorize('viewReport', Reference::class);
+        Gate::authorize('viewReport', Party::class);
 
         $query = $this->report->query($request->validated());
 
@@ -45,7 +46,7 @@ class ReferenceReportController extends Controller
         $page = $query->paginate($request->integer('per_page', 50))->withQueryString();
 
         return response()->json([
-            'data' => $page->getCollection()->map(fn (Reference $reference) => $this->report->row($reference))->all(),
+            'data' => $page->getCollection()->map(fn (Party $reference) => $this->report->row($reference))->all(),
             'totals' => $this->report->totals($this->report->query($request->validated())),
             // The chosen reference / company, so the filters can show their names after a reload.
             'filters' => [
@@ -65,9 +66,10 @@ class ReferenceReportController extends Controller
      * A reference's passports, every medical status included (paginated), in
      * the company report's shape. export=csv downloads every one of them.
      */
-    public function passports(CompanyPassportsRequest $request, Reference $reference, PassportOverviewCsv $csv): AnonymousResourceCollection|StreamedResponse
+    public function passports(CompanyPassportsRequest $request, Party $reference, PassportOverviewCsv $csv): AnonymousResourceCollection|StreamedResponse
     {
-        Gate::authorize('viewReport', Reference::class);
+        Gate::authorize('viewReport', Party::class);
+        abort_unless($reference->type === PartyType::Client, 404);
 
         $export = $request->validated('export') === 'csv';
 
@@ -89,7 +91,7 @@ class ReferenceReportController extends Controller
      * Stream the report as UTF-8 CSV (with a BOM so Excel reads it right), a
      * totals row last, and the date in the file name as DD-MM-YYYY.
      *
-     * @param  Builder<Reference>  $query
+     * @param  Builder<Party>  $query
      */
     protected function csv(Builder $query): StreamedResponse
     {
@@ -132,13 +134,13 @@ class ReferenceReportController extends Controller
      */
     protected function filterReference(int|string|null $id): ?array
     {
-        $reference = $id === null ? null : Reference::withTrashed()->find($id);
+        $reference = $id === null ? null : Party::query()->clients()->find($id);
 
         return $reference === null ? null : [
             'id' => $reference->id,
             'name' => $reference->name,
-            'type' => $reference->type->value,
-            'type_label' => $reference->type->label(),
+            'type' => $reference->kind?->value,
+            'type_label' => $reference->kind?->label(),
         ];
     }
 

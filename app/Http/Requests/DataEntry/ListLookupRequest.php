@@ -2,7 +2,7 @@
 
 namespace App\Http\Requests\DataEntry;
 
-use App\Enums\ReferenceType;
+use App\Enums\PartyKind;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -22,7 +22,7 @@ class ListLookupRequest extends FormRequest
     {
         return [
             'q' => ['sometimes', 'nullable', 'string', 'max:100'],
-            'type' => ['sometimes', Rule::enum(ReferenceType::class)],
+            'type' => ['sometimes', Rule::enum(PartyKind::class)],
             // References only: those with passports of this company.
             'company_id' => ['sometimes', 'nullable', 'integer', 'exists:companies,id'],
             'all' => ['sometimes', 'boolean'],

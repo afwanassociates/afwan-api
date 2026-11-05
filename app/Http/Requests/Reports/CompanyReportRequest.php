@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Reports;
 
+use App\Enums\PartyType;
 use App\Support\CompanyReport;
 use App\Support\Normalize;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -32,9 +33,9 @@ class CompanyReportRequest extends FormRequest
 
         return [
             'search' => ['sometimes', 'nullable', 'string', 'max:100'],
-            // Filter by company / by reference (soft-deleted references included).
+            // Filter by company / by reference (a client party, inactive ones included).
             'company_id' => ['sometimes', 'nullable', 'integer', 'exists:companies,id'],
-            'reference_id' => ['sometimes', 'nullable', 'integer', 'exists:references,id'],
+            'reference_id' => ['sometimes', 'nullable', 'integer', Rule::exists('parties', 'id')->where('type', PartyType::Client->value)],
             'country_code' => ['sometimes', 'nullable', 'string', 'size:2'],
             'sort' => ['sometimes', 'nullable', Rule::in([...$sortable, ...array_map(fn (string $column) => "-{$column}", $sortable)])],
             'export' => ['sometimes', 'nullable', Rule::in(['csv'])],

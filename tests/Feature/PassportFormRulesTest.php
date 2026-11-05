@@ -2,8 +2,8 @@
 
 use App\Models\AppSetting;
 use App\Models\Company;
+use App\Models\Party;
 use App\Models\PassportEntry;
-use App\Models\Reference;
 use App\Models\User;
 use App\Support\Settings;
 use Illuminate\Support\Facades\DB;
@@ -22,7 +22,7 @@ function passportForm(array $overrides = []): array
         'passport_number' => 'AB1234567',
         'country_code' => 'BD',
         'date_of_birth' => '1995-04-12',
-        'reference_id' => Reference::factory()->create()->id,
+        'reference_id' => Party::factory()->create()->id,
         'company_id' => Company::factory()->create()->id,
         'passport_received_date' => now()->subDay()->toDateString(),
         'passport_expiry_date' => now()->addYears(5)->toDateString(),
@@ -79,8 +79,8 @@ describe('required fields', function () {
         $reference = match ($case) {
             'unknown' => 999999,
             'not a number' => 'abc',
-            'inactive' => Reference::factory()->create(['is_active' => false])->id,
-            'deleted' => tap(Reference::factory()->create())->delete()->id,
+            'inactive' => Party::factory()->create(['is_active' => false])->id,
+            'deleted' => tap(Party::factory()->create())->delete()->id,
         };
 
         $this->postJson('/api/data-entry/passports', passportForm(['reference_id' => $reference]))
@@ -91,7 +91,7 @@ describe('required fields', function () {
     })->with(['unknown', 'not a number', 'inactive', 'deleted']);
 
     it('creates the passport with a valid reference', function () {
-        $reference = Reference::factory()->create(['name' => 'Abdul Karim']);
+        $reference = Party::factory()->create(['name' => 'Abdul Karim']);
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $id = $this->postJson('/api/data-entry/passports', passportForm(['reference_id' => $reference->id]))

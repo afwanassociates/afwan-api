@@ -5,8 +5,10 @@ namespace App\Models;
 use App\Enums\ApprovalStatus;
 use App\Enums\BalanceType;
 use App\Enums\OwnerDesignation;
+use App\Enums\PartyKind;
 use App\Enums\PartyTransactionType;
 use App\Enums\PartyType;
+use App\Support\Like;
 use App\Support\Normalize;
 use Database\Factories\PartyFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -20,10 +22,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * A party (client) or an owner of the company, with an opening balance and a
- * ledger. type, sequence, code, is_active and created_by are deliberately not
- * fillable: the code is assigned once on insert and never changes.
+ * ledger. A client is an agency or a person (kind) and is also the reference
+ * of the passports it gives. type, sequence, code, is_active and created_by
+ * are deliberately not fillable: the code is assigned once on insert and
+ * never changes.
  */
-#[Fillable(['rl_number', 'name', 'agency_owner_name', 'designation', 'mobile', 'address', 'nid_passport', 'tin_bin', 'opening_balance', 'opening_balance_type'])]
+#[Fillable(['kind', 'rl_number', 'name', 'agency_owner_name', 'designation', 'mobile', 'address', 'nid_passport', 'tin_bin', 'notes', 'opening_balance', 'opening_balance_type'])]
 class Party extends Model
 {
     /** @use HasFactory<PartyFactory> */
@@ -36,6 +40,7 @@ class Party extends Model
     {
         return [
             'type' => PartyType::class,
+            'kind' => PartyKind::class,
             'designation' => OwnerDesignation::class,
             'sequence' => 'integer',
             'opening_balance' => 'decimal:2',
@@ -54,12 +59,24 @@ class Party extends Model
 
     /**
      * A new party gets the next number of its type just before it is inserted.
+     * Only an agency keeps an RL number and an agency owner; owners have no kind.
      */
     protected static function booted(): void
     {
         static::creating(function (Party $party) {
             if ($party->code === null) {
                 $party->assignCode();
+            }
+        });
+
+        static::saving(function (Party $party) {
+            if ($party->type === PartyType::Owner) {
+                $party->kind = null;
+            }
+
+            if ($party->kind === PartyKind::Person) {
+                $party->rl_number = null;
+                $party->agency_owner_name = null;
             }
         });
     }
@@ -95,6 +112,35 @@ class Party extends Model
     protected function active(Builder $query): void
     {
         $query->where('is_active', true);
+    }
+
+    /**
+     * Clients only (agencies and persons): the parties passports can name as
+     * their reference.
+     *
+     * @param  Builder<Party>  $query
+     */
+    #[Scope]
+    protected function clients(Builder $query): void
+    {
+        $query->where('type', PartyType::Client->value);
+    }
+
+    /**
+     * Match a reference search: name, phone, party ID or RL number.
+     *
+     * @param  Builder<Party>  $query
+     */
+    #[Scope]
+    protected function referenceSearch(Builder $query, string $search): void
+    {
+        $pattern = Like::contains($search);
+
+        $query->where(fn (Builder $query) => $query
+            ->where('name', 'like', $pattern)
+            ->orWhere('mobile', 'like', $pattern)
+            ->orWhere('code', 'like', $pattern)
+            ->orWhere('rl_number', 'like', $pattern));
     }
 
     /**
@@ -136,6 +182,16 @@ class Party extends Model
     public function cashPayments(): HasMany
     {
         return $this->hasMany(CashPayment::class);
+    }
+
+    /**
+     * The passports this party gave (it is their reference).
+     *
+     * @return HasMany<PassportEntry, $this>
+     */
+    public function passportEntries(): HasMany
+    {
+        return $this->hasMany(PassportEntry::class, 'reference_id');
     }
 
     /**

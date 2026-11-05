@@ -1,10 +1,10 @@
 <?php
 
-use App\Enums\ReferenceType;
+use App\Enums\PartyKind;
 use App\Models\Company;
 use App\Models\MedicalRecord;
+use App\Models\Party;
 use App\Models\PassportEntry;
-use App\Models\Reference;
 use App\Models\User;
 use App\Services\WorkflowService;
 use Illuminate\Support\Carbon;
@@ -430,8 +430,8 @@ describe('reference filter', function () {
      */
     function referencedPassports(): array
     {
-        $karim = Reference::factory()->create(['type' => ReferenceType::Person, 'name' => 'Abdul Karim']);
-        $agency = Reference::factory()->create(['type' => ReferenceType::Agency, 'name' => 'Sea Star Overseas']);
+        $karim = Party::factory()->create(['kind' => PartyKind::Person, 'name' => 'Abdul Karim']);
+        $agency = Party::factory()->create(['kind' => PartyKind::Agency, 'name' => 'Sea Star Overseas']);
 
         return [
             'karim1' => overviewPassport('fit', attributes: ['reference_id' => $karim->id, 'passport_number' => 'KR1111111']),
@@ -493,8 +493,8 @@ describe('company filter', function () {
     {
         $rose = Company::factory()->create(['name' => 'Desert Rose Construction']);
         $gulf = Company::factory()->create(['name' => 'Gulf Star Catering']);
-        $karim = Reference::factory()->create(['type' => ReferenceType::Person, 'name' => 'Abdul Karim']);
-        $agency = Reference::factory()->create(['type' => ReferenceType::Agency, 'name' => 'Sea Star Overseas']);
+        $karim = Party::factory()->create(['kind' => PartyKind::Person, 'name' => 'Abdul Karim']);
+        $agency = Party::factory()->create(['kind' => PartyKind::Agency, 'name' => 'Sea Star Overseas']);
 
         return [
             'rose1' => overviewPassport('fit', attributes: ['company_id' => $rose->id, 'reference_id' => $karim->id, 'passport_number' => 'DR1111111']),

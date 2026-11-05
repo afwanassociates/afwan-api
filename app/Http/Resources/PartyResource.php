@@ -25,6 +25,9 @@ class PartyResource extends JsonResource
             'code' => $this->code,
             'type' => $this->type->value,
             'type_label' => $this->type->label(),
+            // Clients only: agency or person (an agency has the RL number).
+            'kind' => $this->kind?->value,
+            'kind_label' => $this->kind?->label(),
             'rl_number' => $this->rl_number,
             'name' => $this->name,
             // Clients only: the agency's owner (whose NID / passport is nid_passport).
@@ -35,6 +38,7 @@ class PartyResource extends JsonResource
             'address' => $this->address,
             'nid_passport' => $this->nid_passport,
             'tin_bin' => $this->tin_bin,
+            'notes' => $this->notes,
             'opening_balance' => (float) $this->opening_balance,
             'opening_balance_type' => $this->opening_balance_type->value,
             'is_active' => $this->is_active,

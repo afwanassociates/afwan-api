@@ -6,7 +6,6 @@ use App\Models\MedicalRecord;
 use App\Models\Party;
 use App\Models\PassportEntry;
 use App\Models\PassportStepRecord;
-use App\Models\Reference;
 use App\Models\User;
 use App\Services\DataReset;
 use Illuminate\Support\Carbon;
@@ -67,7 +66,8 @@ describe('delete all data', function () {
             ->assertJsonPath('data.groups.*.key', ['passports', 'companies', 'accounts'])
             ->assertJsonPath('data.groups.0.rows', 3)
             ->assertJsonPath('data.groups.0.files', 1)
-            ->assertJsonPath('data.groups.2.rows', 3)
+            // Two parties (the passport's reference and the receipt's), a receipt and a ledger line.
+            ->assertJsonPath('data.groups.2.rows', 4)
             ->assertJsonPath('data.backups', []);
     });
 
@@ -83,9 +83,12 @@ describe('delete all data', function () {
             ->assertUnprocessable()->assertJsonValidationErrors('groups');
         $this->postJson('/api/super-admin/data-reset', resetPayload(['groups' => ['companies']]))
             ->assertUnprocessable()->assertJsonValidationErrors('groups');
+        // Passports name a party as their reference.
+        $this->postJson('/api/super-admin/data-reset', resetPayload(['groups' => ['accounts']]))
+            ->assertUnprocessable()->assertJsonValidationErrors('groups');
 
         expect(PassportEntry::withTrashed()->count())->toBe(1)
-            ->and(Party::count())->toBe(1)
+            ->and(Party::count())->toBe(2)
             ->and(Storage::disk('local')->allFiles('data-backups'))->toBe([]);
     });
 
@@ -100,7 +103,7 @@ describe('delete all data', function () {
             ->assertJsonPath('data.backup', 'data-backup-2026-10-25-143005.tar.gz')
             ->assertJsonPath('data.files', 1)
             ->assertJsonPath('data.deleted.passport_entries', 1)
-            ->assertJsonPath('data.deleted.parties', 1)
+            ->assertJsonPath('data.deleted.parties', 2)
             ->assertJsonPath('data.groups.0.rows', 0)
             ->assertJsonPath('data.backups.0.created_by', 'Chief')
             ->assertJsonPath('data.backups.0.groups', ['passports', 'companies', 'accounts'])
@@ -115,20 +118,36 @@ describe('delete all data', function () {
             ->and(DB::table('cash_settings')->where('id', 1)->value('opening_date'))->toBeNull();
     });
 
-    it('can delete accounts only and keep passports', function () {
+    it('can delete passports and accounts and keep companies', function () {
         seedEveryGroup();
         Sanctum::actingAs(User::factory()->superAdmin()->create());
 
-        $this->postJson('/api/super-admin/data-reset', resetPayload(['groups' => ['accounts']]))
+        $this->postJson('/api/super-admin/data-reset', resetPayload(['groups' => ['passports', 'accounts']]))
             ->assertOk()
-            ->assertJsonPath('data.files', 0);
+            ->assertJsonPath('data.files', 1);
 
         expect(Party::count())->toBe(0)
             ->and(CashReceipt::count())->toBe(0)
-            ->and(PassportEntry::count())->toBe(1)
-            ->and(Company::count())->toBeGreaterThan(0)
-            ->and(Reference::count())->toBeGreaterThan(0)
-            ->and(Storage::disk('local')->allFiles('passport-scans'))->toHaveCount(1);
+            ->and(PassportEntry::withTrashed()->count())->toBe(0)
+            ->and(Company::count())->toBeGreaterThan(0);
+    });
+
+    it('turns the references of an old backup into client parties', function () {
+        $tables = DataReset::mergeReferences([
+            'passport_entries' => [['id' => 1, 'reference_id' => 7], ['id' => 2, 'reference_id' => 3]],
+            'references' => [
+                ['id' => 7, 'type' => 'agency', 'name' => 'Sea Star', 'phone' => '0171', 'notes' => null, 'is_active' => true, 'deleted_at' => null],
+                ['id' => 3, 'type' => 'person', 'name' => 'Karim', 'phone' => null, 'notes' => 'x', 'is_active' => true, 'deleted_at' => '2026-10-01 00:00:00'],
+            ],
+            'parties' => [['id' => 5, 'type' => 'client', 'sequence' => 2, 'code' => 'PT-0002', 'name' => 'Old']],
+        ]);
+
+        expect($tables)->not->toHaveKey('references')
+            ->and(array_column($tables['parties'], 'kind', 'id'))->toBe([5 => 'agency', 6 => 'person', 7 => 'agency'])
+            ->and(array_column($tables['parties'], 'code', 'id'))->toBe([5 => 'PT-0002', 6 => 'PT-0003', 7 => 'PT-0004'])
+            ->and(array_column($tables['parties'], 'is_active', 'id'))->toBe([5 => null, 6 => false, 7 => true])
+            ->and(array_column($tables['passport_entries'], 'reference_id', 'id'))->toBe([1 => 7, 2 => 6])
+            ->and(array_keys($tables['parties'][0]))->toBe(array_keys($tables['parties'][1]));
     });
 
     it('numbers the passports of a backup made before the entry number existed', function () {

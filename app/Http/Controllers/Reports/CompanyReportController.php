@@ -9,7 +9,7 @@ use App\Http\Resources\CompanyPassportResource;
 use App\Http\Resources\PassportEntryResource;
 use App\Http\Resources\PassportOverviewResource;
 use App\Models\Company;
-use App\Models\Reference;
+use App\Models\Party;
 use App\Support\CompanyReport;
 use App\Support\LocalDate;
 use App\Support\PassportOverviewCsv;
@@ -146,14 +146,14 @@ class CompanyReportController extends Controller
      */
     protected function filterReference(int|string|null $id): ?array
     {
-        $reference = $id === null ? null : Reference::withTrashed()->find($id);
+        $reference = $id === null ? null : Party::query()->clients()->find($id);
 
         return $reference === null ? null : [
             'id' => $reference->id,
             'name' => $reference->name,
-            'type' => $reference->type->value,
-            'type_label' => $reference->type->label(),
-            'phone' => $reference->phone,
+            'type' => $reference->kind?->value,
+            'type_label' => $reference->kind?->label(),
+            'phone' => $reference->mobile,
         ];
     }
 

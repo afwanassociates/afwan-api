@@ -1,9 +1,9 @@
 <?php
 
-use App\Enums\ReferenceType;
+use App\Enums\PartyKind;
 use App\Models\Company;
+use App\Models\Party;
 use App\Models\PassportEntry;
-use App\Models\Reference;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
@@ -21,7 +21,7 @@ function passportPayload(array $overrides = []): array
         'passport_number' => 'AB1234567',
         'country_code' => 'BD',
         'date_of_birth' => '1995-04-12',
-        'reference_id' => $overrides['reference_id'] ?? Reference::factory()->create()->id,
+        'reference_id' => $overrides['reference_id'] ?? Party::factory()->create()->id,
         'company_id' => $overrides['company_id'] ?? Company::factory()->create()->id,
         'passport_received_date' => now()->subDay()->toDateString(),
         'passport_expiry_date' => now()->addYears(5)->toDateString(),
@@ -134,8 +134,8 @@ describe('create', function () {
             ->assertUnprocessable()
             ->assertJsonValidationErrors('reference_id');
     })->with([
-        'inactive' => fn () => fn () => Reference::factory()->inactive()->create()->id,
-        'deleted' => fn () => fn () => tap(Reference::factory()->create())->delete()->id,
+        'inactive' => fn () => fn () => Party::factory()->inactive()->create()->id,
+        'deleted' => fn () => fn () => tap(Party::factory()->create())->delete()->id,
         'missing' => fn () => fn () => 999999,
     ]);
 
@@ -311,8 +311,8 @@ describe('list', function () {
     beforeEach(function () {
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        $this->person = Reference::factory()->person()->create(['name' => 'Abdul Karim']);
-        $this->agency = Reference::factory()->agency()->create(['name' => 'Sea Star Overseas']);
+        $this->person = Party::factory()->person()->create(['name' => 'Abdul Karim']);
+        $this->agency = Party::factory()->agency()->create(['name' => 'Sea Star Overseas']);
         $this->gulf = Company::factory()->create(['name' => 'Gulf Star Catering']);
         $this->pearl = Company::factory()->create(['name' => 'Pearl Coast Facilities']);
 
@@ -344,7 +344,7 @@ describe('list', function () {
         expect($numbers)->toBe($expected);
     })->with([
         'reference_id' => [['reference_id' => 'agency'], ['CC3333333']],
-        'reference_type' => [['reference_type' => ReferenceType::Person->value], ['AA1111111', 'BB2222222']],
+        'reference_type' => [['reference_type' => PartyKind::Person->value], ['AA1111111', 'BB2222222']],
         'company_id' => [['company_id' => 'gulf'], ['AA1111111']],
         'received_from' => [['received_from' => '2026-02-10'], ['BB2222222', 'CC3333333']],
         'received_to' => [['received_to' => '2026-02-10'], ['AA1111111', 'BB2222222']],

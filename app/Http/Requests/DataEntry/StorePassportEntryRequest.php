@@ -3,6 +3,7 @@
 namespace App\Http\Requests\DataEntry;
 
 use App\Enums\MedicalStatus;
+use App\Enums\PartyType;
 use App\Models\PassportEntry;
 use App\Rules\ActiveCountry;
 use App\Rules\PassportScanFile;
@@ -44,7 +45,7 @@ class StorePassportEntryRequest extends FormRequest
             'date_of_birth' => ['required', 'date_format:Y-m-d', 'before:today'],
             // Required (must exist and be active). Old entries saved without one
             // still load; the full edit form asks for it on the next save.
-            'reference_id' => ['required', 'integer', $this->selectable('references', $this->entry()?->reference_id)],
+            'reference_id' => ['required', 'integer', $this->selectableReference($this->entry()?->reference_id)],
             'company_id' => ['required', 'integer', $this->selectable('companies', $this->entry()?->company_id)],
             'passport_received_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
             // Valid for at least 18 months after the passport is received.
@@ -142,6 +143,19 @@ class StorePassportEntryRequest extends FormRequest
         return Rule::exists($table, 'id')->where(fn (Builder $query) => $query
             ->where(fn (Builder $query) => $query->where('is_active', true)->whereNull('deleted_at'))
             ->when($current, fn (Builder $query) => $query->orWhere('id', $current)));
+    }
+
+    /**
+     * An active client party (agency or person), or the one the entry already
+     * has. Parties are never deleted.
+     */
+    protected function selectableReference(?int $current): Exists
+    {
+        return Rule::exists('parties', 'id')->where(fn (Builder $query) => $query
+            ->where('type', PartyType::Client->value)
+            ->where(fn (Builder $query) => $query
+                ->where('is_active', true)
+                ->when($current, fn (Builder $query) => $query->orWhere('id', $current))));
     }
 
     /**

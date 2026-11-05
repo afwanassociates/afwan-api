@@ -2,49 +2,65 @@
 
 namespace App\Http\Requests\DataEntry;
 
-use App\Enums\ReferenceType;
-use App\Models\Reference;
+use App\Enums\PartyKind;
+use App\Http\Requests\Accounts\Concerns\ValidatesClientParty;
+use App\Http\Requests\Accounts\StorePartyRequest;
+use App\Models\Party;
 use App\Support\Normalize;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
+/**
+ * A reference is a client party (agency or person) as the passport team sees
+ * it: the short form of Quick Add and the references page. `type` is the
+ * party's kind and `phone` its mobile. The accounts team fills in the rest
+ * (address, NID / passport, agency owner) on the party form.
+ */
 class StoreReferenceRequest extends FormRequest
 {
+    use ValidatesClientParty;
+
     /**
-     * Normalize the name before the uniqueness check. The passport form has a single
-     * Reference field without a person/agency choice, so a new reference without a
-     * type is stored as a person.
+     * Normalize the name, phone and RL number before the uniqueness checks.
+     * The passport form's Quick Add may send no type: a new reference without
+     * one is a person.
      */
     protected function prepareForValidation(): void
     {
-        if (is_string($this->input('name'))) {
-            $this->merge(['name' => Normalize::name($this->input('name'))]);
+        foreach (['name', 'phone'] as $field) {
+            if (is_string($this->input($field))) {
+                $this->merge([$field => Normalize::name($this->input($field))]);
+            }
         }
 
-        if ($this->reference() === null && ! $this->filled('type')) {
-            $this->merge(['type' => ReferenceType::Person->value]);
+        if (is_string($this->input('rl_number'))) {
+            $this->merge(['rl_number' => Normalize::passportName($this->input('rl_number'))]);
+        }
+
+        foreach (['rl_number', 'notes'] as $field) {
+            if ($this->input($field) === '') {
+                $this->merge([$field => null]);
+            }
+        }
+
+        if ($this->party() === null && ! $this->filled('type')) {
+            $this->merge(['type' => PartyKind::Person->value]);
         }
     }
 
     /**
      * Get the validation rules that apply to the request.
-     * The name is unique within its type; the column collation makes the
-     * comparison case-insensitive. Soft-deleted rows count too.
      *
-     * @return array<string, array<int, ValidationRule|string>>
+     * @return array<string, array<int, ValidationRule|string|mixed>>
      */
     public function rules(): array
     {
-        $type = $this->input('type', $this->reference()?->type->value);
-
         return [
-            'type' => ['required', Rule::enum(ReferenceType::class)],
-            'name' => [
-                'required', 'string', 'max:150',
-                Rule::unique('references', 'name')->where('type', is_string($type) ? $type : '')->ignore($this->reference()),
-            ],
-            'phone' => ['nullable', 'string', 'max:30'],
+            'type' => ['required', Rule::enum(PartyKind::class)],
+            'name' => ['required', 'string', 'max:150', ...$this->clientNameRules()],
+            'phone' => ['required', 'string', 'max:30', 'regex:'.StorePartyRequest::MOBILE_PATTERN],
+            'rl_number' => $this->rlNumberRules(),
             'notes' => ['nullable', 'string', 'max:2000'],
         ];
     }
@@ -57,14 +73,38 @@ class StoreReferenceRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'name.unique' => 'A reference with this name already exists.',
+            ...$this->clientMessages(),
+            'phone.required' => 'Enter the phone number.',
+            'phone.regex' => 'Enter a valid phone number (digits, spaces or dashes, optional +).',
         ];
     }
 
     /**
-     * The reference being edited, or null when creating.
+     * The validated fields as party columns: type is the kind, phone the mobile.
+     *
+     * @return array<string, mixed>
      */
-    public function reference(): ?Reference
+    public function partyAttributes(): array
+    {
+        $columns = ['type' => 'kind', 'name' => 'name', 'phone' => 'mobile', 'rl_number' => 'rl_number', 'notes' => 'notes'];
+        $attributes = [];
+
+        foreach ($this->safe()->only(array_keys($columns)) as $field => $value) {
+            $attributes[$columns[$field]] = $value;
+        }
+
+        return $attributes;
+    }
+
+    protected function kindField(): string
+    {
+        return 'type';
+    }
+
+    /**
+     * The reference (client party) being edited, or null when creating.
+     */
+    public function party(): ?Party
     {
         return $this->route('reference');
     }

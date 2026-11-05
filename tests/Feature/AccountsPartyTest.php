@@ -4,7 +4,10 @@ use App\Models\Party;
 use App\Models\User;
 use Laravel\Sanctum\Sanctum;
 
-/** A client gets an RL number made from its NID (unique like the NID); an owner has none. */
+/**
+ * A client agency gets an RL number and a name made from its NID (unique like
+ * the NID, and a client's name is unique within its kind); an owner has none.
+ */
 function partyPayload(array $overrides = []): array
 {
     $isOwner = ($overrides['type'] ?? 'client') === 'owner';
@@ -13,8 +16,8 @@ function partyPayload(array $overrides = []): array
         'type' => 'client',
         ...($isOwner
             ? ['designation' => 'director']
-            : ['rl_number' => 'RL-'.trim($overrides['nid_passport'] ?? 'AB123456'), 'agency_owner_name' => '  Abdul   Karim ']),
-        'name' => '  Md   Karim  ',
+            : ['kind' => 'agency', 'rl_number' => 'RL-'.trim($overrides['nid_passport'] ?? 'AB123456'), 'agency_owner_name' => '  Abdul   Karim ']),
+        'name' => isset($overrides['nid_passport']) ? 'Md Karim '.trim($overrides['nid_passport']) : '  Md   Karim  ',
         'mobile' => '01711-000000',
         'address' => 'Mirpur 10, Dhaka',
         'nid_passport' => ' ab 123 456 ',
@@ -81,7 +84,13 @@ describe('parties', function () {
 
         $this->postJson('/api/accounts/parties', ['type' => 'supplier'])
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['type', 'name', 'mobile', 'address', 'nid_passport']);
+            ->assertJsonValidationErrors(['type', 'name', 'mobile']);
+        $this->postJson('/api/accounts/parties', ['type' => 'owner'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['name', 'designation', 'mobile', 'address', 'nid_passport']);
+        $this->postJson('/api/accounts/parties', ['type' => 'client', 'name' => 'X', 'mobile' => '01711000000'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['kind' => 'Choose whether the party is an agency or a person.']);
 
         $party = Party::factory()->create();
         $this->patchJson("/api/accounts/parties/{$party->id}", ['type' => 'owner'])
@@ -153,27 +162,58 @@ describe('parties', function () {
             ->assertJsonValidationErrors('designation');
     });
 
-    it('requires the agency owner name for clients and refuses it for owners', function () {
+    it('keeps the agency owner name, address and NID optional for an agency and refuses an agency owner for others', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
 
         $id = $this->postJson('/api/accounts/parties', partyPayload(['nid_passport' => 'N1']))
             ->assertCreated()
             ->assertJsonPath('data.agency_owner_name', 'Abdul Karim')
             ->json('data.id');
-        $this->postJson('/api/accounts/parties', partyPayload(['agency_owner_name' => ' ', 'nid_passport' => '']))
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors([
-                'agency_owner_name' => 'Enter the agency owner name.',
-                'nid_passport' => "Enter the agency owner's NID or passport number.",
-            ]);
+        $this->postJson('/api/accounts/parties', partyPayload(['agency_owner_name' => ' ', 'nid_passport' => '', 'address' => '', 'name' => 'Short Agency', 'rl_number' => 'RL-SHORT']))
+            ->assertCreated()
+            ->assertJsonPath('data.agency_owner_name', null)
+            ->assertJsonPath('data.nid_passport', null)
+            ->assertJsonPath('data.address', null);
         $this->postJson('/api/accounts/parties', partyPayload(['nid_passport' => 'N3', 'type' => 'owner', 'agency_owner_name' => 'X']))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('agency_owner_name');
+        $this->postJson('/api/accounts/parties', partyPayload(['nid_passport' => 'N4', 'kind' => 'person', 'rl_number' => null, 'agency_owner_name' => 'X']))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['agency_owner_name' => 'Only agencies have an agency owner.']);
 
         $this->patchJson("/api/accounts/parties/{$id}", ['agency_owner_name' => 'Rahim Uddin'])
             ->assertOk()
             ->assertJsonPath('data.agency_owner_name', 'Rahim Uddin');
         $this->getJson('/api/accounts/parties?q=rahim')->assertJsonPath('data.*.id', [$id]);
+    });
+
+    it('takes a person client with only a name and a mobile, without an RL number', function () {
+        Sanctum::actingAs(User::factory()->accounts()->create());
+
+        $id = $this->postJson('/api/accounts/parties', ['type' => 'client', 'kind' => 'person', 'name' => 'Abdul Karim', 'mobile' => '01711000000'])
+            ->assertCreated()
+            ->assertJsonPath('data.kind', 'person')
+            ->assertJsonPath('data.kind_label', 'Person')
+            ->assertJsonPath('data.rl_number', null)
+            ->json('data.id');
+
+        $this->postJson('/api/accounts/parties', ['type' => 'client', 'kind' => 'person', 'name' => 'Rahim', 'mobile' => '01711000000', 'rl_number' => 'RL-1'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['rl_number' => 'Only agencies have an RL number.']);
+        $this->postJson('/api/accounts/parties', ['type' => 'client', 'kind' => 'person', 'name' => 'Rahim'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['mobile' => 'Enter the mobile number.']);
+        $this->postJson('/api/accounts/parties', ['type' => 'client', 'kind' => 'person', 'name' => 'abdul  KARIM', 'mobile' => '01711000000'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['name' => 'A person with this name already exists.']);
+
+        // Turning the person into an agency needs an RL number.
+        $this->patchJson("/api/accounts/parties/{$id}", ['kind' => 'agency'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('rl_number');
+        $this->patchJson("/api/accounts/parties/{$id}", ['kind' => 'agency', 'rl_number' => 'RL-55'])
+            ->assertOk()
+            ->assertJsonPath('data.kind', 'agency');
     });
 
     it('never deletes a party or owner, for anyone', function (string $role) {

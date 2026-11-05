@@ -1,8 +1,8 @@
 <?php
 
 use App\Models\Company;
+use App\Models\Party;
 use App\Models\PassportEntry;
-use App\Models\Reference;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
@@ -14,7 +14,7 @@ beforeEach(function () {
 /**
  * `$count` not-started passports of a company through a reference.
  */
-function referencePassportsOf(Company $company, Reference $reference, int $count): void
+function referencePassportsOf(Company $company, Party $reference, int $count): void
 {
     PassportEntry::factory()->count($count)->create([
         'company_id' => $company->id,
@@ -29,8 +29,8 @@ describe('company report company and reference filters', function () {
     it('filters by reference: only its passports, only companies that have some', function () {
         $alpha = Company::factory()->create(['name' => 'Alpha Builders', 'country_code' => 'MY', 'quota' => 10]);
         $beta = Company::factory()->create(['name' => 'Beta Foods', 'country_code' => 'MY']);
-        $star = Reference::factory()->agency()->create(['name' => 'Sea Star Overseas']);
-        $karim = Reference::factory()->person()->create(['name' => 'Abdul Karim']);
+        $star = Party::factory()->agency()->create(['name' => 'Sea Star Overseas']);
+        $karim = Party::factory()->person()->create(['name' => 'Abdul Karim']);
         referencePassportsOf($alpha, $star, 2);
         referencePassportsOf($alpha, $karim, 3);
         referencePassportsOf($beta, $karim, 1);
@@ -54,7 +54,7 @@ describe('company report company and reference filters', function () {
     it('filters by company, also together with a reference', function () {
         $alpha = Company::factory()->create(['name' => 'Alpha Builders', 'country_code' => 'MY']);
         $beta = Company::factory()->create(['name' => 'Beta Foods', 'country_code' => 'MY']);
-        $karim = Reference::factory()->person()->create(['name' => 'Abdul Karim']);
+        $karim = Party::factory()->person()->create(['name' => 'Abdul Karim']);
         referencePassportsOf($alpha, $karim, 3);
         referencePassportsOf($beta, $karim, 1);
         Sanctum::actingAs(User::factory()->dataEntry()->create());
@@ -77,7 +77,7 @@ describe('company report company and reference filters', function () {
     it('exports only the filtered rows as CSV', function () {
         $alpha = Company::factory()->create(['name' => 'Alpha Builders', 'country_code' => 'MY']);
         Company::factory()->create(['name' => 'Beta Foods', 'country_code' => 'MY']);
-        $star = Reference::factory()->agency()->create(['name' => 'Sea Star']);
+        $star = Party::factory()->agency()->create(['name' => 'Sea Star']);
         referencePassportsOf($alpha, $star, 1);
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
@@ -91,9 +91,9 @@ describe('reference dropdowns limited to a company', function () {
     it('lists only references with passports of the company, in the lookup and the reference report', function () {
         $alpha = Company::factory()->create(['country_code' => 'MY']);
         $beta = Company::factory()->create(['country_code' => 'MY']);
-        $star = Reference::factory()->agency()->create(['name' => 'Sea Star']);
-        $karim = Reference::factory()->person()->create(['name' => 'Abdul Karim']);
-        Reference::factory()->person()->create(['name' => 'No Passports']);
+        $star = Party::factory()->agency()->create(['name' => 'Sea Star']);
+        $karim = Party::factory()->person()->create(['name' => 'Abdul Karim']);
+        Party::factory()->person()->create(['name' => 'No Passports']);
         referencePassportsOf($alpha, $star, 1);
         referencePassportsOf($beta, $karim, 1);
         // A deleted passport does not count.

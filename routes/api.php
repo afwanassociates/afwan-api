@@ -99,11 +99,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
     });
 
-    // Full company and reference management: the operations head only (CompanyPolicy and
-    // ReferencePolicy "manage"). Admins see companies through the read-only reports.
+    // Full company and reference management: the operations head only (CompanyPolicy "manage"
+    // and PartyPolicy "manageReferences"). References are client parties and are never
+    // deleted. Admins see companies through the read-only reports.
     Route::prefix('admin')->name('admin.')->middleware('role:operation_head')->group(function () {
         Route::apiResource('companies', AdminCompanyController::class);
-        Route::apiResource('references', AdminReferenceController::class)->except('show');
+        Route::apiResource('references', AdminReferenceController::class)->except(['show', 'destroy']);
     });
 
     // Staff accounts: admins manage the heads, accounts and data entry users; the accounts head
@@ -185,11 +186,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/step-records/{stepRecord}', [StepRecordController::class, 'update'])->name('step-records.update');
         Route::delete('/step-records/{stepRecord}', [StepRecordController::class, 'destroy'])->name('step-records.destroy');
 
-        // Search dropdowns and Quick Add for the passport team; editing and deleting are
-        // for the operations head and kept here for older clients (same as /admin/...).
+        // Search dropdowns and Quick Add for the passport team; editing (references) and
+        // deleting (companies) are for the operations head and kept here for older clients
+        // (same as /admin/...). References are client parties: nobody deletes them.
         Route::apiResource('references', ReferenceController::class)->only(['index', 'store']);
         Route::patch('/references/{reference}', [AdminReferenceController::class, 'update'])->name('references.update');
-        Route::delete('/references/{reference}', [AdminReferenceController::class, 'destroy'])->name('references.destroy');
         Route::apiResource('companies', CompanyController::class)->only(['index', 'store']);
         Route::patch('/companies/{company}', [AdminCompanyController::class, 'update'])->name('companies.update');
         Route::delete('/companies/{company}', [AdminCompanyController::class, 'destroy'])->name('companies.destroy');
