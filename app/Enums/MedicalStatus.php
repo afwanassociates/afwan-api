@@ -3,6 +3,7 @@
 namespace App\Enums;
 
 use App\Models\MedicalRecord;
+use App\Support\DateRules;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Database\Query\Builder;
 
@@ -51,7 +52,7 @@ enum MedicalStatus: string
      * The status for a passport whose current medical record is $record and
      * whose medical slip date is (or is not) entered.
      */
-    public static function fromRecord(?MedicalRecord $record, CarbonImmutable $today, bool $slipEntered = true): self
+    public static function fromRecord(?MedicalRecord $record, CarbonImmutable $today, bool $slipEntered = true, ?string $country = null): self
     {
         if ($record === null) {
             return $slipEntered ? self::Pending : self::NotStarted;
@@ -65,7 +66,7 @@ enum MedicalStatus: string
 
         return match (true) {
             $validUntil < $today->toDateString() => self::Expired,
-            $validUntil <= self::expiringSoonLimit($today)->toDateString() => self::ExpiringSoon,
+            $validUntil <= self::expiringSoonLimit($today, $country)->toDateString() => self::ExpiringSoon,
             default => self::Fit,
         };
     }
@@ -76,6 +77,8 @@ enum MedicalStatus: string
      */
     public function applyTo(Builder $query, string $alias, CarbonImmutable $today): void
     {
+        [$soonSql, $soonBindings] = $this === self::ExpiringSoon ? self::expiringSoonLimitSql($today) : ['?', []];
+
         match ($this) {
             self::NotStarted => $query->whereNull("{$alias}.id")->whereNull('passport_entries.medical_slip_date'),
             self::Pending => $query->whereNull("{$alias}.id")->whereNotNull('passport_entries.medical_slip_date'),
@@ -83,17 +86,34 @@ enum MedicalStatus: string
             self::Fit => $query->where("{$alias}.result", MedicalResult::Fit->value)
                 ->where("{$alias}.valid_until", '>=', $today->toDateString()),
             self::ExpiringSoon => $query->where("{$alias}.result", MedicalResult::Fit->value)
-                ->whereBetween("{$alias}.valid_until", [$today->toDateString(), self::expiringSoonLimit($today)->toDateString()]),
+                ->where("{$alias}.valid_until", '>=', $today->toDateString())
+                // Each passport's limit by its company country (Settings → Date rules).
+                ->whereRaw("{$alias}.valid_until <= {$soonSql}", $soonBindings),
             self::Expired => $query->where("{$alias}.result", MedicalResult::Fit->value)
                 ->where("{$alias}.valid_until", '<', $today->toDateString()),
         };
     }
 
     /**
-     * The last valid_until date that still counts as expiring soon.
+     * The last valid_until date that still counts as expiring soon (the "Medical expiring
+     * soon" date rule).
      */
-    public static function expiringSoonLimit(CarbonImmutable $today): CarbonImmutable
+    public static function expiringSoonLimit(CarbonImmutable $today, ?string $country = null): CarbonImmutable
     {
-        return $today->addDays((int) config('medical.expiring_soon_days'));
+        return $today->addDays(app(DateRules::class)->get(DateRules::MEDICAL_EXPIRING_SOON_DAYS, $country));
+    }
+
+    /**
+     * The same limit as SQL for a query over passport_entries: each passport by its
+     * company's country (a plain placeholder when no country has its own value).
+     *
+     * @return array{0: string, 1: list<string|int>}
+     */
+    public static function expiringSoonLimitSql(CarbonImmutable $today): array
+    {
+        return app(DateRules::class)->perCountrySql(
+            DateRules::MEDICAL_EXPIRING_SOON_DAYS,
+            fn (int $days) => $today->addDays($days)->toDateString(),
+        );
     }
 }

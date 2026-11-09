@@ -8,6 +8,7 @@ use App\Models\PassportEntry;
 use App\Models\User;
 use App\Services\MedicalService;
 use App\Services\WorkflowService;
+use App\Support\DateRules;
 use App\Support\LocalDate;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -89,7 +90,7 @@ class MedicalRecordFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'result' => MedicalResult::Fit,
-            'medical_date' => LocalDate::parse($date)->subMonthsNoOverflow((int) config('medical.validity_months'))->toDateString(),
+            'medical_date' => LocalDate::parse($date)->subDays(app(DateRules::class)->get(DateRules::MEDICAL_VALIDITY_DAYS))->toDateString(),
             'valid_until' => $date,
         ]);
     }

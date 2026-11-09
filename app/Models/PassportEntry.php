@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\EntryMode;
 use App\Enums\MedicalResult;
 use App\Enums\MedicalStatus;
+use App\Support\DateRules;
 use App\Support\LocalDate;
 use App\Support\Normalize;
 use Database\Factories\PassportEntryFactory;
@@ -255,7 +256,12 @@ class PassportEntry extends Model
      */
     public function medicalStatus(): MedicalStatus
     {
-        return MedicalStatus::fromRecord($this->currentMedical, LocalDate::today(), $this->medical_slip_date !== null);
+        return MedicalStatus::fromRecord(
+            $this->currentMedical,
+            LocalDate::today(),
+            $this->medical_slip_date !== null,
+            app(DateRules::class)->countryOf($this, DateRules::MEDICAL_EXPIRING_SOON_DAYS),
+        );
     }
 
     /**

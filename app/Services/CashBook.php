@@ -24,16 +24,28 @@ use Illuminate\Validation\ValidationException;
  * count.
  *
  * Every cash write runs through guarded(): it locks the cash settings row,
- * writes, and rolls back if cash in hand would close below zero on any day.
- * Amounts are worked in paisa (integers) so totals never drift.
+ * writes, and rolls back if cash in hand, the bank or mobile banking would
+ * close below zero on any day. Amounts are worked in paisa (integers) so
+ * totals never drift.
  */
 class CashBook
 {
+    /** The accounts besides cash in hand that may not be overdrawn, with the words for the error. */
+    private const ACCOUNTS = [
+        'bank' => 'Not enough money in the bank: the bank balance would be',
+        'mobile_banking' => 'Not enough money in mobile banking: the mobile banking balance would be',
+    ];
+
     /**
      * Run a cash write and refuse it (422 on $field) if any day would close
-     * with negative cash in hand. With $asIfApproved, the entry the write
-     * returns is counted as if it were approved, so a pending entry that could
-     * never be approved is refused when it is saved, not later.
+     * with negative cash in hand, or if it takes the bank or mobile banking
+     * below zero on any day. With $asIfApproved, the entry the write returns is
+     * counted as if it were approved, so a pending entry that could never be
+     * approved is refused when it is saved, not later.
+     *
+     * The bank and mobile banking have no opening balance, so books kept before
+     * this check may already dip below zero: a write is refused there only when
+     * it makes the lowest balance lower, never for an older shortfall.
      *
      * @template T
      *
@@ -45,9 +57,13 @@ class CashBook
         return DB::transaction(function () use ($write, $field, $asIfApproved) {
             CashSetting::current(lock: true);
 
+            $lowestBefore = $this->lowestAccountBalances();
+
             $result = $write();
 
-            $this->assertNeverNegative($field, $asIfApproved && $result instanceof Model ? $result : null);
+            $also = $asIfApproved && $result instanceof Model ? $result : null;
+            $this->assertNeverNegative($field, $also);
+            $this->assertAccountsNotOverdrawn($field, $lowestBefore, $also);
 
             return $result;
         });
@@ -253,6 +269,74 @@ class CashBook
     }
 
     /**
+     * Throw if the write took the bank or mobile banking below zero on some day
+     * and lower than its lowest balance before the write ($lowestBefore).
+     *
+     * @param  array<string, array{0: int, 1: string|null}>  $lowestBefore
+     */
+    private function assertAccountsNotOverdrawn(string $field, array $lowestBefore, ?Model $alsoCount = null): void
+    {
+        foreach ($this->lowestAccountBalances($alsoCount) as $account => [$lowest, $date]) {
+            if ($lowest < 0 && $lowest < $lowestBefore[$account][0]) {
+                throw ValidationException::withMessages([
+                    $field => self::ACCOUNTS[$account].' −৳'.number_format(-$lowest / 100, 2)
+                        .' on '.self::displayDate((string) $date).'.',
+                ]);
+            }
+        }
+    }
+
+    /**
+     * The lowest closing balance (paisa, zero at most) of the bank and of mobile
+     * banking over every day, and the first day it is reached (null when it never
+     * goes below zero). $also is counted as approved too.
+     *
+     * @return array<string, array{0: int, 1: string|null}>
+     */
+    private function lowestAccountBalances(?Model $also = null): array
+    {
+        $lowest = [];
+
+        foreach (array_keys(self::ACCOUNTS) as $account) {
+            $balance = 0;
+            $min = 0;
+            $minDate = null;
+
+            foreach ($this->accountDailyNet(PaymentMethod::from($account), $also) as $date => $net) {
+                $balance += $net;
+
+                if ($balance < $min) {
+                    $min = $balance;
+                    $minDate = $date;
+                }
+            }
+
+            $lowest[$account] = [$min, $minDate];
+        }
+
+        return $lowest;
+    }
+
+    /**
+     * Net movement of the bank (or mobile banking) per day in paisa, oldest
+     * first, of approved entries and $also: receipts and cash put in, less
+     * payments and cash taken out.
+     *
+     * @return array<string, int>
+     */
+    private function accountDailyNet(PaymentMethod $account, ?Model $also = null): array
+    {
+        return $this->netByDay([
+            DB::table('cash_receipts')->where('payment_method', $account->value)
+                ->selectRaw('date, SUM(amount) as net'),
+            DB::table('cash_payments')->where('payment_method', $account->value)
+                ->selectRaw('date, -SUM(amount) as net'),
+            DB::table('cash_transfers')->where('channel', $account->value)
+                ->selectRaw('date, SUM(CASE WHEN direction = ? THEN amount ELSE -amount END) as net', [TransferDirection::Deposit->value]),
+        ], also: $also);
+    }
+
+    /**
      * Net cash movement of approved entries per day in paisa, oldest first,
      * optionally limited to days before $before or up to $to. $also is counted
      * as approved too.
@@ -260,6 +344,25 @@ class CashBook
      * @return array<string, int>
      */
     private function dailyNet(?string $before = null, ?string $to = null, ?Model $also = null): array
+    {
+        return $this->netByDay([
+            DB::table('cash_receipts')->where('payment_method', PaymentMethod::Cash->value)
+                ->selectRaw('date, SUM(amount) as net'),
+            DB::table('cash_payments')->where('payment_method', PaymentMethod::Cash->value)
+                ->selectRaw('date, -SUM(amount) as net'),
+            DB::table('cash_transfers')
+                ->selectRaw('date, SUM(CASE WHEN direction = ? THEN amount ELSE -amount END) as net', [TransferDirection::Withdrawal->value]),
+        ], $before, $to, $also);
+    }
+
+    /**
+     * Sum the "net" of each query per day (approved rows and $also only), in
+     * paisa, oldest first.
+     *
+     * @param  list<Builder>  $queries
+     * @return array<string, int>
+     */
+    private function netByDay(array $queries, ?string $before = null, ?string $to = null, ?Model $also = null): array
     {
         $limit = function (Builder $query) use ($before, $to, $also) {
             return $query
@@ -270,17 +373,8 @@ class CashBook
                 ->groupBy('date');
         };
 
-        $rows = [
-            ...$limit(DB::table('cash_receipts')->where('payment_method', PaymentMethod::Cash->value)
-                ->selectRaw('date, SUM(amount) as net'))->get(),
-            ...$limit(DB::table('cash_payments')->where('payment_method', PaymentMethod::Cash->value)
-                ->selectRaw('date, -SUM(amount) as net'))->get(),
-            ...$limit(DB::table('cash_transfers')
-                ->selectRaw('date, SUM(CASE WHEN direction = ? THEN amount ELSE -amount END) as net', [TransferDirection::Withdrawal->value]))->get(),
-        ];
-
         $net = [];
-        foreach ($rows as $row) {
+        foreach (array_merge(...array_map(fn (Builder $query) => $limit($query)->get()->all(), $queries)) as $row) {
             $date = substr((string) $row->date, 0, 10);
             $net[$date] = ($net[$date] ?? 0) + self::cents($row->net);
         }

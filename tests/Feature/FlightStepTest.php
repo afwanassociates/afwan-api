@@ -107,12 +107,12 @@ describe('tabs', function () {
             ->and(flightTab('pending'))->toBe([$passport->id]);
     });
 
-    it('has only the Pending and Flight confirmed tabs', function () {
+    it('has only the Pending and Flight done tabs', function () {
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->getJson('/api/data-entry/workflow/config')
-            ->assertJsonPath('data.steps.5.tabs', [['key' => 'pending', 'label' => 'Pending'], ['key' => 'confirmed', 'label' => 'Flight confirmed']])
-            ->assertJsonPath('data.steps.5.statuses', [['value' => 'in_process', 'label' => 'Booked'], ['value' => 'completed', 'label' => 'Flight confirmed']])
+            ->assertJsonPath('data.steps.5.tabs', [['key' => 'pending', 'label' => 'Pending'], ['key' => 'confirmed', 'label' => 'Flight done']])
+            ->assertJsonPath('data.steps.5.statuses', [['value' => 'in_process', 'label' => 'Booked'], ['value' => 'completed', 'label' => 'Flight done']])
             ->assertJsonPath('data.steps.5.fields.*.name', ['booking_date', 'confirmed_date']);
 
         expect(array_keys($this->getJson('/api/data-entry/steps/flight/passports')->assertOk()->json('tab_counts')))->toBe(['pending', 'confirmed']);
@@ -189,7 +189,7 @@ describe('tabs', function () {
             ->and(flightStatusText($booked))->toBe('Flight booked (20-05-2026) - BMET pending')
             ->and(flightStatusText($bmetOnly))->toBe('BMET cleared - flight booking date pending')
             ->and(flightStatusText($ready))->toBe('Ready to confirm flight')
-            ->and(flightStatusText($confirmed))->toBe('Flight confirmed (28-04-2026)')
+            ->and(flightStatusText($confirmed))->toBe('Flight done (28-04-2026)')
             ->and([$booked->current_stage, $booked->stage_status])->toBe(['bmet', 'waiting'])
             ->and([$bmetOnly->current_stage, $bmetOnly->stage_status])->toBe(['flight', 'waiting'])
             ->and([$ready->current_stage, $ready->stage_status])->toBe(['flight', 'in_process'])
@@ -321,7 +321,7 @@ describe('confirm', function () {
         $this->postJson(flightUrl($passport, 'confirm'))
             ->assertOk()
             ->assertJsonPath('data.status', 'completed')
-            ->assertJsonPath('data.status_label', 'Flight confirmed')
+            ->assertJsonPath('data.status_label', 'Flight done')
             ->assertJsonPath('data.step_date', '2026-05-01')
             ->assertJsonPath('data.details.confirmed_date', '2026-05-01')
             ->assertJsonPath('data.details.booking_date', '2026-06-15')
@@ -330,7 +330,7 @@ describe('confirm', function () {
 
         expect(flightTab('confirmed'))->toBe([$passport->id])
             ->and(flightTab('pending'))->toBe([])
-            ->and(flightStatusText($passport))->toBe('Flight confirmed (01-05-2026)')
+            ->and(flightStatusText($passport))->toBe('Flight done (01-05-2026)')
             ->and($this->getJson('/api/data-entry/workflow/summary')->json('data.stages.flight'))->toBe(['total' => 0, 'waiting' => 0]);
 
         $this->postJson(flightUrl($passport, 'confirm'))

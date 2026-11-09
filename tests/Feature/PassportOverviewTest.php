@@ -41,10 +41,10 @@ function overviewPassport(string $state, string $received = '2026-01-15', array 
 
     match ($state) {
         'not_started', 'pending' => null,
-        // Medical 2026-03-30.
+        // Medical 2026-04-01 (90 days before).
         'fit' => $factory->validUntil('2026-06-30')->create(),
         'marked_online' => $factory->validUntil('2026-06-30')->create(),
-        // Medical 2026-02-10.
+        // Medical 2026-02-09.
         'expiring_soon' => $factory->validUntil('2026-05-10')->create(),
         // Medical 2026-01-30; valid until yesterday in Dhaka (still today in UTC).
         'expired' => $factory->validUntil('2026-04-30')->create(),
@@ -84,11 +84,11 @@ describe('latest status', function () {
         ]],
         'fit, not marked Online yet' => ['fit', [
             'stage' => 'medical', 'stage_label' => 'Medical', 'status' => 'fit', 'status_label' => 'Fit - not marked',
-            'text' => 'Medical fit - mark Online', 'tone' => 'amber', 'date' => '2026-03-30',
+            'text' => 'Medical fit - mark Online', 'tone' => 'amber', 'date' => '2026-04-01',
         ]],
         'fit and expiring soon, not marked' => ['expiring_soon', [
             'stage' => 'medical', 'stage_label' => 'Medical', 'status' => 'fit', 'status_label' => 'Fit - not marked',
-            'text' => 'Medical fit - mark Online', 'tone' => 'amber', 'date' => '2026-02-10',
+            'text' => 'Medical fit - mark Online', 'tone' => 'amber', 'date' => '2026-02-09',
         ]],
         'fit but expired (Dhaka date)' => ['expired', [
             'stage' => 'medical', 'stage_label' => 'Medical', 'status' => 'expired', 'status_label' => 'Expired',
@@ -96,7 +96,7 @@ describe('latest status', function () {
         ]],
         'fit and marked Online' => ['marked_online', [
             'stage' => 'calling', 'stage_label' => 'Calling / Work Permit', 'status' => 'waiting', 'status_label' => 'Ready (Online)',
-            'text' => 'Ready for Calling (Online)', 'tone' => 'amber', 'date' => '2026-03-30',
+            'text' => 'Ready for Calling (Online)', 'tone' => 'amber', 'date' => '2026-04-01',
         ]],
     ]);
 
@@ -120,13 +120,13 @@ describe('latest status', function () {
         $passport = overviewPassport('fit');
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        expect(overview()->json('data.0.latest_status'))->toMatchArray(['text' => 'Medical fit - mark Online', 'date' => '2026-03-30']);
+        expect(overview()->json('data.0.latest_status'))->toMatchArray(['text' => 'Medical fit - mark Online', 'date' => '2026-04-01']);
 
         // valid_until is 2026-06-30: 00:30 on 1 July in Dhaka is still 30 June in UTC.
         Carbon::setTestNow(Carbon::parse('2026-07-01 00:30', 'Asia/Dhaka')->utc());
 
-        expect(overview()->json('data.0.latest_status'))->toMatchArray(['text' => 'Medical: Expired', 'status' => 'expired', 'date' => '2026-03-30'])
-            ->and($passport->fresh()->stage_status_date->toDateString())->toBe('2026-03-30');
+        expect(overview()->json('data.0.latest_status'))->toMatchArray(['text' => 'Medical: Expired', 'status' => 'expired', 'date' => '2026-04-01'])
+            ->and($passport->fresh()->stage_status_date->toDateString())->toBe('2026-04-01');
     });
 });
 
@@ -179,9 +179,9 @@ describe('stage_status_date', function () {
 
         expect(app(WorkflowService::class)->recomputeAll(chunk: 2))->toBe(4)
             ->and($pending->fresh()->stage_status_date->toDateString())->toBe('2026-02-01')
-            ->and($fit->fresh()->stage_status_date->toDateString())->toBe('2026-03-30')
+            ->and($fit->fresh()->stage_status_date->toDateString())->toBe('2026-04-01')
             ->and($unfit->fresh()->stage_status_date->toDateString())->toBe('2026-04-20')
-            ->and(PassportEntry::withTrashed()->find($deleted->id)->stage_status_date->toDateString())->toBe('2026-03-30');
+            ->and(PassportEntry::withTrashed()->find($deleted->id)->stage_status_date->toDateString())->toBe('2026-04-01');
     });
 
     it('is set by recompute from the records, for each case', function () {
@@ -278,7 +278,7 @@ describe('overview list', function () {
 
     it('ignores sort in the overview, always newest first, and still paginates', function () {
         $unfit = overviewPassport('unfit');      // status date 2026-04-20
-        $fit = overviewPassport('fit');          // 2026-03-30
+        $fit = overviewPassport('fit');          // 2026-04-01
         $pending = overviewPassport('pending', '2026-02-01');
         $expired = overviewPassport('expired');  // 2026-01-30
         Sanctum::actingAs(User::factory()->dataEntry()->create());
@@ -301,7 +301,7 @@ describe('overview list', function () {
 
     it('keeps sorting in the other modes', function () {
         $unfit = overviewPassport('unfit');      // status date 2026-04-20
-        $fit = overviewPassport('fit');          // 2026-03-30
+        $fit = overviewPassport('fit');          // 2026-04-01
         $pending = overviewPassport('pending', '2026-02-01');
         $expired = overviewPassport('expired');  // 2026-01-30
         Sanctum::actingAs(User::factory()->dataEntry()->create());

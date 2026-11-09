@@ -139,7 +139,7 @@ describe('fit result dates', function () {
 
         $this->getJson('/api/data-entry/defaults')
             ->assertOk()
-            ->assertJsonPath('data.medical_validity_months', 3)
+            ->assertJsonPath('data.medical_validity_days', 90)
             ->assertJsonPath('data.medical_expiring_soon_days', 14);
     });
 });

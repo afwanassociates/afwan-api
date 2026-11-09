@@ -117,7 +117,7 @@ describe('config', function () {
             ->and($phases('flight'))->toBe(['booking_date' => 'booking', 'confirmed_date' => 'confirm'])
             ->and($steps['flight']['statuses'])->toBe([
                 ['value' => 'in_process', 'label' => 'Booked'],
-                ['value' => 'completed', 'label' => 'Flight confirmed'],
+                ['value' => 'completed', 'label' => 'Flight done'],
             ]);
     });
 });
@@ -145,7 +145,7 @@ describe('tabs', function () {
             'id' => $passport->id,
             'passport_number' => 'AB1234567',
             'reference' => ['id' => $karim->id, 'name' => 'Abdul Karim'],
-            'company' => ['id' => $rose->id, 'name' => 'Desert Rose Construction'],
+            'company' => ['id' => $rose->id, 'name' => 'Desert Rose Construction', 'country_code' => $rose->country_code],
             // The calling record (completed 2026-04-02).
             'previous_step_completed_on' => '2026-04-02',
         ])

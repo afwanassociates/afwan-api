@@ -3,6 +3,7 @@
 use App\Console\Commands\ResetBusinessData;
 use App\Enums\StepStatus;
 use App\Models\AppSetting;
+use App\Models\CashReceipt;
 use App\Models\Company;
 use App\Models\Country;
 use App\Models\MedicalCenter;
@@ -92,6 +93,11 @@ beforeEach(function () {
     $return->returned_by = $dataEntry->id;
     $return->save();
 
+    // A cash receipt that pays for the passport: the receipt stays, the link goes.
+    $receipt = CashReceipt::factory()->create(['party_id' => $this->passport->reference_id]);
+    $lineId = DB::table('cash_receipt_lines')->insertGetId(['cash_receipt_id' => $receipt->id, 'company_id' => $this->passport->company_id, 'amount' => 100]);
+    DB::table('cash_receipt_passports')->insert(['cash_receipt_id' => $receipt->id, 'cash_receipt_line_id' => $lineId, 'passport_entry_id' => $this->passport->id]);
+
     // Scan files (fake disk).
     $disk = Storage::disk(PassportScanService::DISK);
     $disk->put("passport-scans/{$this->passport->id}/scan.jpg", 'jpg');
@@ -149,11 +155,13 @@ it('prints the KEEP and CLEAR lists with their row counts', function () {
             ['KEEP', 'medical_centers', MedicalCenter::query()->count()],
             // The passport's reference: parties are never cleared.
             ['KEEP', 'parties', 1],
-            ['KEEP', 'cash_receipts', 0],
+            ['KEEP', 'cash_receipts', 1],
             ['KEEP', 'party_transactions', 0],
             ['KEEP', 'cash_payments', 0],
             ['KEEP', 'cash_transfers', 0],
             ['KEEP', 'cash_settings', 1],
+            ['CLEAR', 'cash_receipt_passports', 1],
+            ['CLEAR', 'cash_receipt_lines', 1],
             ['CLEAR', 'passport_step_records', 2],
             ['CLEAR', 'medical_records', 1],
             ['CLEAR', 'passport_entries', 1],

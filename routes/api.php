@@ -9,6 +9,7 @@ use App\Http\Controllers\Accounts\ExpenseController;
 use App\Http\Controllers\Accounts\OwnerLoanController;
 use App\Http\Controllers\Accounts\PartyController;
 use App\Http\Controllers\Accounts\PartyLedgerController;
+use App\Http\Controllers\Accounts\PartyPassportsController;
 use App\Http\Controllers\Accounts\PartyTransactionController;
 use App\Http\Controllers\Accounts\ReceiptOptionsController;
 use App\Http\Controllers\Admin\CompanyController as AdminCompanyController;
@@ -46,6 +47,7 @@ use App\Http\Controllers\Reports\ReturnedPassportController;
 use App\Http\Controllers\Reports\SummaryReportController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SuperAdmin\DataResetController;
+use App\Http\Controllers\SuperAdmin\DateRulesController;
 use App\Support\Workflow;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -76,6 +78,12 @@ Route::middleware('auth:sanctum')->group(function () {
             'area' => 'super-admin',
             'message' => "Welcome, {$request->user()->name}.",
         ]))->name('dashboard');
+
+        // Settings → Date rules: validity periods, expiry warnings and passport limits.
+        Route::get('/date-rules', [DateRulesController::class, 'show'])->name('date-rules.show');
+        Route::put('/date-rules', [DateRulesController::class, 'update'])->name('date-rules.update');
+        Route::delete('/date-rules/countries/{code}', [DateRulesController::class, 'destroyCountry'])
+            ->where('code', '[A-Za-z]{2}')->name('date-rules.countries.destroy');
 
         // Settings → Danger zone: delete all data (a backup is written first). The delete
         // needs the typed confirmation and the password, and is limited to 5 tries a minute.
@@ -277,13 +285,14 @@ Route::middleware('auth:sanctum')->group(function () {
         // nothing in accounts (PartyPolicy "delete"); any other one is deactivated.
         Route::apiResource('parties', PartyController::class);
         Route::get('/parties/{party}/ledger', PartyLedgerController::class)->name('parties.ledger');
+        Route::get('/parties/{party}/passports', PartyPassportsController::class)->name('parties.passports');
         // Receivable and refund lines entered by hand (payments come from cash receipts).
         Route::post('/parties/{party}/transactions', [PartyTransactionController::class, 'store'])->name('parties.transactions.store');
         Route::patch('/party-transactions/{transaction}', [PartyTransactionController::class, 'update'])->name('party-transactions.update');
         Route::delete('/party-transactions/{transaction}', [PartyTransactionController::class, 'destroy'])->name('party-transactions.destroy');
 
         // Cash management. Every cash write runs through App\Services\CashBook, so cash in
-        // hand never goes negative on any day.
+        // hand, the bank and mobile banking never go negative on any day.
         Route::apiResource('cash-receipts', CashReceiptController::class);
         // Business types, countries and the default country for the cash receive form.
         Route::get('/receipt-options', ReceiptOptionsController::class)->name('receipt-options');

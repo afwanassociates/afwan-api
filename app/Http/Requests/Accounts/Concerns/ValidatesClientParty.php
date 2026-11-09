@@ -32,7 +32,8 @@ trait ValidatesClientParty
 
     /**
      * Agency: required on create, and on edit when the kind or the RL number
-     * is sent (so an edit cannot leave an agency without one). Person: none.
+     * is sent (so an edit cannot leave an agency without one), unless the form
+     * makes it optional (the passport team's reference forms). Person: none.
      *
      * @return list<mixed>
      */
@@ -42,9 +43,21 @@ trait ValidatesClientParty
             return ['prohibited'];
         }
 
+        if ($this->rlNumberOptional()) {
+            return ['nullable', 'string', 'max:50', Rule::unique('parties', 'rl_number')->ignore($this->party())];
+        }
+
         $required = $this->party() === null || $this->has($this->kindField()) || $this->has('rl_number') ? 'required' : 'sometimes';
 
         return [$required, 'string', 'max:50', Rule::unique('parties', 'rl_number')->ignore($this->party())];
+    }
+
+    /**
+     * Whether an agency may be saved without an RL number.
+     */
+    protected function rlNumberOptional(): bool
+    {
+        return false;
     }
 
     /**

@@ -94,6 +94,8 @@ describe('cash opening balance', function () {
 describe('cash transfers', function () {
     it('deposits cash to a bank and withdraws it, numbered per year', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
+        // Money in the bank to withdraw (a bank receipt is not cash in hand).
+        fundAccount(2000);
 
         transfer('deposit', 1, '2026-10-02')
             ->assertUnprocessable()
@@ -125,6 +127,7 @@ describe('cash transfers', function () {
 
     it('needs the deposit slip and depositor for a deposit', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
+        fundAccount(5000);
         transfer('withdrawal', 5000, '2026-10-01')->assertCreated()
             // A withdrawal keeps its cheque number and who withdrew it, no deposit details.
             ->assertJsonPath('data.cheque_no', 'CHQ-500')
@@ -174,6 +177,7 @@ describe('cash transfers', function () {
 
     it('moves cash in to and out of a mobile banking wallet', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
+        fundAccount(5000);
         transfer('withdrawal', 5000, '2026-10-01')->assertCreated();
         approveAllAccountsEntries();
         $mobile = fn (string $direction, float $amount, array $more = []) => $this->postJson('/api/accounts/cash-transfers', [
@@ -201,15 +205,22 @@ describe('cash transfers', function () {
             ->assertJsonPath('data.mobile_number', '01712345678')
             ->assertJsonPath('data.bank_name', null)
             ->assertJsonPath('data.deposit_slip_no', null);
+        // Cash out needs the money in the wallet: the cash in is still pending.
+        $mobile('withdrawal', 1000)->assertUnprocessable()->assertJsonValidationErrors([
+            'amount' => 'Not enough money in mobile banking: the mobile banking balance would be −৳1,000.00 on 02-10-2026.',
+        ]);
+        approveAllAccountsEntries();
         $mobile('withdrawal', 1000)->assertCreated()->assertJsonPath('data.direction_label', 'Cash out from mobile banking');
         approveAllAccountsEntries();
+        // 2000 left in the wallet.
+        $mobile('withdrawal', 2001)->assertUnprocessable()->assertJsonValidationErrors('amount');
 
-        // Cash 5000 − 3000 + 1000; the wallet 3000 − 1000; the bank only lost the 5000 withdrawn.
+        // Cash 5000 − 3000 + 1000; the wallet 3000 − 1000; the bank's 5000 was withdrawn.
         financeSummary()
             ->assertJsonPath('data.cash_in_hand', 3000)
             ->assertJsonPath('data.mobile_banking_balance', 2000)
-            ->assertJsonPath('data.bank_balance', -5000)
-            ->assertJsonPath('data.total_received', 0)
+            ->assertJsonPath('data.bank_balance', 0)
+            ->assertJsonPath('data.total_received', 5000)
             ->assertJsonPath('data.total_paid', 0);
         $this->getJson('/api/accounts/cash-book?from=2026-10-02&to=2026-10-02')
             ->assertJsonPath('days.0.lines.*.particulars', ['Deposited to bKash 01712345678', 'Withdrawn from bKash 01712345678']);
@@ -219,6 +230,7 @@ describe('cash transfers', function () {
     it('refuses returning a withdrawal or receipt whose cash was spent later', function () {
         Sanctum::actingAs($head = User::factory()->accountsHead()->create());
         $party = Party::factory()->create();
+        fundAccount(1000);
         $withdrawal = transfer('withdrawal', 1000, '2026-10-01')->json('data.id');
         $receiptId = receipt($party, 500, '2026-10-02')->json('data.id');
         approveAllAccountsEntries();
@@ -277,12 +289,17 @@ describe('cash book', function () {
             'expense_category' => 'office_rent', 'purpose' => 'October rent', 'bill_no' => 'R-17', 'amount' => 300, 'payment_method' => 'cash',
         ])->assertCreated();
         transfer('deposit', 700, '2026-10-02')->assertCreated();
-        transfer('withdrawal', 250, '2026-10-04')->assertCreated();
+        // The bank money is still pending, so nothing can be withdrawn from it yet.
+        transfer('withdrawal', 250, '2026-10-04')->assertUnprocessable()->assertJsonValidationErrors([
+            'amount' => 'Not enough money in the bank: the bank balance would be −৳250.00 on 04-10-2026.',
+        ]);
 
         // Nothing is in the book until approved.
         $this->getJson('/api/accounts/cash-book')->assertJsonPath('days', [])->assertJsonPath('closing_balance', 1000);
         // The bank receipt is not cash in hand: it is left out.
-        $this->getJson('/api/accounts/cash-settings')->assertJsonPath('data.pending', ['count' => 4, 'in' => 750, 'out' => 1000]);
+        $this->getJson('/api/accounts/cash-settings')->assertJsonPath('data.pending', ['count' => 3, 'in' => 500, 'out' => 1000]);
+        approveAllAccountsEntries();
+        transfer('withdrawal', 250, '2026-10-04')->assertCreated();
         approveAllAccountsEntries();
 
         $this->getJson('/api/accounts/cash-book')
@@ -330,6 +347,8 @@ describe('cash book', function () {
         receipt($party, 800, '2026-10-01', 'mobile_banking')->assertCreated();
         receipt($party, 100, '2026-10-01')->assertCreated();
         transfer('deposit', 2000, '2026-10-02')->assertCreated();
+        // The bank pays out only approved money.
+        approveAllAccountsEntries();
         $this->postJson('/api/accounts/cash-payments', [
             'date' => '2026-10-03', 'payee_type' => 'other', 'payee_name' => 'Landlord', 'payment_type' => 'expense',
             'expense_category' => 'office_rent', 'purpose' => 'October rent', 'amount' => 3000, 'payment_method' => 'bank',

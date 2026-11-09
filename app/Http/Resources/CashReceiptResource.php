@@ -57,6 +57,20 @@ class CashReceiptResource extends JsonResource
             'mobile_provider_label' => $this->mobile_provider?->label(),
             'mobile_number' => $this->mobile_number,
             'note' => $this->note,
+            // A party's recruitment cash: what it pays for, per company.
+            'companies' => $this->whenLoaded('lines', fn () => $this->lines->map(fn ($line) => [
+                'company_id' => $line->company_id,
+                'company_name' => $line->company?->name,
+                'amount' => (float) $line->amount,
+                'is_full_payment' => $line->is_full_payment,
+                'passports' => $line->passports->map(fn ($passport) => [
+                    'id' => $passport->id,
+                    'entry_no' => $passport->entry_no,
+                    'passport_name' => $passport->passport_name,
+                    'passport_number' => $passport->passport_number,
+                ])->values(),
+            ])->values()),
+            'passport_count' => $this->whenLoaded('lines', fn () => $this->lines->sum(fn ($line) => $line->passports->count())),
             'created_by' => $this->whenLoaded('creator', fn () => $this->creator?->name),
             ...$this->approvalFields($request),
             'created_at' => $this->created_at,

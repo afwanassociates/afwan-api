@@ -167,10 +167,10 @@ describe('config', function () {
             ->and($response->json('data.steps.3.fields.*.label'))->toBe(['Visa submitted date', 'Issue date', 'Expired date', 'Visa number'])
             ->and($response->json('data.steps.2.fields.2.label'))->toBe('Calling expiry')
             ->and($response->json('data.steps.2.warning_days'))->toBe(30)
-            ->and($response->json('data.steps.5.statuses.*.label'))->toBe(['Booked', 'Flight confirmed'])
+            ->and($response->json('data.steps.5.statuses.*.label'))->toBe(['Booked', 'Flight done'])
             ->and($response->json('data.steps.5.fields.*.name'))->toBe(['booking_date', 'confirmed_date'])
-            ->and($response->json('data.steps.5.fields.0'))->toMatchArray(['label' => 'Flight booking date', 'type' => 'date', 'in_details' => true, 'required_for' => ['in_process', 'completed']])
-            ->and($response->json('data.steps.5.tabs'))->toBe([['key' => 'pending', 'label' => 'Pending'], ['key' => 'confirmed', 'label' => 'Flight confirmed']])
+            ->and($response->json('data.steps.5.fields.0'))->toMatchArray(['label' => 'Flight date', 'type' => 'date', 'in_details' => true, 'required_for' => ['in_process', 'completed']])
+            ->and($response->json('data.steps.5.tabs'))->toBe([['key' => 'pending', 'label' => 'Pending'], ['key' => 'confirmed', 'label' => 'Flight done']])
             ->and($response->json('data.steps.3.fields.3'))->toMatchArray(['name' => 'reference_no', 'label' => 'Visa number', 'max' => 50, 'required_for' => []])
             ->and($response->json('data.steps.3.fields.2'))->toMatchArray(['name' => 'valid_until', 'label' => 'Expired date', 'required_for' => ['completed'], 'after' => 'details.issue_date']);
     });
@@ -296,7 +296,7 @@ describe('recompute', function () {
         $post('bmet', stepPayload('bmet', 'completed', ['step_date' => '2026-04-15']));
         expect(storedPosition($passport))->toBe(['flight', 'in_process', '2026-05-29']);
 
-        // Flight confirmed today: the last step.
+        // Flight done today: the last step.
         $this->postJson("/api/data-entry/passports/{$passport->id}/steps/flight/confirm")->assertOk();
         expect(storedPosition($passport))->toBe(['completed', null, '2026-05-01']);
     });
@@ -567,6 +567,21 @@ describe('editing', function () {
         expect($visa->fresh()->status)->toBe(StepStatus::Completed)
             ->and(storedPosition($passport))->toBe(['bmet', 'in_process', '2026-04-20']);
     })->with(['operationHead']);
+
+    it('keeps the details the step actions stored (visa submitted date) when a record is corrected', function () {
+        $passport = completeSteps(workflowPassport(), ['calling']);
+        $visa = PassportStepRecord::factory()->for($passport)->step('visa')->on('2026-04-25')->create([
+            'details' => ['issue_date' => '2026-04-25', 'start_date' => '2026-04-10'],
+            'valid_until' => '2027-04-01',
+        ]);
+        Sanctum::actingAs(User::factory()->operationHead()->create());
+
+        $this->patchJson("/api/data-entry/step-records/{$visa->id}", ['reference_no' => 'V-77', 'details' => ['issue_date' => '2026-04-26']])
+            ->assertOk()
+            ->assertJsonPath('data.reference_no', 'V-77');
+
+        expect($visa->fresh()->details)->toMatchArray(['start_date' => '2026-04-10', 'issue_date' => '2026-04-26'])->toHaveCount(2);
+    });
 });
 
 describe('deleting', function () {
@@ -683,7 +698,7 @@ describe('latest status', function () {
         'BMET cleared, booking pending' => [['calling', 'visa', 'bmet'], null, ['stage' => 'flight', 'status' => 'waiting', 'text' => 'BMET cleared - flight booking date pending', 'tone' => 'amber', 'date' => '2026-04-04']],
         'ready to confirm' => [['calling', 'visa', 'bmet'], ['flight', 'in_process'], ['stage' => 'flight', 'status' => 'in_process', 'text' => 'Ready to confirm flight', 'date' => '2026-05-20']],
         'legacy flight cancelled' => [['calling', 'visa', 'bmet'], ['flight', 'rejected'], ['stage' => 'flight', 'status' => 'waiting', 'text' => 'BMET cleared - flight booking date pending', 'date' => '2026-04-04']],
-        'flight confirmed' => [['calling', 'visa', 'bmet', 'flight'], null, ['stage' => 'completed', 'status' => 'completed', 'text' => 'Flight confirmed (30-04-2026)', 'tone' => 'green', 'date' => '2026-04-30']],
+        'flight done' => [['calling', 'visa', 'bmet', 'flight'], null, ['stage' => 'completed', 'status' => 'completed', 'text' => 'Flight done (30-04-2026)', 'tone' => 'green', 'date' => '2026-04-30']],
     ]);
 });
 
@@ -724,7 +739,7 @@ describe('passport resource', function () {
             ->and($response->json('data.stage_status'))->toBeNull()
             ->and($response->json('data.workflow.current_step'))->toBeNull()
             ->and($response->json('data.workflow.steps.*.state'))->toBe(['done', 'passed', 'completed', 'completed', 'completed', 'completed'])
-            ->and($response->json('data.workflow.steps.5.record.status_label'))->toBe('Flight confirmed');
+            ->and($response->json('data.workflow.steps.5.record.status_label'))->toBe('Flight done');
     });
 });
 

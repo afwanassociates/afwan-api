@@ -131,7 +131,7 @@ describe('medical pending only after the slip date', function () {
 
     it('allows clearing the slip date only before a result is recorded', function () {
         $passport = PassportEntry::factory()->withMedicalSlip('2026-04-15')->create();
-        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
         $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => null])
             ->assertOk()
@@ -150,6 +150,28 @@ describe('medical pending only after the slip date', function () {
             ->assertOk()
             ->assertJsonPath('data.medical_slip.date', '2026-04-17')
             ->assertJsonPath('data.medical_status', 'unfit');
+    });
+
+    it('lets only the operations head undo Pending medical back to the Passport Entry list', function () {
+        $center = MedicalCenter::factory()->create();
+        $passport = PassportEntry::factory()->withMedicalSlip('2026-04-15')->create(['medical_center_id' => $center->id]);
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-20'])->assertOk();
+
+        // The data entry team edits the slip but cannot take it back.
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => null])->assertForbidden();
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-16', 'medical_center_id' => $center->id])->assertOk();
+        expect($passport->fresh()->medical_slip_date->format('Y-m-d'))->toBe('2026-04-16');
+
+        Sanctum::actingAs(User::factory()->operationHead()->create());
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => null, 'medical_center_id' => $center->id])
+            ->assertOk()
+            ->assertJsonPath('data.medical_status', 'not_started')
+            ->assertJsonPath('data.current_stage', 'passport');
+
+        // Nothing of the slip is left behind: a new slip starts clean.
+        expect(DB::table('passport_entries')->where('id', $passport->id)->first(['medical_slip_date', 'medical_center_id', 'medical_date']))
+            ->toEqual((object) ['medical_slip_date' => null, 'medical_center_id' => null, 'medical_date' => null]);
     });
 
     it('changes nothing else on the passport', function () {

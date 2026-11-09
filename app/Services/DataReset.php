@@ -35,14 +35,20 @@ class DataReset
     public const GROUPS = [
         'passports' => [
             'label' => 'Passports & workflow',
-            'description' => 'Passport entries, medical records, every workflow step, passport returns and the uploaded passport scans.',
-            'tables' => ['passport_step_records', 'medical_records', 'passport_returns', 'passport_entries'],
+            'description' => 'Passport entries, medical records, every workflow step, passport returns, which passports cash receipts paid for (the receipts stay) and the uploaded passport scans.',
+            'tables' => ['cash_receipt_passports', 'cash_receipt_lines', 'passport_step_records', 'medical_records', 'passport_returns', 'passport_entries'],
             'scans' => true,
         ],
         'companies' => [
             'label' => 'Companies',
             'description' => 'Employer companies. Passports must be deleted too.',
             'tables' => ['companies'],
+        ],
+        // Only the money: parties stay, so passports keep their reference. Also part of "accounts".
+        'transactions' => [
+            'label' => 'Accounts transactions',
+            'description' => 'Cash receipts (and which passports they paid for), payments and transfers, owner loans and their bills, ledgers, approvals and the cash opening balance. Parties, owners and passports stay.',
+            'tables' => ['cash_receipt_passports', 'cash_receipt_lines', 'party_transactions', 'owner_loan_bills', 'cash_receipts', 'cash_payments', 'cash_transfers'],
         ],
         'accounts' => [
             'label' => 'Accounts',
@@ -93,7 +99,8 @@ class DataReset
 
     /**
      * Back up, then delete the chosen groups. Refused (422) if companies or accounts are chosen without
-     * passports: passports point at companies and at their reference party.
+     * passports: passports point at companies and at their reference party. "transactions" needs
+     * nothing else: it keeps the parties.
      *
      * @param  list<string>  $groups
      * @return array{deleted: array<string, int>, files: int, backup: string}
@@ -114,9 +121,10 @@ class DataReset
             ]);
         }
 
-        $tables = array_merge(...array_map(fn (string $key) => self::GROUPS[$key]['tables'], $groups));
+        // Groups share tables (accounts holds every transactions table): each once, first place kept.
+        $tables = array_values(array_unique(array_merge(...array_map(fn (string $key) => self::GROUPS[$key]['tables'], $groups))));
         $withScans = in_array('passports', $groups, true);
-        $withCash = in_array('accounts', $groups, true);
+        $withCash = in_array('accounts', $groups, true) || in_array('transactions', $groups, true);
 
         $backup = $this->backup($tables, $withScans, $withCash, $groups, $user);
 

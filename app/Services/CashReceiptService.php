@@ -7,10 +7,13 @@ use App\Enums\BusinessType;
 use App\Enums\CashReceiptType;
 use App\Enums\PartyType;
 use App\Enums\PaymentMethod;
+use App\Http\Requests\Accounts\StoreCashReceiptRequest;
 use App\Models\CashReceipt;
 use App\Models\Party;
+use App\Models\PassportEntry;
 use App\Models\User;
 use App\Support\YearlyNumber;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Every cash receipt write goes through here, so the receipt and the line it
@@ -40,6 +43,7 @@ class CashReceiptService
             $receipt->save();
 
             $this->syncLedgerLine($receipt, $user);
+            $this->syncLines($receipt, $data['companies'] ?? []);
 
             return $receipt;
         }, asIfApproved: true);
@@ -63,6 +67,7 @@ class CashReceiptService
             $receipt->save();
 
             $this->syncLedgerLine($receipt, $user);
+            $this->syncLines($receipt, $data['companies'] ?? []);
 
             return $receipt;
         }, asIfApproved: true);
@@ -130,6 +135,43 @@ class CashReceiptService
             'mobile_number' => $isMobile ? $data['mobile_number'] : null,
             'note' => $data['note'] ?? null,
         ];
+    }
+
+    /**
+     * Replace what the receipt pays for: per company the amount, full or part
+     * payment, and the passports (checked by StoreCashReceiptRequest). The
+     * passports are locked first, so two receipts saved at once cannot both
+     * pay off the same passport.
+     *
+     * @param  list<array{company_id: int, amount: numeric-string|float|int, is_full_payment: bool, passport_ids: list<int>}>  $companies
+     */
+    private function syncLines(CashReceipt $receipt, array $companies): void
+    {
+        $receipt->lines()->delete();
+        if ($companies === []) {
+            return;
+        }
+
+        $ids = array_merge(...array_map(fn (array $company) => array_map('intval', $company['passport_ids']), $companies));
+        PassportEntry::withTrashed()->whereIn('id', $ids)->lockForUpdate()->pluck('id');
+        $paidOff = StoreCashReceiptRequest::paidOffElsewhere($ids, $receipt->id);
+
+        foreach ($companies as $index => $company) {
+            $passportIds = array_map('intval', $company['passport_ids']);
+            $taken = array_values(array_filter($passportIds, fn (int $id) => $paidOff->has($id)));
+            if ($taken !== []) {
+                throw ValidationException::withMessages([
+                    "companies.{$index}.passport_ids" => 'A chosen passport was just paid off on '.$paidOff->get($taken[0]).'. Reload and try again.',
+                ]);
+            }
+
+            $line = $receipt->lines()->create([
+                'company_id' => $company['company_id'],
+                'amount' => $company['amount'],
+                'is_full_payment' => (bool) $company['is_full_payment'],
+            ]);
+            $line->passports()->attach($passportIds, ['cash_receipt_id' => $receipt->id]);
+        }
     }
 
     /**

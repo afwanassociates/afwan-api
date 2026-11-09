@@ -4,9 +4,12 @@ namespace App\Http\Requests\DataEntry;
 
 use App\Enums\MedicalStatus;
 use App\Enums\PartyType;
+use App\Models\Company;
 use App\Models\PassportEntry;
 use App\Rules\ActiveCountry;
 use App\Rules\PassportScanFile;
+use App\Support\DateRules;
+use App\Support\LocalDate;
 use App\Support\Normalize;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Database\Query\Builder;
@@ -42,13 +45,14 @@ class StorePassportEntryRequest extends FormRequest
             'passport_name' => ['required', 'string', 'max:150'],
             'passport_number' => ['required', 'string', 'regex:/^[A-Z0-9]{6,20}$/', $this->uniquePassportNumber()],
             'country_code' => ['required', 'string', 'size:2', new ActiveCountry($this->entry()?->country_code)],
-            'date_of_birth' => ['required', 'date_format:Y-m-d', 'before:today'],
+            // In the past, and at least the "Minimum age" date rule (years) ago.
+            'date_of_birth' => ['required', 'date_format:Y-m-d', 'before:today', ...$this->minimumAge()],
             // Required (must exist and be active). Old entries saved without one
             // still load; the full edit form asks for it on the next save.
             'reference_id' => ['required', 'integer', $this->selectableReference($this->entry()?->reference_id)],
             'company_id' => ['required', 'integer', $this->selectable('companies', $this->entry()?->company_id)],
             'passport_received_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
-            // Valid for at least 18 months after the passport is received.
+            // Valid for at least the "Minimum passport validity" date rule after it is received.
             'passport_expiry_date' => ['required', 'date_format:Y-m-d', $this->minimumValidity()],
             // The passport scan copy (multipart): JPG, PNG or PDF up to 5 MB.
             'scan' => PassportScanFile::rules(required: true),
@@ -74,7 +78,8 @@ class StorePassportEntryRequest extends FormRequest
             'passport_received_date.before_or_equal' => 'The passport received date cannot be in the future.',
             'date_of_birth.before' => 'The date of birth must be in the past.',
             'passport_expiry_date.after' => 'The passport expiry date must be after the passport received date.',
-            'passport_expiry_date.after_or_equal' => 'The passport must be valid for at least '.self::MIN_VALIDITY_MONTHS.' months after the received date.',
+            'date_of_birth.before_or_equal' => 'The person must be at least '.$this->dateRules()->get(DateRules::MINIMUM_AGE_YEARS, $this->companyCountry()).' years old.',
+            'passport_expiry_date.after_or_equal' => 'The passport must be valid for at least '.$this->dateRules()->get(DateRules::PASSPORT_MIN_VALIDITY_MONTHS, $this->companyCountry()).' months after the received date.',
         ];
     }
 
@@ -105,15 +110,44 @@ class StorePassportEntryRequest extends FormRequest
             : "This passport number is already entered ({$location}).";
     }
 
-    /**
-     * The passport must be valid for at least this many months after it is received.
-     */
-    public const MIN_VALIDITY_MONTHS = 18;
+    protected function dateRules(): DateRules
+    {
+        return app(DateRules::class);
+    }
+
+    /** @var array{0: string|null}|null */
+    private ?array $companyCountry = null;
 
     /**
-     * On or after the received date + 18 months (no overflow: 31 Aug + 18
-     * months = 28/29 Feb). Uses the received date being sent, or (when editing
-     * without sending it) the entry's current one.
+     * The country of the company being sent (or, when editing without sending one, the
+     * entry's): its own date rules apply.
+     */
+    protected function companyCountry(): ?string
+    {
+        if ($this->companyCountry === null) {
+            $id = $this->input('company_id', $this->entry()?->company_id);
+            $this->companyCountry = [is_numeric($id) ? Company::query()->whereKey((int) $id)->value('country_code') : null];
+        }
+
+        return $this->companyCountry[0];
+    }
+
+    /**
+     * Born on or before today minus the minimum age (none when the rule is 0).
+     *
+     * @return list<string>
+     */
+    protected function minimumAge(): array
+    {
+        $years = $this->dateRules()->get(DateRules::MINIMUM_AGE_YEARS, $this->companyCountry());
+
+        return $years > 0 ? ['before_or_equal:'.LocalDate::today()->subYearsNoOverflow($years)->toDateString()] : [];
+    }
+
+    /**
+     * On or after the received date + the minimum validity in months (no overflow:
+     * 31 Aug + 18 months = 28/29 Feb). Uses the received date being sent, or (when
+     * editing without sending it) the entry's current one.
      */
     protected function minimumValidity(): string
     {
@@ -123,7 +157,7 @@ class StorePassportEntryRequest extends FormRequest
             return 'after:passport_received_date';
         }
 
-        return 'after_or_equal:'.Carbon::parse($received)->addMonthsNoOverflow(self::MIN_VALIDITY_MONTHS)->toDateString();
+        return 'after_or_equal:'.Carbon::parse($received)->addMonthsNoOverflow($this->dateRules()->get(DateRules::PASSPORT_MIN_VALIDITY_MONTHS, $this->companyCountry()))->toDateString();
     }
 
     /**

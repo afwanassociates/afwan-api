@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Support\DateRules;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -11,7 +12,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // One per request: it remembers company countries while a list is built.
+        $this->app->scoped(DateRules::class);
     }
 
     /**

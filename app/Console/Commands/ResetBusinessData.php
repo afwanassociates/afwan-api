@@ -66,6 +66,9 @@ class ResetBusinessData extends Command
      * @var list<string>
      */
     public const CLEAR = [
+        // Which passports cash receipts paid for (the receipts stay).
+        'cash_receipt_passports',
+        'cash_receipt_lines',
         'passport_step_records',
         'medical_records',
         'passport_returns',

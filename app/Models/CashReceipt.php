@@ -12,11 +12,13 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Money received from a party or an owner. The payer's name, mobile and
- * address come from the party record. Create, edit and delete through
+ * address come from the party record. A party's recruitment cash may name
+ * what it pays for: per company an amount and the passports (lines). Create, edit and delete through
  * App\Services\CashReceiptService, which keeps the ledger line in step.
  */
 #[Fillable(['date', 'party_id', 'receipt_type', 'owner_loan_id', 'business_type', 'country_code', 'amount', 'payment_method', 'bank_name', 'bank_branch', 'bank_account_name', 'bank_account_number', 'mobile_provider', 'mobile_number', 'note'])]
@@ -58,6 +60,16 @@ class CashReceipt extends Model
     public function country(): BelongsTo
     {
         return $this->belongsTo(Country::class, 'country_code', 'code');
+    }
+
+    /**
+     * What a party's receipt pays for, one line per company.
+     *
+     * @return HasMany<CashReceiptLine, $this>
+     */
+    public function lines(): HasMany
+    {
+        return $this->hasMany(CashReceiptLine::class)->orderBy('id');
     }
 
     /**

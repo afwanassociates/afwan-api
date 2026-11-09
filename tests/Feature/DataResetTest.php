@@ -32,7 +32,7 @@ function seedEveryGroup(): void
 function resetPayload(array $overrides = []): array
 {
     return [
-        'groups' => ['passports', 'companies', 'accounts'],
+        'groups' => ['passports', 'companies', 'transactions', 'accounts'],
         'confirmation' => 'DELETE ALL DATA',
         'password' => 'password',
         ...$overrides,
@@ -63,11 +63,13 @@ describe('delete all data', function () {
         $this->getJson('/api/super-admin/data-reset')
             ->assertOk()
             ->assertJsonPath('data.confirmation', 'DELETE ALL DATA')
-            ->assertJsonPath('data.groups.*.key', ['passports', 'companies', 'accounts'])
+            ->assertJsonPath('data.groups.*.key', ['passports', 'companies', 'transactions', 'accounts'])
             ->assertJsonPath('data.groups.0.rows', 3)
             ->assertJsonPath('data.groups.0.files', 1)
+            // A receipt and a ledger line.
+            ->assertJsonPath('data.groups.2.rows', 2)
             // Two parties (the passport's reference and the receipt's), a receipt and a ledger line.
-            ->assertJsonPath('data.groups.2.rows', 4)
+            ->assertJsonPath('data.groups.3.rows', 4)
             ->assertJsonPath('data.backups', []);
     });
 
@@ -106,7 +108,7 @@ describe('delete all data', function () {
             ->assertJsonPath('data.deleted.parties', 2)
             ->assertJsonPath('data.groups.0.rows', 0)
             ->assertJsonPath('data.backups.0.created_by', 'Chief')
-            ->assertJsonPath('data.backups.0.groups', ['passports', 'companies', 'accounts'])
+            ->assertJsonPath('data.backups.0.groups', ['passports', 'companies', 'transactions', 'accounts'])
             ->assertJsonPath('data.backups.0.files', 1);
 
         foreach (array_merge(...array_column(DataReset::GROUPS, 'tables')) as $table) {
@@ -130,6 +132,44 @@ describe('delete all data', function () {
             ->and(CashReceipt::count())->toBe(0)
             ->and(PassportEntry::withTrashed()->count())->toBe(0)
             ->and(Company::count())->toBeGreaterThan(0);
+    });
+
+    it('can delete only the accounts transactions and keep parties and passports', function () {
+        seedEveryGroup();
+        $passport = PassportEntry::first();
+        $receipt = CashReceipt::first();
+        $lineId = DB::table('cash_receipt_lines')->insertGetId([
+            'cash_receipt_id' => $receipt->id, 'company_id' => $passport->company_id, 'amount' => 100,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('cash_receipt_passports')->insert([
+            'cash_receipt_id' => $receipt->id, 'cash_receipt_line_id' => $lineId, 'passport_entry_id' => $passport->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        Sanctum::actingAs(User::factory()->superAdmin()->create());
+
+        $this->postJson('/api/super-admin/data-reset', resetPayload(['groups' => ['transactions']]))
+            ->assertOk()
+            ->assertJsonPath('data.files', 0)
+            ->assertJsonPath('data.deleted.cash_receipts', 1)
+            ->assertJsonPath('data.deleted.cash_receipt_passports', 1)
+            ->assertJsonPath('data.backups.0.groups', ['transactions']);
+
+        foreach (DataReset::GROUPS['transactions']['tables'] as $table) {
+            expect(DB::table($table)->count())->toBe(0, "{$table} should be empty");
+        }
+        expect(Party::count())->toBe(2)
+            ->and(PassportEntry::withTrashed()->count())->toBe(1)
+            ->and(PassportEntry::first()->reference_id)->toBe($passport->reference_id)
+            ->and(Storage::disk('local')->allFiles('passport-scans'))->toHaveCount(1)
+            ->and(DB::table('cash_settings')->where('id', 1)->value('opening_date'))->toBeNull();
+
+        // Its backup puts the transactions back next to the parties that stayed.
+        $this->artisan('app:restore-data-backup', ['file' => 'data-backup-2026-10-25-143005.tar.gz', '--force' => true])
+            ->assertSuccessful();
+        expect(CashReceipt::count())->toBe(1)
+            ->and(DB::table('cash_receipt_passports')->count())->toBe(1)
+            ->and(DB::table('cash_settings')->where('id', 1)->value('opening_balance'))->toBe('5000.00');
     });
 
     it('turns the references of an old backup into client parties', function () {

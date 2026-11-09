@@ -235,7 +235,7 @@ describe('company passports', function () {
             ->and(collect($response->json('data.*.latest_status.text'))->countBy()->all())->toMatchArray([
                 'Medical: Unfit' => 2,
                 'Medical: Pending' => 1,
-                'Flight confirmed (30-04-2026)' => 1,
+                'Flight done (30-04-2026)' => 1,
                 'BMET cleared - flight booking date pending' => 1,
             ])
             ->and($response->json('data.0.workflow.steps'))->toHaveCount(6)

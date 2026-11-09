@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Party;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
@@ -157,4 +158,24 @@ function approveAllAccountsEntries(): void
     foreach (['cash_receipts', 'cash_payments', 'cash_transfers', 'party_transactions', 'owner_loan_bills'] as $table) {
         DB::table($table)->update(['status' => 'approved', 'approved_at' => now()]);
     }
+}
+
+/**
+ * Put money in the bank (or mobile banking) with an approved receipt from a new
+ * client, so a later payment or withdrawal does not overdraw it. Only this
+ * receipt is approved. Returns its id.
+ */
+function fundAccount(float $amount, string $method = 'bank', string $date = '2026-10-01'): int
+{
+    $party = Party::factory()->create();
+    $id = test()->postJson('/api/accounts/cash-receipts', [
+        'date' => $date, 'party_type' => 'client', 'party_id' => $party->id,
+        'business_type' => 'recruitment', 'country_code' => 'MY',
+        'receipt_type' => 'cash', 'amount' => $amount, 'payment_method' => $method,
+        'bank_name' => 'Sonali', 'bank_branch' => 'Motijheel', 'bank_account_name' => 'Afwan Associates', 'bank_account_number' => '1234567',
+        'mobile_provider' => 'bkash', 'mobile_number' => '01712345678',
+    ])->assertCreated()->json('data.id');
+    DB::table('cash_receipts')->where('id', $id)->update(['status' => 'approved', 'approved_at' => now()]);
+
+    return $id;
 }

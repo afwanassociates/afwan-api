@@ -66,6 +66,15 @@ class StoreReferenceRequest extends FormRequest
     }
 
     /**
+     * The operations team may add an agency without its RL number; the
+     * accounts team fills it in later on the party form.
+     */
+    protected function rlNumberOptional(): bool
+    {
+        return true;
+    }
+
+    /**
      * Get custom messages for validator errors.
      *
      * @return array<string, string>

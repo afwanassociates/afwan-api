@@ -296,7 +296,9 @@ describe('party ledger', function () {
             'business_type' => 'recruitment', 'country_code' => 'MY',
             'receipt_type' => 'cash', 'amount' => 3000, 'payment_method' => 'cash',
         ])->assertCreated();
-        // A refund is a cash payment (here from the bank), never a hand-entered line.
+        // A refund is a cash payment (here from the bank, paid from another client's money),
+        // never a hand-entered line.
+        fundAccount(200, 'bank', '2026-10-06');
         $this->postJson('/api/accounts/cash-payments', [
             'date' => '2026-10-07', 'payee_type' => 'client', 'party_id' => $party->id, 'payment_type' => 'refund',
             'amount' => 200, 'payment_method' => 'bank', 'bank_name' => 'Sonali', 'bank_branch' => 'Feni', 'bank_account_name' => 'Afwan Associates', 'bank_account_number' => '1234567',

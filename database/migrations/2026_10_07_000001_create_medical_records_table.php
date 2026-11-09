@@ -18,7 +18,7 @@ return new class extends Migration
             $table->foreignId('passport_entry_id')->constrained('passport_entries')->restrictOnDelete();
             $table->date('medical_date')->index();
             $table->string('result', 10)->index();
-            // Set only for fit results: medical_date plus config medical.validity_months.
+            // Set only for fit results: medical_date plus config medical.validity_days.
             $table->date('valid_until')->nullable()->index();
             $table->text('remarks')->nullable();
             $table->foreignId('created_by')->constrained('users')->restrictOnDelete();

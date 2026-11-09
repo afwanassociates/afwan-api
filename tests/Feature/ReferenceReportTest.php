@@ -24,7 +24,8 @@ function referencePassport(Party $reference, string $stage, string $status = 'wa
 describe('reference report', function () {
     beforeEach(function () {
         $this->karim = Party::factory()->person()->create(['name' => 'Abdul Karim', 'mobile' => '01711-000000']);
-        $this->star = Party::factory()->agency()->create(['name' => 'Sea Star Overseas']);
+        // A fixed mobile: a random 017… one sometimes contains "0171" and matches the phone search.
+        $this->star = Party::factory()->agency()->create(['name' => 'Sea Star Overseas', 'mobile' => '01899-000000']);
         // No passports: left out of the report.
         $this->idle = Party::factory()->person()->create(['name' => 'Zahid Hasan']);
         $this->gulf = Company::factory()->create(['name' => 'Gulf Star']);

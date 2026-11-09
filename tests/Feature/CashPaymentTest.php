@@ -4,6 +4,7 @@ use App\Models\CashPayment;
 use App\Models\Party;
 use App\Models\PartyTransaction;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 
 /** Put cash in hand: an approved cash receipt from a fresh party. */
@@ -112,8 +113,10 @@ describe('cash payments', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
         $party = $payeeType === 'other' ? null : Party::factory()->state(['type' => $payeeType])->create();
         receiveCash(800);
+        fundAccount(1000, 'mobile_banking');
 
-        // Mobile banking does not need cash in hand: more than the 800 in the box is accepted.
+        // Mobile banking does not need cash in hand: more than the 800 in the box is accepted,
+        // as long as the wallet (1000) has it.
         $this->postJson('/api/accounts/cash-payments', paymentPayload([
             'payee_type' => $payeeType, 'party_id' => $party?->id, 'payment_type' => $paymentType, 'amount' => 900,
             'payment_method' => 'mobile_banking', 'mobile_provider' => 'nagad', 'mobile_number' => '01812-345678',
@@ -129,7 +132,7 @@ describe('cash payments', function () {
             ->assertJsonPath('meta.totals.mobile_banking', 900);
         financeSummary()
             ->assertJsonPath('data.cash_in_hand', 800)
-            ->assertJsonPath('data.mobile_banking_balance', -900)
+            ->assertJsonPath('data.mobile_banking_balance', 100)
             ->assertJsonPath('data.bank_balance', 0);
         // Nor is it a line in the cash book.
         $this->getJson('/api/accounts/cash-book?from=2026-10-10&to=2026-10-10')->assertJsonPath('days', []);
@@ -184,6 +187,8 @@ describe('cash payments', function () {
     it('refuses a cash payment larger than the cash in hand, but not a bank or mobile banking one', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
         receiveCash(300);
+        fundAccount(500);
+        fundAccount(500, 'mobile_banking');
 
         $this->postJson('/api/accounts/cash-payments', paymentPayload(['amount' => 500]))
             ->assertUnprocessable()
@@ -199,6 +204,55 @@ describe('cash payments', function () {
             ->assertCreated();
         approveAllAccountsEntries();
         financeSummary()->assertJsonPath('data.cash_in_hand', 300);
+    });
+
+    it('refuses a bank or mobile banking payment larger than the money in that account', function () {
+        Sanctum::actingAs(User::factory()->accounts()->create());
+        receiveCash(5000);
+        fundAccount(400);
+        fundAccount(300, 'mobile_banking');
+        $bank = ['payment_method' => 'bank', 'bank_name' => 'DBBL', 'bank_branch' => 'Uttara', 'bank_account_name' => 'Afwan Associates', 'bank_account_number' => '1234567'];
+        $mobile = ['payment_method' => 'mobile_banking', 'mobile_provider' => 'bkash', 'mobile_number' => '01712345678'];
+
+        // Plenty of cash in hand does not pay a bank or wallet payment.
+        $this->postJson('/api/accounts/cash-payments', paymentPayload(['amount' => 500, ...$bank]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['amount' => 'Not enough money in the bank: the bank balance would be −৳100.00 on 10-10-2026.']);
+        $this->postJson('/api/accounts/cash-payments', paymentPayload(['amount' => 301, ...$mobile]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['amount' => 'Not enough money in mobile banking: the mobile banking balance would be −৳1.00 on 10-10-2026.']);
+        // Dated before the money came in, it would overdraw that day.
+        $this->postJson('/api/accounts/cash-payments', paymentPayload(['amount' => 100, 'date' => '2026-09-30', ...$bank]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['amount' => 'Not enough money in the bank: the bank balance would be −৳100.00 on 30-09-2026.']);
+        expect(CashPayment::count())->toBe(0);
+
+        $id = $this->postJson('/api/accounts/cash-payments', paymentPayload(['amount' => 400, ...$bank]))->assertCreated()->json('data.id');
+        $this->postJson('/api/accounts/cash-payments', paymentPayload(['amount' => 300, ...$mobile]))->assertCreated();
+        // The pending 400 already takes the bank to zero when it is approved, so editing it up is refused.
+        $this->putJson("/api/accounts/cash-payments/{$id}", paymentPayload(['amount' => 401, ...$bank]))
+            ->assertUnprocessable()->assertJsonValidationErrors('amount');
+        approveAllAccountsEntries();
+        financeSummary()->assertJsonPath('data.bank_balance', 0)->assertJsonPath('data.mobile_banking_balance', 0);
+    });
+
+    it('still accepts entries when the bank was already below zero, unless they take it lower', function () {
+        Sanctum::actingAs(User::factory()->accounts()->create());
+        receiveCash(5000);
+        // Books kept before the check: an approved bank payment with no bank money.
+        DB::table('cash_payments')->where('id', $this->postJson('/api/accounts/cash-payments', paymentPayload())->json('data.id'))
+            ->update(['payment_method' => 'bank', 'status' => 'approved']);
+        financeSummary()->assertJsonPath('data.bank_balance', -500);
+
+        // A cash payment and money into the bank are fine; a bank payment that goes lower is not.
+        $this->postJson('/api/accounts/cash-payments', paymentPayload(['amount' => 100]))->assertCreated();
+        fundAccount(200, 'bank', '2026-10-11');
+        $bank = ['payment_method' => 'bank', 'bank_name' => 'DBBL', 'bank_branch' => 'Uttara', 'bank_account_name' => 'Afwan Associates', 'bank_account_number' => '1234567'];
+        $this->postJson('/api/accounts/cash-payments', paymentPayload(['amount' => 100, 'date' => '2026-10-12', ...$bank]))
+            ->assertCreated();
+        $this->postJson('/api/accounts/cash-payments', paymentPayload(['amount' => 201, 'date' => '2026-10-12', ...$bank]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['amount' => 'Not enough money in the bank: the bank balance would be −৳501.00 on 12-10-2026.']);
     });
 
     it('moves the ledger line when a payment is edited, and drops it when it becomes an expense', function () {
@@ -237,6 +291,7 @@ describe('cash payments', function () {
     it('filters the list and totals every matching payment', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
         receiveCash(5000);
+        fundAccount(400);
         $client = Party::factory()->create(['name' => 'Karim Traders']);
 
         $this->postJson('/api/accounts/cash-payments', paymentPayload(['amount' => 100]));

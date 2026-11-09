@@ -49,6 +49,26 @@ class UpdateStepRecordRequest extends StoreStepRecordRequest
     }
 
     /**
+     * The record's columns as saved. The form only owns its own fields: detail keys the step's
+     * actions store (the visa submitted date "start_date", calling's "calling_date", the flight's
+     * "confirmed_date") are kept, so correcting a record never loses them.
+     *
+     * @return array<string, mixed>
+     */
+    public function recordData(): array
+    {
+        $data = parent::recordData();
+        $owned = array_column(array_filter($this->fields(), fn (array $field) => $field['in_details'] ?? false), 'name');
+        $kept = array_diff_key($this->record()->details ?? [], array_flip($owned));
+
+        if ($kept !== []) {
+            $data['details'] = [...$kept, ...($data['details'] ?? [])];
+        }
+
+        return $data;
+    }
+
+    /**
      * The step of the record being edited.
      */
     public function stepKey(): string

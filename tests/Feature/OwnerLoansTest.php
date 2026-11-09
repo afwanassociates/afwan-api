@@ -108,20 +108,22 @@ describe('owner loans', function () {
     it('lends by bank or mobile banking too, out of that balance', function () {
         Sanctum::actingAs(User::factory()->accounts()->create());
         $owner = Party::factory()->owner()->create();
+        fundAccount(5000, 'mobile_banking');
+        fundAccount(8000);
 
         giveOwnerLoan($owner, 5000, ['payment_method' => 'mobile_banking', 'mobile_provider' => 'bkash', 'mobile_number' => '01712345678']);
         $bankLoan = giveOwnerLoan($owner, 8000, ['payment_method' => 'bank', 'bank_name' => 'DBBL', 'bank_branch' => 'Uttara', 'bank_account_name' => 'Afwan', 'bank_account_number' => '123']);
 
         financeSummary()
             ->assertJsonPath('data.cash_in_hand', 0)
-            ->assertJsonPath('data.mobile_banking_balance', -5000)
-            ->assertJsonPath('data.bank_balance', -8000);
+            ->assertJsonPath('data.mobile_banking_balance', 0)
+            ->assertJsonPath('data.bank_balance', 0);
 
         // The owner returns 8,000 into the bank.
         returnOwnerLoan($owner, $bankLoan, 8000, ['payment_method' => 'bank', 'bank_name' => 'DBBL', 'bank_branch' => 'Uttara', 'bank_account_name' => 'Afwan', 'bank_account_number' => '123'])
             ->assertCreated();
         approveAllAccountsEntries();
-        financeSummary()->assertJsonPath('data.bank_balance', 0);
+        financeSummary()->assertJsonPath('data.bank_balance', 8000);
         $this->getJson('/api/accounts/owner-loans?status=open')->assertJsonCount(1, 'data');
     });
 

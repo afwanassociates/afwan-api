@@ -46,6 +46,8 @@ class Workflow
      */
     public function steps(): array
     {
+        $rules = app(DateRules::class);
+
         return array_values(array_map(fn (array $step, int $index) => [
             'key' => (string) $step['key'],
             'label' => (string) $step['label'],
@@ -54,7 +56,9 @@ class Workflow
             'enabled' => (bool) ($step['enabled'] ?? true),
             'statuses' => $step['statuses'] ?? [],
             'fields' => $step['fields'] ?? [],
-            'warning_days' => isset($step['warning_days']) ? (int) $step['warning_days'] : null,
+            // The super admin's "Expiry warnings" date rule, else the config value.
+            'warning_days' => $rules->warningDays((string) $step['key'])
+                ?? (isset($step['warning_days']) ? (int) $step['warning_days'] : null),
             'tabs' => $step['tabs'] ?? null,
             'single_update' => (bool) ($step['single_update'] ?? false),
             'date_from' => $step['date_from'] ?? null,
@@ -330,6 +334,9 @@ class Workflow
      */
     public function latestRecords(PassportEntry $passport): Collection
     {
+        // Its records' date rules use its company country without loading the passport again.
+        app(DateRules::class)->rememberPassport($passport);
+
         return $passport->stepRecords
             ->filter(fn (PassportStepRecord $record) => $this->isActiveRecord($record))
             ->sortByDesc(fn (PassportStepRecord $record) => [$record->step_date->toDateString(), $record->id])
@@ -427,9 +434,26 @@ class Workflow
         return match (true) {
             $daysLeft === null => null,
             $daysLeft < 0 => 'expired',
-            $daysLeft <= (int) ($this->step($record->step_key)['warning_days'] ?? 0) => 'expiring_soon',
+            $daysLeft <= $this->warningDaysFor($record) => 'expiring_soon',
             default => 'valid',
         };
+    }
+
+    /**
+     * The record's step warning in days, for its passport's company country (Settings →
+     * Date rules); 0 for a step without one.
+     */
+    private function warningDaysFor(PassportStepRecord $record): int
+    {
+        $rules = app(DateRules::class);
+        $key = DateRules::warningKey((string) $record->step_key);
+        // Only load the passport (and its company) when some country has its own warning.
+        $country = in_array($record->step_key, DateRules::WARNING_STEPS, true)
+            ? $rules->countryOfPassport((int) $record->passport_entry_id, $key)
+            : null;
+
+        return $rules->warningDays((string) $record->step_key, $country)
+            ?? (int) ($this->step($record->step_key)['warning_days'] ?? 0);
     }
 
     /**
@@ -453,7 +477,11 @@ class Workflow
         $warnings = [];
         $latest = $this->latestRecords($passport);
         $today = LocalDate::today();
-        $months = (int) config('workflow.passport_expiry_warning_months', 6);
+        $rules = app(DateRules::class);
+        $months = $rules->get(
+            DateRules::PASSPORT_EXPIRY_WARNING_MONTHS,
+            $rules->countryOf($passport, DateRules::PASSPORT_EXPIRY_WARNING_MONTHS),
+        );
         $expiry = $passport->passport_expiry_date ? LocalDate::parse($passport->passport_expiry_date) : null;
         $departure = $this->departureDate($latest->get('flight'));
 
@@ -706,7 +734,7 @@ class Workflow
     public function summary(): array
     {
         $today = LocalDate::today()->toDateString();
-        $soon = MedicalStatus::expiringSoonLimit(LocalDate::today())->toDateString();
+        [$soonSql, $soonBindings] = MedicalStatus::expiringSoonLimitSql(LocalDate::today());
         $fit = MedicalResult::Fit->value;
         $unfit = MedicalResult::Unfit->value;
         $m = PassportEntry::CURRENT_MEDICAL;
@@ -730,10 +758,11 @@ class Workflow
                 "coalesce(sum({$m}.id is null and passport_entries.medical_slip_date is not null), 0) as pending",
                 // Like the Medical Fit and Expiring soon tabs: not yet marked Online.
                 "coalesce(sum({$m}.result = '{$fit}' and {$m}.valid_until >= ? and passport_entries.entry_mode is null), 0) as fit",
-                "coalesce(sum({$m}.result = '{$fit}' and {$m}.valid_until between ? and ? and passport_entries.entry_mode is null), 0) as expiring_soon",
+                // The limit is per company country when a country has its own "expiring soon".
+                "coalesce(sum({$m}.result = '{$fit}' and {$m}.valid_until >= ? and {$m}.valid_until <= {$soonSql} and passport_entries.entry_mode is null), 0) as expiring_soon",
                 "coalesce(sum({$m}.result = '{$fit}' and {$m}.valid_until < ?), 0) as expired",
                 "coalesce(sum({$m}.result = '{$unfit}'), 0) as unfit",
-            ]), [$today, $today, $soon, $today])
+            ]), [$today, $today, ...$soonBindings, $today])
             ->first();
 
         $counts = PassportEntry::query()

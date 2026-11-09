@@ -40,7 +40,7 @@ describe('reference management', function () {
             ->assertJsonPath('data.*.id', [$id]);
     });
 
-    it('turns an agency into a person, dropping its RL number, and needs one the other way', function () {
+    it('turns an agency into a person, dropping its RL number, and back without one', function () {
         $agency = Party::factory()->agency()->create(['rl_number' => 'RL-1', 'agency_owner_name' => 'Mr Owner']);
         $person = Party::factory()->person()->create();
         Sanctum::actingAs(User::factory()->operationHead()->create());
@@ -49,8 +49,9 @@ describe('reference management', function () {
         expect($agency->fresh())->kind->toBe(PartyKind::Person)->agency_owner_name->toBeNull();
 
         $this->patchJson("/api/admin/references/{$person->id}", ['type' => 'agency'])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('rl_number');
+            ->assertOk()
+            ->assertJsonPath('data.type', 'agency')
+            ->assertJsonPath('data.rl_number', null);
     });
 
     it('lists every client with its passport count, active and inactive, owners left out', function () {

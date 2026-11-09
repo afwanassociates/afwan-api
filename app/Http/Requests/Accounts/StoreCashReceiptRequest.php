@@ -8,9 +8,13 @@ use App\Enums\PartyType;
 use App\Enums\PaymentMethod;
 use App\Http\Requests\Accounts\Concerns\ValidatesMobileBanking;
 use App\Models\CashReceipt;
+use App\Models\PassportEntry;
 use App\Support\Normalize;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /**
  * Record or edit a cash receipt (the whole form is sent both times).
@@ -21,6 +25,13 @@ use Illuminate\Validation\Rule;
  * current party stays valid even if deactivated since). A party's receipt
  * names its business (recruitment, land, solar, railway); recruitment also
  * names the destination country. Both are ignored for owners.
+ *
+ * A party's recruitment cash may say what it pays for (companies): per
+ * company (of the receipt's country, the destination) the amount, the passports it pays and whether that pays them off
+ * (full payment) or is a part payment. Those passports must be the party's,
+ * of that company, and not paid off by another
+ * receipt (part payments may stack); the companies' amounts add up to the
+ * receipt's amount.
  */
 class StoreCashReceiptRequest extends FormRequest
 {
@@ -94,7 +105,90 @@ class StoreCashReceiptRequest extends FormRequest
             'bank_account_number' => ['nullable', 'required_if:payment_method,'.PaymentMethod::Bank->value, 'string', 'max:30', 'regex:/^[0-9A-Za-z-]+$/'],
             ...$this->mobileBankingRules(),
             'note' => ['nullable', 'string', 'max:500'],
+            'companies' => $this->takesPassports() ? ['nullable', 'array', 'max:100'] : ['prohibited'],
+            'companies.*.company_id' => ['required', 'integer', 'distinct'],
+            'companies.*.amount' => ['required', 'numeric', 'decimal:0,2', 'gt:0', 'max:'.StorePartyRequest::MAX_AMOUNT],
+            'companies.*.is_full_payment' => ['required', 'boolean'],
+            'companies.*.passport_ids' => ['required', 'array', 'min:1', 'max:1000'],
+            'companies.*.passport_ids.*' => ['integer', 'distinct'],
         ];
+    }
+
+    /**
+     * Of these passports, those another receipt pays off (a full payment), with
+     * that receipt's number.
+     *
+     * @param  list<int>  $passportIds
+     * @return Collection<int, string>
+     */
+    public static function paidOffElsewhere(array $passportIds, ?int $receiptId): Collection
+    {
+        return DB::table('cash_receipt_passports')
+            ->join('cash_receipt_lines', 'cash_receipt_lines.id', '=', 'cash_receipt_passports.cash_receipt_line_id')
+            ->join('cash_receipts', 'cash_receipts.id', '=', 'cash_receipt_passports.cash_receipt_id')
+            ->where('cash_receipt_lines.is_full_payment', true)
+            ->whereIn('cash_receipt_passports.passport_entry_id', $passportIds)
+            ->when($receiptId, fn ($q, $id) => $q->where('cash_receipt_passports.cash_receipt_id', '!=', $id))
+            ->pluck('cash_receipts.receipt_no', 'cash_receipt_passports.passport_entry_id');
+    }
+
+    /**
+     * Only a party's recruitment cash names companies and passports.
+     */
+    public function takesPassports(): bool
+    {
+        return $this->input('party_type') === PartyType::Client->value
+            && $this->input('business_type') === BusinessType::Recruitment->value
+            && $this->input('receipt_type') === CashReceiptType::Cash->value;
+    }
+
+    /**
+     * @return list<\Closure>
+     */
+    public function after(): array
+    {
+        return [function (Validator $validator) {
+            $companies = $this->input('companies');
+            if ($validator->errors()->isNotEmpty() || ! $this->takesPassports() || ! is_array($companies) || $companies === []) {
+                return;
+            }
+
+            $total = array_sum(array_map(fn (array $line) => (float) $line['amount'], $companies));
+            if (abs($total - (float) $this->input('amount')) > 0.004) {
+                $validator->errors()->add('amount', 'The amount must equal the total of the companies ('.number_format($total, 2).').');
+            }
+
+            $receiptId = $this->receipt()?->id;
+            $ids = array_merge(...array_map(fn (array $line) => array_map('intval', $line['passport_ids']), $companies));
+            $passports = PassportEntry::withTrashed()
+                ->whereIn('id', $ids)
+                ->with(['company' => fn ($q) => $q->withTrashed()->select('id', 'country_code')])
+                ->get(['id', 'entry_no', 'reference_id', 'company_id', 'deleted_at'])
+                ->keyBy('id');
+            $paidElsewhere = self::paidOffElsewhere($ids, $receiptId);
+            $onThisReceipt = $receiptId
+                ? DB::table('cash_receipt_passports')->where('cash_receipt_id', $receiptId)->pluck('passport_entry_id')->flip()
+                : collect();
+
+            foreach ($companies as $index => $line) {
+                foreach ($line['passport_ids'] as $id) {
+                    $passport = $passports->get((int) $id);
+                    $message = match (true) {
+                        $passport === null => 'A chosen passport no longer exists.',
+                        $passport->trashed() && ! $onThisReceipt->has($passport->id) => "Passport #{$passport->entry_no} was deleted.",
+                        $passport->reference_id !== (int) $this->input('party_id') => "Passport #{$passport->entry_no} is not this party's.",
+                        $passport->company_id !== (int) $line['company_id'] => "Passport #{$passport->entry_no} is not for this company.",
+                        // The destination is the company's country (the passport's own is the holder's nationality).
+                        $passport->company?->country_code !== $this->input('country_code') => "Passport #{$passport->entry_no} is for another country.",
+                        $paidElsewhere->has($passport->id) => "Passport #{$passport->entry_no} is already fully paid on {$paidElsewhere->get($passport->id)}.",
+                        default => null,
+                    };
+                    if ($message !== null) {
+                        $validator->errors()->add("companies.{$index}.passport_ids", $message);
+                    }
+                }
+            }
+        }];
     }
 
     /**
@@ -121,6 +215,14 @@ class StoreCashReceiptRequest extends FormRequest
             'bank_account_number.required_if' => 'Enter the bank account number.',
             'bank_account_number.regex' => 'Use only digits, letters and dashes.',
             ...$this->mobileBankingMessages(),
+            'companies.prohibited' => 'Only a party\'s recruitment cash pays for passports.',
+            'companies.*.company_id.distinct' => 'Each company only once.',
+            'companies.*.amount.required' => 'Enter the amount for this company.',
+            'companies.*.amount.gt' => 'The amount must be more than 0.',
+            'companies.*.is_full_payment.required' => 'Choose full or part payment.',
+            'companies.*.passport_ids.required' => 'Tick at least one passport.',
+            'companies.*.passport_ids.min' => 'Tick at least one passport.',
+            'companies.*.passport_ids.*.distinct' => 'A passport can be paid only once.',
         ];
     }
 

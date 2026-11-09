@@ -9,6 +9,7 @@ use App\Models\MedicalRecord;
 use App\Models\PassportEntry;
 use App\Models\User;
 use App\Services\MedicalService;
+use App\Support\DateRules;
 use App\Support\LocalDate;
 use Illuminate\Database\Seeder;
 
@@ -45,8 +46,9 @@ class MedicalDataSeeder extends Seeder
         }
 
         $today = LocalDate::today();
-        $months = (int) config('medical.validity_months');
-        $soonDays = (int) config('medical.expiring_soon_days');
+        $rules = app(DateRules::class);
+        $validDays = $rules->get(DateRules::MEDICAL_VALIDITY_DAYS);
+        $soonDays = $rules->get(DateRules::MEDICAL_EXPIRING_SOON_DAYS);
 
         // Oldest passports first, so the scenarios needing older medicals tend
         // to land on passports that were received earlier.
@@ -69,10 +71,10 @@ class MedicalDataSeeder extends Seeder
                 ],
                 'expiring_soon' => [
                     // Leaves about half the warning period.
-                    [$clerk, ['medical_date' => $today->addDays(intdiv($soonDays, 2))->subMonthsNoOverflow($months)->toDateString(), 'result' => MedicalResult::Fit]],
+                    [$clerk, ['medical_date' => $today->addDays(intdiv($soonDays, 2))->subDays($validDays)->toDateString(), 'result' => MedicalResult::Fit]],
                 ],
                 'expired' => [
-                    [$clerk, ['medical_date' => $today->subMonthsNoOverflow($months + 1)->toDateString(), 'result' => MedicalResult::Fit]],
+                    [$clerk, ['medical_date' => $today->subDays($validDays + 30)->toDateString(), 'result' => MedicalResult::Fit]],
                 ],
                 'unfit' => [
                     [$clerk, ['medical_date' => $recent(10), 'result' => MedicalResult::Unfit, 'remarks' => 'Sample remark: failed the medical examination.']],

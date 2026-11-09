@@ -8,6 +8,7 @@ use App\Exceptions\WorkflowException;
 use App\Models\MedicalRecord;
 use App\Models\PassportEntry;
 use App\Models\User;
+use App\Support\DateRules;
 use App\Support\LocalDate;
 use DateTimeInterface;
 use Illuminate\Support\Facades\DB;
@@ -122,7 +123,9 @@ class MedicalService
      * Save the passport's medical slip (the client's "MYGRAM"): its date and
      * medical centre. Entering the date moves the passport from
      * not_started to pending. The date can be cleared only while no medical
-     * result is recorded. Nothing else on the passport changes.
+     * result is recorded; clearing it also clears the medical date and centre
+     * (the passport is back on the Passport Entry list). Nothing else on the
+     * passport changes.
      *
      * @param  array{medical_slip_date: string|null, medical_center_id?: int|null}  $data
      *
@@ -141,6 +144,12 @@ class MedicalService
             }
 
             $values = array_intersect_key($data, array_flip(['medical_slip_date', 'medical_center_id']));
+
+            // Clearing the slip sends the passport back to the Passport Entry list as it was
+            // before the slip: no medical date or centre is left behind.
+            if ($data['medical_slip_date'] === null) {
+                $values = [...$values, 'medical_center_id' => null, 'medical_date' => null];
+            }
 
             // Query builder update: only the slip columns change, not updated_at or updated_by.
             PassportEntry::withTrashed()->whereKey($locked->id)->toBase()->update($values);
@@ -218,19 +227,19 @@ class MedicalService
     }
 
     /**
-     * The usual expiry of a fit result: the date plus config
-     * medical.validity_days; null for unfit.
+     * The usual expiry of a fit result: the date plus the "Fit result validity" date
+     * rule (Settings → Date rules) of the company country $country; null for unfit.
      * Only a suggestion for prefilling forms and for sample data: a recorded
      * result keeps the expiry date entered for it.
      */
-    public static function validUntil(string|DateTimeInterface $medicalDate, MedicalResult $result): ?string
+    public static function validUntil(string|DateTimeInterface $medicalDate, MedicalResult $result, ?string $country = null): ?string
     {
         if ($result !== MedicalResult::Fit) {
             return null;
         }
 
         return LocalDate::parse($medicalDate)
-            ->addDays((int) config('medical.validity_days'))
+            ->addDays(app(DateRules::class)->get(DateRules::MEDICAL_VALIDITY_DAYS, $country))
             ->toDateString();
     }
 

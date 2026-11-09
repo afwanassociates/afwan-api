@@ -31,15 +31,16 @@ describe('references', function () {
             ->nid_passport->toBeNull();
     });
 
-    it('requires a phone, and an RL number for an agency only', function () {
+    it('requires a phone, allows an RL number for an agency only, and lets an agency skip it', function () {
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         $this->postJson('/api/data-entry/references', ['type' => 'person', 'name' => 'Karim'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['phone' => 'Enter the phone number.']);
-        $this->postJson('/api/data-entry/references', ['type' => 'agency', 'name' => 'Sea Star', 'phone' => '01711000000'])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors(['rl_number' => 'Enter the RL number of the agency.']);
+        $this->postJson('/api/data-entry/references', ['type' => 'agency', 'name' => 'No RL Yet', 'phone' => '01711000000', 'rl_number' => ''])
+            ->assertCreated()
+            ->assertJsonPath('data.type', 'agency')
+            ->assertJsonPath('data.rl_number', null);
         $this->postJson('/api/data-entry/references', ['type' => 'person', 'name' => 'Karim', 'phone' => '01711000000', 'rl_number' => 'RL-1'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['rl_number' => 'Only agencies have an RL number.']);

@@ -57,7 +57,7 @@ class StepListResource extends JsonResource
             'passport_name' => $this->passport_name,
             'passport_number' => $this->passport_number,
             'reference' => $this->reference ? ['id' => $this->reference->id, 'name' => $this->reference->name] : null,
-            'company' => ['id' => $this->company->id, 'name' => $this->company->name],
+            'company' => ['id' => $this->company->id, 'name' => $this->company->name, 'country_code' => $this->company->country_code],
             'entry_mode' => $this->entry_mode ? ['value' => $this->entry_mode->value, 'label' => $this->entry_mode->label()] : null,
             'record' => $record ? $this->summary($record) : null,
             // The step before (e.g. the calling dates on a visa row) and after

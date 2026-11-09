@@ -6,6 +6,7 @@ use App\Models\Country;
 use App\Models\Party;
 use App\Models\PassportEntry;
 use App\Models\User;
+use App\Support\DateRules;
 use App\Support\Settings;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -75,8 +76,10 @@ describe('data-entry lookups', function () {
                 'default_passport_country' => ['code' => 'BD', 'name' => 'Bangladesh'],
                 'default_company_country_code' => 'MY',
                 'default_passport_country_code' => 'BD',
-                'medical_validity_months' => 3,
+                'medical_validity_days' => 90,
                 'medical_expiring_soon_days' => 14,
+                'date_rules' => app(DateRules::class)->values(),
+                'date_rules_by_country' => [],
             ]]);
     });
 
