@@ -48,6 +48,22 @@ class Workflow
     {
         $rules = app(DateRules::class);
 
+        return array_map(fn (array $step) => [
+            ...$step,
+            // The super admin's "Expiry warnings" date rule, else the config value.
+            'warning_days' => $rules->warningDays($step['key']) ?? $step['warning_days'],
+        ], $this->configSteps());
+    }
+
+    /**
+     * The steps as config/workflow.php defines them, without the date rules: no
+     * database. The route definitions (step keys, milestone actions) use these, so
+     * the app boots without a database (composer's package:discover in CI).
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function configSteps(): array
+    {
         return array_values(array_map(fn (array $step, int $index) => [
             'key' => (string) $step['key'],
             'label' => (string) $step['label'],
@@ -56,9 +72,7 @@ class Workflow
             'enabled' => (bool) ($step['enabled'] ?? true),
             'statuses' => $step['statuses'] ?? [],
             'fields' => $step['fields'] ?? [],
-            // The super admin's "Expiry warnings" date rule, else the config value.
-            'warning_days' => $rules->warningDays((string) $step['key'])
-                ?? (isset($step['warning_days']) ? (int) $step['warning_days'] : null),
+            'warning_days' => isset($step['warning_days']) ? (int) $step['warning_days'] : null,
             'tabs' => $step['tabs'] ?? null,
             'single_update' => (bool) ($step['single_update'] ?? false),
             'date_from' => $step['date_from'] ?? null,
@@ -153,6 +167,22 @@ class Workflow
      *
      * @return array{key: string, label: string, short_label: string, order: int, enabled: bool, statuses: array<string, string>, fields: list<array<string, mixed>>, warning_days: int|null}|null
      */
+    /**
+     * One step as config/workflow.php defines it (no database), for the route helpers.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function configStep(string $key): ?array
+    {
+        foreach ($this->configSteps() as $step) {
+            if ($step['key'] === $key) {
+                return $step;
+            }
+        }
+
+        return null;
+    }
+
     public function step(string $key): ?array
     {
         foreach ($this->steps() as $step) {
@@ -182,7 +212,7 @@ class Workflow
         $keys = [];
         $afterMedical = false;
 
-        foreach ($this->steps() as $step) {
+        foreach ($this->configSteps() as $step) {
             if ($afterMedical && $step['enabled']) {
                 $keys[] = $step['key'];
             }
@@ -203,7 +233,7 @@ class Workflow
     {
         return array_values(array_filter(
             $this->recordStepKeys(),
-            fn (string $key) => ! ($this->step($key)['single_update'] ?? false) && ! $this->hasMilestones($key),
+            fn (string $key) => ! ($this->configStep($key)['single_update'] ?? false) && ! $this->hasMilestones($key),
         ));
     }
 
@@ -217,7 +247,7 @@ class Workflow
     public function stepsToStart(string $key): array
     {
         $before = $this->recordStepsBefore($key);
-        $after = $this->step($key)['starts_after'] ?? null;
+        $after = $this->configStep($key)['starts_after'] ?? null;
         $index = $after === null ? false : array_search($after, $before, true);
 
         return $index === false ? $before : array_slice($before, 0, $index + 1);
@@ -246,7 +276,7 @@ class Workflow
 
     public function hasMilestones(string $key): bool
     {
-        return ($this->step($key)['milestones'] ?? []) !== [] && isset($this->step($key)['complete_action']['key']);
+        return ($this->configStep($key)['milestones'] ?? []) !== [] && isset($this->configStep($key)['complete_action']['key']);
     }
 
     /**
@@ -258,7 +288,7 @@ class Workflow
     public function milestoneActionKeys(): array
     {
         return array_values(array_unique(array_merge(...array_map(
-            fn (string $key) => [...array_column($this->step($key)['milestones'], 'key'), $this->step($key)['complete_action']['key']],
+            fn (string $key) => [...array_column($this->configStep($key)['milestones'], 'key'), $this->configStep($key)['complete_action']['key']],
             $this->milestoneStepKeys(),
         ) ?: [[]])));
     }

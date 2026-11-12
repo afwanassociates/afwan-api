@@ -389,6 +389,8 @@ describe('list', function () {
         $this->getJson("/api/data-entry/passports?per_page={$perPage}&company_country_code=my")->assertOk()->assertJsonCount($perPage, 'data');
 
         // count + page + passport countries + references + companies + company countries
-        expect(DB::getQueryLog())->toHaveCount(7);
+        // + step records + the date rules (app_settings, read once when first needed; no
+        // longer at boot, so the app boots without a database)
+        expect(DB::getQueryLog())->toHaveCount(8);
     })->with([2, 15]);
 });
