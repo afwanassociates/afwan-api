@@ -6,6 +6,7 @@ use App\Enums\ApprovalStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Party;
 use App\Models\PassportEntry;
+use App\Support\PassportPricing;
 use App\Support\Workflow;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -23,6 +24,8 @@ use Illuminate\Validation\Rule;
  * paid off by another receipt; with receipt_id, the passports that receipt
  * pays are its own (ticked, and kept even if deleted since). country_code
  * keeps the passports going to that country (their company's country).
+ * Each passport has its price, what other receipts paid toward it and its
+ * due; one without a price cannot be ticked (the receipt validation refuses it).
  */
 class PartyPassportsController extends Controller
 {
@@ -57,12 +60,16 @@ class PartyPassportsController extends Controller
             )))
             ->with(['company' => fn ($q) => $q->withTrashed()->select('id', 'name', 'country_code')])
             ->orderBy('entry_no')
-            ->get(['id', 'entry_no', 'passport_name', 'passport_number', 'country_code', 'company_id', 'current_stage', 'current_return_id', 'deleted_at']);
+            ->get(['id', 'entry_no', 'passport_name', 'passport_number', 'country_code', 'company_id', 'current_stage', 'current_return_id', 'deleted_at', 'price', 'price_source']);
 
         $paid = $payments->whereIn('cash_receipt_passports.passport_entry_id', $passports->pluck('id'))->get()->groupBy('passport_entry_id');
+        // What other receipts paid toward each passport (its share of their lines).
+        $shares = PassportPricing::shares($receiptId)
+            ->whereIn('crp.passport_entry_id', $passports->pluck('id'))
+            ->pluck('paid', 'passport_entry_id');
 
-        $groups = $passports->groupBy('company_id')->map(function (Collection $rows) use ($paid, $receiptId, $workflow) {
-            $list = $rows->map(function (PassportEntry $passport) use ($paid, $receiptId, $workflow) {
+        $groups = $passports->groupBy('company_id')->map(function (Collection $rows) use ($paid, $shares, $receiptId, $workflow) {
+            $list = $rows->map(function (PassportEntry $passport) use ($paid, $shares, $receiptId, $workflow) {
                 /** @var Collection<int, object> $receipts */
                 $receipts = $paid->get($passport->id, collect());
                 $full = $receipts->first(fn (object $r) => (bool) $r->is_full_payment);
@@ -74,6 +81,8 @@ class PartyPassportsController extends Controller
                 };
                 $onThisReceipt = $receiptId !== null && $receipts->contains(fn (object $r) => (int) $r->id === $receiptId);
                 $paidOffElsewhere = $receipts->contains(fn (object $r) => (bool) $r->is_full_payment && (int) $r->id !== $receiptId);
+                $price = $passport->price !== null ? (float) $passport->price : null;
+                $paidSoFar = round((float) ($shares[$passport->id] ?? 0), 2);
 
                 return [
                     'id' => $passport->id,
@@ -94,8 +103,14 @@ class PartyPassportsController extends Controller
                     ])->values(),
                     // On the receipt being edited: ticked, and the form may untick it.
                     'on_this_receipt' => $onThisReceipt,
-                    // Not paid off by another receipt (and not deleted, unless already on this one).
-                    'can_tick' => ! $paidOffElsewhere && (! $passport->trashed() || $onThisReceipt),
+                    // The locked price (the party's rate, else the company's standard rate, or special).
+                    'price' => $price,
+                    'price_source' => $passport->price_source,
+                    // Paid toward it on other receipts (approved or waiting), and what is left.
+                    'paid' => $paidSoFar,
+                    'due' => $price === null ? null : round($price - $paidSoFar, 2),
+                    // Not paid off by another receipt, not deleted and with a price (unless already on this one).
+                    'can_tick' => ! $paidOffElsewhere && ($onThisReceipt || (! $passport->trashed() && $price !== null)),
                 ];
             })->values();
 

@@ -29,7 +29,7 @@ class ReceiptOptionsController extends Controller
 
         return response()->json(['data' => [
             'business_types' => array_map(
-                fn (BusinessType $type) => ['value' => $type->value, 'label' => $type->label()],
+                fn (BusinessType $type) => ['value' => $type->value, 'label' => $type->label(), 'is_active' => $type->isActive()],
                 BusinessType::cases(),
             ),
             'default_business_type' => BusinessType::Recruitment->value,

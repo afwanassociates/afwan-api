@@ -5,6 +5,7 @@ use App\Models\Country;
 use App\Models\Party;
 use App\Models\PartyTransaction;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 
 function receiptPayload(Party $party, array $overrides = []): array
@@ -259,11 +260,40 @@ describe('cash receipt business and country', function () {
             ->assertJsonPath('data.country.code', 'MY')
             ->assertJsonPath('data.country.name', 'Malaysia');
 
-        // Other businesses take no country.
-        $this->postJson('/api/accounts/cash-receipts', receiptPayload($party, ['business_type' => 'solar']))
-            ->assertCreated()
-            ->assertJsonPath('data.business_type', 'solar')
+        // Land, solar and railway are inactive: no new money for them.
+        foreach (['land' => 'Land', 'solar' => 'Solar', 'railway' => 'Railway'] as $type => $label) {
+            $this->postJson('/api/accounts/cash-receipts', receiptPayload($party, ['business_type' => $type]))
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors(['business_type' => "{$label} is inactive. Choose an active business."]);
+        }
+    });
+
+    it('keeps an inactive business on a receipt already saved with it', function () {
+        Sanctum::actingAs(User::factory()->accounts()->create());
+        $party = Party::factory()->create();
+        $id = $this->postJson('/api/accounts/cash-receipts', receiptPayload($party))->assertCreated()->json('data.id');
+        // Saved before land became inactive.
+        DB::table('cash_receipts')->where('id', $id)->update(['business_type' => 'land', 'country_code' => null]);
+
+        $this->putJson("/api/accounts/cash-receipts/{$id}", receiptPayload($party, ['business_type' => 'land', 'amount' => 900]))
+            ->assertOk()
+            ->assertJsonPath('data.business_type', 'land')
             ->assertJsonPath('data.country', null);
+        // Another inactive one is still refused.
+        $this->putJson("/api/accounts/cash-receipts/{$id}", receiptPayload($party, ['business_type' => 'solar']))
+            ->assertJsonValidationErrors(['business_type' => 'Solar is inactive. Choose an active business.']);
+    });
+
+    it('lists the businesses with only recruitment active', function () {
+        Sanctum::actingAs(User::factory()->accounts()->create());
+
+        $this->getJson('/api/accounts/receipt-options')->assertOk()
+            ->assertJsonPath('data.business_types', [
+                ['value' => 'recruitment', 'label' => 'Recruitment', 'is_active' => true],
+                ['value' => 'land', 'label' => 'Land', 'is_active' => false],
+                ['value' => 'solar', 'label' => 'Solar', 'is_active' => false],
+                ['value' => 'railway', 'label' => 'Railway', 'is_active' => false],
+            ]);
     });
 
     it('needs a business for a party and a country for recruitment', function () {
@@ -298,7 +328,7 @@ describe('cash receipt business and country', function () {
         $this->getJson('/api/accounts/receipt-options')
             ->assertOk()
             ->assertJsonPath('data.default_business_type', 'recruitment')
-            ->assertJsonPath('data.business_types.0', ['value' => 'recruitment', 'label' => 'Recruitment'])
+            ->assertJsonPath('data.business_types.0', ['value' => 'recruitment', 'label' => 'Recruitment', 'is_active' => true])
             ->assertJsonPath('data.business_types.3.value', 'railway')
             ->assertJsonPath('data.default_country.code', 'MY');
 

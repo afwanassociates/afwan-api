@@ -25,6 +25,15 @@ enum BusinessType: string
     }
 
     /**
+     * Whether new money may be received for this business. Only recruitment for now;
+     * land, solar and railway are inactive (a receipt already saved with one keeps it).
+     */
+    public function isActive(): bool
+    {
+        return $this === self::Recruitment;
+    }
+
+    /**
      * @return list<string>
      */
     public static function values(): array

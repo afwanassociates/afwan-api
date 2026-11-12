@@ -88,8 +88,14 @@ class StoreCashReceiptRequest extends FormRequest
             'owner_loan_id' => $this->input('receipt_type') === CashReceiptType::LoanReturn->value
                 ? ['required', 'integer']
                 : ['nullable'],
+            // An active business; when editing, the receipt's current one stays valid.
             'business_type' => $isClient
-                ? ['required', Rule::in(BusinessType::values())]
+                ? ['required', Rule::in(BusinessType::values()), function (string $attribute, mixed $value, \Closure $fail) {
+                    $type = BusinessType::tryFrom((string) $value);
+                    if ($type && ! $type->isActive() && $this->receipt()?->business_type !== $type) {
+                        $fail("{$type->label()} is inactive. Choose an active business.");
+                    }
+                }]
                 : ['nullable'],
             // An active country; when editing, the receipt's current one stays valid.
             'country_code' => $isRecruitment
@@ -163,7 +169,7 @@ class StoreCashReceiptRequest extends FormRequest
             $passports = PassportEntry::withTrashed()
                 ->whereIn('id', $ids)
                 ->with(['company' => fn ($q) => $q->withTrashed()->select('id', 'country_code')])
-                ->get(['id', 'entry_no', 'reference_id', 'company_id', 'deleted_at'])
+                ->get(['id', 'entry_no', 'reference_id', 'company_id', 'deleted_at', 'price'])
                 ->keyBy('id');
             $paidElsewhere = self::paidOffElsewhere($ids, $receiptId);
             $onThisReceipt = $receiptId
@@ -181,6 +187,8 @@ class StoreCashReceiptRequest extends FormRequest
                         // The destination is the company's country (the passport's own is the holder's nationality).
                         $passport->company?->country_code !== $this->input('country_code') => "Passport #{$passport->entry_no} is for another country.",
                         $paidElsewhere->has($passport->id) => "Passport #{$passport->entry_no} is already fully paid on {$paidElsewhere->get($passport->id)}.",
+                        // Money is received only against a price: the company's standard rate or the party's rate.
+                        $passport->price === null && ! $onThisReceipt->has($passport->id) => "Passport #{$passport->entry_no} has no price. The Accounts & Finance Head sets the company's standard rate or this party's rate first.",
                         default => null,
                     };
                     if ($message !== null) {

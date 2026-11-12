@@ -8,6 +8,8 @@ use App\Enums\MedicalStatus;
 use App\Support\DateRules;
 use App\Support\LocalDate;
 use App\Support\Normalize;
+use App\Support\PassportLedger;
+use App\Support\PassportPricing;
 use Database\Factories\PassportEntryFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -33,7 +35,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * the serial number (1, 2, 3, …), is given once when the entry is created and never
  * changes or comes back after a delete.
  */
-#[Hidden(['scan_path'])]
+#[Hidden(['scan_path', 'price', 'price_source'])]
 #[Fillable([
     'passport_name', 'passport_number', 'country_code', 'date_of_birth', 'reference_id', 'company_id',
     'passport_received_date', 'passport_expiry_date',
@@ -74,7 +76,27 @@ class PassportEntry extends Model
             'scan_size' => 'integer',
             'entry_mode' => EntryMode::class,
             'scan_uploaded_at' => 'datetime',
+            'price' => 'decimal:2',
         ];
+    }
+
+    /**
+     * The price is locked when the passport is entered and when its reference or
+     * company changes (App\Support\PassportPricing), and kept on the reference's
+     * ledger as a receivable line (App\Support\PassportLedger). It is hidden:
+     * only the payment report and the ledger show it.
+     */
+    protected static function booted(): void
+    {
+        static::saving(fn (PassportEntry $passport) => PassportPricing::lock($passport));
+        // Its receivable line on the reference's ledger (App\Support\PassportLedger).
+        static::saved(function (PassportEntry $passport) {
+            if ($passport->wasRecentlyCreated || $passport->wasChanged(['price', 'reference_id', 'company_id', 'passport_name'])) {
+                PassportLedger::sync($passport);
+            }
+        });
+        static::deleted(fn (PassportEntry $passport) => PassportLedger::sync($passport));
+        static::restored(fn (PassportEntry $passport) => PassportLedger::sync($passport));
     }
 
     /**

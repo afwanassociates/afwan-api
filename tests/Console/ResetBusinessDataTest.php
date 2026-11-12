@@ -97,6 +97,8 @@ beforeEach(function () {
     $receipt = CashReceipt::factory()->create(['party_id' => $this->passport->reference_id]);
     $lineId = DB::table('cash_receipt_lines')->insertGetId(['cash_receipt_id' => $receipt->id, 'company_id' => $this->passport->company_id, 'amount' => 100]);
     DB::table('cash_receipt_passports')->insert(['cash_receipt_id' => $receipt->id, 'cash_receipt_line_id' => $lineId, 'passport_entry_id' => $this->passport->id]);
+    // The reference's own rate for the company: goes with the companies.
+    DB::table('party_company_rates')->insert(['party_id' => $this->passport->reference_id, 'company_id' => $this->passport->company_id, 'rate' => 45000]);
 
     // Scan files (fake disk).
     $disk = Storage::disk(PassportScanService::DISK);

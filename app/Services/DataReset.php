@@ -35,14 +35,14 @@ class DataReset
     public const GROUPS = [
         'passports' => [
             'label' => 'Passports & workflow',
-            'description' => 'Passport entries, medical records, every workflow step, passport returns, which passports cash receipts paid for (the receipts stay) and the uploaded passport scans.',
+            'description' => 'Passport entries, medical records, every workflow step, passport returns, which passports cash receipts paid for (the receipts stay), the passport price lines on the party ledgers and the uploaded passport scans.',
             'tables' => ['cash_receipt_passports', 'cash_receipt_lines', 'passport_step_records', 'medical_records', 'passport_returns', 'passport_entries'],
             'scans' => true,
         ],
         'companies' => [
             'label' => 'Companies',
-            'description' => 'Employer companies. Passports must be deleted too.',
-            'tables' => ['companies'],
+            'description' => 'Employer companies and the passport rates set for them. Passports must be deleted too.',
+            'tables' => ['party_company_rates', 'companies'],
         ],
         // Only the money: parties stay, so passports keep their reference. Also part of "accounts".
         'transactions' => [
@@ -53,7 +53,7 @@ class DataReset
         'accounts' => [
             'label' => 'Accounts',
             'description' => 'Parties (the passports\' references, agencies and persons) and owners, cash receipts, payments and transfers, owner loans and their bill copies, ledgers, approvals and the cash opening balance.',
-            'tables' => ['party_transactions', 'owner_loan_bills', 'cash_receipts', 'cash_payments', 'cash_transfers', 'parties'],
+            'tables' => ['party_transactions', 'owner_loan_bills', 'cash_receipts', 'cash_payments', 'cash_transfers', 'party_company_rates', 'parties'],
         ],
     ];
 

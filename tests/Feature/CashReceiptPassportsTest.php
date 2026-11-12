@@ -46,11 +46,12 @@ function plainPartyReceipt(Party $party, array $overrides = []): array
 
 describe('cash receipts paying for passports', function () {
     beforeEach(function () {
+        // The companies have a standard rate: cash is received only against priced passports.
         Sanctum::actingAs(User::factory()->accounts()->create());
         $this->party = Party::factory()->agency()->create();
-        $this->alNoor = Company::factory()->create(['name' => 'Al Noor', 'country_code' => 'MY']);
-        $this->gulf = Company::factory()->create(['name' => 'Gulf Star', 'country_code' => 'MY']);
-        $this->riyadh = Company::factory()->create(['name' => 'Riyadh Co', 'country_code' => 'SA']);
+        $this->alNoor = Company::factory()->create(['name' => 'Al Noor', 'country_code' => 'MY', 'rate' => 20000]);
+        $this->gulf = Company::factory()->create(['name' => 'Gulf Star', 'country_code' => 'MY', 'rate' => 20000]);
+        $this->riyadh = Company::factory()->create(['name' => 'Riyadh Co', 'country_code' => 'SA', 'rate' => 20000]);
         $make = fn (Company $company, int $count, array $state = []) => PassportEntry::factory()->count($count)->create([
             'reference_id' => $this->party->id, 'company_id' => $company->id, 'country_code' => 'BD', ...$state,
         ])->all();
@@ -99,7 +100,7 @@ describe('cash receipts paying for passports', function () {
         $this->getJson("/api/accounts/parties/{$this->party->id}/passports?country_code=MY")
             ->assertJsonPath('meta.counts', ['total' => 5, 'paid' => 3, 'pending' => 0, 'part_paid' => 0, 'unpaid' => 2]);
         // The ledger still gets one payment for the whole amount.
-        expect($this->party->transactions()->sole()->amount)->toBe('60000.00');
+        expect($this->party->transactions()->whereNotNull('cash_receipt_id')->sole()->amount)->toBe('60000.00');
     });
 
     it('lets a passport be paid in parts over several receipts until a full payment', function () {
@@ -182,7 +183,7 @@ describe('cash receipts paying for passports', function () {
         $this->postJson('/api/accounts/cash-receipts', passportReceipt($this->party, $lines, ['business_type' => 'land']))
             ->assertJsonValidationErrors(['companies' => 'Only a party\'s recruitment cash pays for passports.']);
         // An empty list is fine everywhere, and a receipt without passports still works.
-        $this->postJson('/api/accounts/cash-receipts', plainPartyReceipt($this->party, ['business_type' => 'land', 'companies' => []]))
+        $this->postJson('/api/accounts/cash-receipts', plainPartyReceipt($this->party, ['companies' => []]))
             ->assertCreated()
             ->assertJsonPath('data.passport_count', 0);
     });

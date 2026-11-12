@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Support\Normalize;
 use Database\Factories\CompanyFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -19,6 +20,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * employer is, not the passport's country. is_active and created_by are
  * deliberately not fillable: assign them explicitly.
  */
+#[Hidden(['rate'])]
 #[Fillable(['name', 'country_code', 'quota'])]
 class Company extends Model
 {
@@ -35,6 +37,7 @@ class Company extends Model
         return [
             'is_active' => 'boolean',
             'quota' => 'integer',
+            'rate' => 'decimal:2',
         ];
     }
 

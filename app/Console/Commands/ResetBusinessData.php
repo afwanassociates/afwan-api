@@ -73,6 +73,8 @@ class ResetBusinessData extends Command
         'medical_records',
         'passport_returns',
         'passport_entries',
+        // References' rates per company go with the companies.
+        'party_company_rates',
         'companies',
     ];
 
@@ -81,7 +83,7 @@ class ResetBusinessData extends Command
      *
      * @var list<string>
      */
-    public const COMPANY_TABLES = ['companies'];
+    public const COMPANY_TABLES = ['party_company_rates', 'companies'];
 
     /**
      * Tables checked row by row after the reset (key = ordering column).
@@ -295,6 +297,12 @@ class ResetBusinessData extends Command
      */
     protected function truncate(array $tables): void
     {
+        // Passports' price lines on the ledgers go with the passports (the other lines stay).
+        if (in_array('passport_entries', $tables, true)) {
+            $lines = DB::table('party_transactions')->whereNotNull('passport_entry_id')->delete();
+            $this->line("Deleted {$lines} passport price line(s) from the party ledgers.");
+        }
+
         Schema::disableForeignKeyConstraints();
 
         try {

@@ -11,6 +11,8 @@ use App\Http\Controllers\Accounts\PartyController;
 use App\Http\Controllers\Accounts\PartyLedgerController;
 use App\Http\Controllers\Accounts\PartyPassportsController;
 use App\Http\Controllers\Accounts\PartyTransactionController;
+use App\Http\Controllers\Accounts\PassportRatesController;
+use App\Http\Controllers\Accounts\PaymentReportController;
 use App\Http\Controllers\Accounts\ReceiptOptionsController;
 use App\Http\Controllers\Admin\CompanyController as AdminCompanyController;
 use App\Http\Controllers\Admin\CountryController;
@@ -250,6 +252,19 @@ Route::middleware('auth:sanctum')->group(function () {
     // (UserRole::financeViewers()). Admins see it here only; they have no cash pages.
     Route::prefix('finance')->name('finance.')->middleware('role:admin,accounts_head')->group(function () {
         Route::get('/summary', [CashBookController::class, 'finance'])->name('summary');
+    });
+
+    // The payment report: every passport with its reference, company, payment status and the
+    // receipts behind it. The accounts head and the super admin only (not admins).
+    Route::middleware('role:accounts_head,super_admin')->group(function () {
+        Route::get('/payment-report', PaymentReportController::class)->name('payment-report');
+        Route::get('/payment-report/rates', [PassportRatesController::class, 'index'])->name('payment-report.rates');
+    });
+    // Passport prices (company rates, reference rates, special prices): the accounts head only.
+    Route::prefix('payment-report')->name('payment-report.')->middleware('role:accounts_head')->group(function () {
+        Route::put('/rates/companies/{company}', [PassportRatesController::class, 'company'])->name('rates.company');
+        Route::put('/rates/references', [PassportRatesController::class, 'reference'])->name('rates.reference');
+        Route::put('/passports/{passport}/price', [PassportRatesController::class, 'passport'])->name('passports.price');
     });
 
     Route::prefix('accounts-head')->name('accounts-head.')->middleware('role:accounts_head')->group(function () {

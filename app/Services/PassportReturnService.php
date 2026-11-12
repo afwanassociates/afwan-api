@@ -6,6 +6,7 @@ use App\Exceptions\WorkflowException;
 use App\Models\PassportEntry;
 use App\Models\PassportReturn;
 use App\Models\User;
+use App\Support\PassportLedger;
 use App\Support\Workflow;
 use Illuminate\Support\Facades\DB;
 
@@ -87,6 +88,8 @@ class PassportReturnService
         PassportEntry::withTrashed()->whereKey($passport->id)->toBase()->update(['current_return_id' => $returnId]);
         $passport->setAttribute('current_return_id', $returnId)->syncOriginalAttribute('current_return_id');
         $passport->unsetRelation('currentReturn');
+        // A returned passport is not owed for; undoing the return puts its price back.
+        PassportLedger::sync($passport);
     }
 
     /**

@@ -40,7 +40,7 @@ class PartyTransactionPolicy extends AccountsEntryPolicy
     private function manualOnly(CashReceipt|CashPayment|CashTransfer|PartyTransaction|OwnerLoanBill $entry): ?Response
     {
         return $entry instanceof PartyTransaction && ! $entry->isManual()
-            ? Response::deny('This line belongs to a cash receipt or payment; change that instead.')
+            ? Response::deny('This line belongs to a cash receipt, payment or passport price; change that instead.')
             : null;
     }
 }

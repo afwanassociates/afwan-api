@@ -41,7 +41,7 @@ class PartyLedger
             ->where('party_id', $party->id)
             ->when($from, fn ($q) => $q->where('date', '>=', $from))
             ->when($to, fn ($q) => $q->where('date', '<=', $to))
-            ->with(['cashReceipt:id,receipt_no', 'cashPayment:id,payment_no'])
+            ->with(['cashReceipt:id,receipt_no', 'cashPayment:id,payment_no', 'passportEntry:id,entry_no'])
             ->orderBy('date')
             ->orderBy('id')
             ->get();
@@ -66,9 +66,11 @@ class PartyLedger
                 'type' => $line->type->value,
                 'type_label' => $line->type->label(),
                 'note' => $line->note,
-                'reference' => $line->cashReceipt?->receipt_no ?? $line->cashPayment?->payment_no,
+                'reference' => $line->cashReceipt?->receipt_no ?? $line->cashPayment?->payment_no
+                    ?? ($line->passportEntry ? "Passport #{$line->passportEntry->entry_no}" : null),
                 'cash_receipt_id' => $line->cash_receipt_id,
                 'cash_payment_id' => $line->cash_payment_id,
+                'passport_entry_id' => $line->passport_entry_id,
                 'is_manual' => $line->isManual(),
                 'debit' => $line->type->isDebit() ? self::money($amount) : 0.0,
                 'credit' => $line->type->isDebit() ? 0.0 : self::money($amount),

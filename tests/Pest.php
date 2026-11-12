@@ -1,6 +1,8 @@
 <?php
 
+use App\Models\Company;
 use App\Models\Party;
+use App\Models\PassportEntry;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
@@ -178,4 +180,30 @@ function fundAccount(float $amount, string $method = 'bank', string $date = '202
     DB::table('cash_receipts')->where('id', $id)->update(['status' => 'approved', 'approved_at' => now()]);
 
     return $id;
+}
+
+/**
+ * A recruitment cash receipt from the party paying one company's passports.
+ *
+ * @param  list<PassportEntry>  $passports
+ * @return array<string, mixed>
+ */
+function paymentReportReceipt(Party $party, Company $company, int $amount, array $passports, bool $full = true): array
+{
+    return [
+        'date' => '2026-10-10',
+        'party_type' => 'client',
+        'party_id' => $party->id,
+        'receipt_type' => 'cash',
+        'business_type' => 'recruitment',
+        'country_code' => 'MY',
+        'amount' => $amount,
+        'payment_method' => 'cash',
+        'companies' => [[
+            'company_id' => $company->id,
+            'amount' => $amount,
+            'is_full_payment' => $full,
+            'passport_ids' => array_map(fn (PassportEntry $p) => $p->id, $passports),
+        ]],
+    ];
 }

@@ -12,7 +12,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * One line of a party ledger. Lines with a cash_receipt_id, cash_payment_id or
  * owner_loan_bill_id belong to that voucher and change only through it
  * (App\Services\CashReceiptService, App\Services\CashPaymentService,
- * App\Services\OwnerLoans).
+ * App\Services\OwnerLoans). A line with a passport_entry_id is that passport's
+ * price, kept by App\Support\PassportLedger.
  */
 #[Fillable(['date', 'type', 'amount', 'note'])]
 class PartyTransaction extends Model
@@ -36,7 +37,8 @@ class PartyTransaction extends Model
      */
     public function isManual(): bool
     {
-        return $this->cash_receipt_id === null && $this->cash_payment_id === null && $this->owner_loan_bill_id === null;
+        return $this->cash_receipt_id === null && $this->cash_payment_id === null
+            && $this->owner_loan_bill_id === null && $this->passport_entry_id === null;
     }
 
     /**
@@ -69,6 +71,14 @@ class PartyTransaction extends Model
     public function ownerLoanBill(): BelongsTo
     {
         return $this->belongsTo(OwnerLoanBill::class);
+    }
+
+    /**
+     * @return BelongsTo<PassportEntry, $this>
+     */
+    public function passportEntry(): BelongsTo
+    {
+        return $this->belongsTo(PassportEntry::class)->withTrashed();
     }
 
     /**
