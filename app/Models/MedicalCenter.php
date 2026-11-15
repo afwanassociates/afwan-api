@@ -55,6 +55,27 @@ class MedicalCenter extends Model
     }
 
     /**
+     * Adds has_any_passports (deleted passports included) for canBeDeleted().
+     *
+     * @param  Builder<MedicalCenter>  $query
+     */
+    #[Scope]
+    protected function withDeletable(Builder $query): void
+    {
+        $query->withExists(['passportEntries as has_any_passports' => fn (Builder $query) => $query->withTrashed()]);
+    }
+
+    /**
+     * Only a centre no passport has ever named (deleted ones included) may be deleted.
+     */
+    public function canBeDeleted(): bool
+    {
+        return ! (array_key_exists('has_any_passports', $this->attributes)
+            ? (bool) $this->attributes['has_any_passports']
+            : $this->passportEntries()->withTrashed()->exists());
+    }
+
+    /**
      * Passports whose medical slip names this centre.
      *
      * @return HasMany<PassportEntry, $this>

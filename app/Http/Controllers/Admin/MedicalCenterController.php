@@ -10,14 +10,20 @@ use App\Http\Resources\MedicalCenterResource;
 use App\Models\MedicalCenter;
 use App\Support\Like;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
 
+/**
+ * Medical centre management for the operations head. The passport team adds a
+ * centre from the medical slip (store) and keeps the search dropdown
+ * (DataEntry\MedicalCenterLookupController).
+ */
 class MedicalCenterController extends Controller
 {
     /**
-     * Every medical centre, active and inactive.
+     * Every medical centre, active and inactive, with how many passports name each.
      */
     public function index(ListMedicalCentersRequest $request): AnonymousResourceCollection
     {
@@ -26,6 +32,8 @@ class MedicalCenterController extends Controller
         $search = trim((string) $request->validated('q'));
 
         $centers = MedicalCenter::query()
+            ->withCount('passportEntries')
+            ->withDeletable()
             ->when($search !== '', fn (Builder $query) => $query->where('name', 'like', Like::contains($search)))
             ->when($request->has('is_active'), fn (Builder $query) => $query->where('is_active', $request->boolean('is_active')))
             ->orderBy('name')
@@ -47,7 +55,7 @@ class MedicalCenterController extends Controller
         $center->created_by = $request->user()->id;
         $center->save();
 
-        return new MedicalCenterResource($center);
+        return new MedicalCenterResource($center->loadCount('passportEntries')->setAttribute('has_any_passports', false));
     }
 
     /**
@@ -65,16 +73,24 @@ class MedicalCenterController extends Controller
 
         $medicalCenter->save();
 
-        return new MedicalCenterResource($medicalCenter);
+        return new MedicalCenterResource($medicalCenter->loadCount('passportEntries')
+            ->setAttribute('has_any_passports', ! $medicalCenter->canBeDeleted()));
     }
 
     /**
-     * Soft delete a medical centre. Medicals recorded there keep showing it;
-     * its name stays taken.
+     * Soft delete a medical centre no passport names (its name stays taken).
+     * One in use is deactivated instead, so its passports keep showing it.
      */
-    public function destroy(MedicalCenter $medicalCenter): Response
+    public function destroy(MedicalCenter $medicalCenter): Response|JsonResponse
     {
         Gate::authorize('delete', $medicalCenter);
+
+        if (! $medicalCenter->canBeDeleted()) {
+            return response()->json([
+                'message' => 'This medical center is used on passports, so it cannot be deleted. Deactivate it instead.',
+                'code' => 'medical_center_has_passports',
+            ], 422);
+        }
 
         $medicalCenter->delete();
 

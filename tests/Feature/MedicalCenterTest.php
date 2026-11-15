@@ -26,14 +26,16 @@ describe('medical centre admin', function () {
         ]);
     });
 
-    it('lets admin and super admin list, create, rename, deactivate and delete centres', function (string $role) {
-        $admin = User::factory()->{$role}()->create();
+    it('lets the operations head list, create, rename, deactivate and delete centres', function () {
+        $admin = User::factory()->operationHead()->create();
         Sanctum::actingAs($admin);
 
-        $id = $this->postJson('/api/admin/medical-centers', ['name' => '  Popular   Diagnostic  '])
+        $id = $this->postJson('/api/data-entry/medical-centers', ['name' => '  Popular   Diagnostic  '])
             ->assertCreated()
             ->assertJsonPath('data.name', 'Popular Diagnostic')
             ->assertJsonPath('data.is_active', true)
+            ->assertJsonPath('data.passports_count', 0)
+            ->assertJsonPath('data.can_delete', true)
             ->json('data.id');
 
         expect(MedicalCenter::find($id)->created_by)->toBe($admin->id);
@@ -52,32 +54,77 @@ describe('medical centre admin', function () {
         $this->deleteJson("/api/admin/medical-centers/{$id}")->assertNoContent();
 
         expect(MedicalCenter::withTrashed()->find($id)->trashed())->toBeTrue();
-    })->with(['admin', 'superAdmin']);
+    });
+
+    it('deletes only a centre no passport names; one in use is deactivated instead', function () {
+        $used = MedicalCenter::query()->where('name', 'Meem Medical Center')->sole();
+        PassportEntry::factory()->create(['medical_center_id' => $used->id]);
+        // A deleted passport still keeps its centre.
+        $onDeleted = MedicalCenter::query()->where('name', 'Zain Medical Center')->sole();
+        PassportEntry::factory()->create(['medical_center_id' => $onDeleted->id])->delete();
+        Sanctum::actingAs(User::factory()->operationHead()->create());
+
+        $rows = collect($this->getJson('/api/admin/medical-centers')->assertOk()->json('data'))->keyBy('name');
+        expect($rows['Meem Medical Center']['passports_count'])->toBe(1)
+            ->and($rows['Meem Medical Center']['can_delete'])->toBeFalse()
+            ->and($rows['Zain Medical Center']['passports_count'])->toBe(0)
+            ->and($rows['Zain Medical Center']['can_delete'])->toBeFalse()
+            ->and($rows['SKN Health Services']['can_delete'])->toBeTrue();
+
+        foreach ([$used, $onDeleted] as $center) {
+            $this->deleteJson("/api/admin/medical-centers/{$center->id}")
+                ->assertUnprocessable()
+                ->assertJsonPath('code', 'medical_center_has_passports');
+            expect($center->fresh()->trashed())->toBeFalse();
+        }
+
+        $this->patchJson("/api/admin/medical-centers/{$used->id}", ['is_active' => false])
+            ->assertOk()
+            ->assertJsonPath('data.is_active', false)
+            ->assertJsonPath('data.can_delete', false);
+    });
 
     it('rejects a duplicate name, deleted centres included, whatever the case', function () {
         MedicalCenter::factory()->create(['name' => 'Old Centre'])->delete();
-        Sanctum::actingAs(User::factory()->admin()->create());
+        Sanctum::actingAs(User::factory()->operationHead()->create());
 
-        $this->postJson('/api/admin/medical-centers', ['name' => 'meem medical center'])
+        $this->postJson('/api/data-entry/medical-centers', ['name' => 'meem medical center'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['name' => 'A medical centre with this name already exists.']);
-        $this->postJson('/api/admin/medical-centers', ['name' => 'Old Centre'])
+        $this->postJson('/api/data-entry/medical-centers', ['name' => 'Old Centre'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('name');
-        $this->postJson('/api/admin/medical-centers', ['name' => ''])
+        $this->postJson('/api/data-entry/medical-centers', ['name' => ''])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('name');
     });
 
-    it('keeps the admin endpoints from data entry and accounts', function (string $role) {
+    it('keeps the management endpoints from everyone but the operations head', function (string $role) {
         $center = MedicalCenter::query()->first();
         Sanctum::actingAs(User::factory()->{$role}()->create());
 
         $this->getJson('/api/admin/medical-centers')->assertForbidden();
-        $this->postJson('/api/admin/medical-centers', ['name' => 'X'])->assertForbidden();
         $this->patchJson("/api/admin/medical-centers/{$center->id}", ['name' => 'X'])->assertForbidden();
         $this->deleteJson("/api/admin/medical-centers/{$center->id}")->assertForbidden();
-    })->with(['dataEntry', 'accounts']);
+    })->with(['admin', 'superAdmin', 'dataEntry', 'accounts', 'accountsHead']);
+
+    it('lets data entry and the operations head add a centre from the medical slip', function (string $role) {
+        $user = User::factory()->{$role}()->create();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/data-entry/medical-centers', ['name' => 'Popular Diagnostic'])
+            ->assertCreated()
+            ->assertJsonPath('data.name', 'Popular Diagnostic')
+            ->assertJsonPath('data.is_active', true);
+        expect(MedicalCenter::query()->where('name', 'Popular Diagnostic')->value('created_by'))->toBe($user->id);
+    })->with(['dataEntry', 'operationHead']);
+
+    it('keeps adding a centre from admins and accounts', function (string $role) {
+        Sanctum::actingAs(User::factory()->{$role}()->create());
+
+        $this->postJson('/api/data-entry/medical-centers', ['name' => 'X'])->assertForbidden();
+        expect(MedicalCenter::query()->where('name', 'X')->exists())->toBeFalse();
+    })->with(['admin', 'superAdmin', 'accounts', 'accountsHead']);
 
     it('rejects unauthenticated requests', function () {
         $this->getJson('/api/admin/medical-centers')->assertUnauthorized();

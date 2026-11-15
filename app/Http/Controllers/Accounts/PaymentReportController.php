@@ -39,7 +39,11 @@ use Illuminate\Validation\Rule;
  * passport has one).
  *
  * Status as on a party's ledger: paid (an approved full payment), pending (the
- * full payment waits for approval or was returned), part paid or unpaid.
+ * full payment waits for approval or was returned), part paid or unpaid; a
+ * passport returned to its owner is "returned" instead, left out of the
+ * passport total and the other statuses. Money already received for a returned
+ * passport stays on its receipt and becomes the reference's credit
+ * (returned_credit), to refund or use against other passports.
  *
  * Filters: q (name, passport number or entry no), reference_id, company_id,
  * status. Counts and amounts cover every filter except status, so the status
@@ -48,7 +52,10 @@ use Illuminate\Validation\Rule;
  */
 class PaymentReportController extends Controller
 {
+    /** The statuses that make up the passport total. */
     private const STATUSES = ['paid', 'pending', 'part_paid', 'unpaid'];
+
+    private const RETURNED = 'returned';
 
     public function __invoke(Request $request, Workflow $workflow): JsonResponse
     {
@@ -56,7 +63,7 @@ class PaymentReportController extends Controller
             'q' => ['nullable', 'string', 'max:100'],
             'reference_id' => ['nullable', 'integer', Rule::exists('parties', 'id')],
             'company_id' => ['nullable', 'integer', Rule::exists('companies', 'id')],
-            'status' => ['nullable', Rule::in(self::STATUSES)],
+            'status' => ['nullable', Rule::in([...self::STATUSES, self::RETURNED])],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
         ]);
@@ -92,6 +99,7 @@ class PaymentReportController extends Controller
 
         $data = $page->getCollection()->map(function (Party $reference) use ($passports, $receipts, $lines, $referenceRates, $wanted, $workflow) {
             $mine = $passports->where('reference_id', $reference->id);
+            $mineRows = $mine->map(fn (PassportEntry $p) => $this->passportRow($p, $receipts, $workflow));
 
             $companies = $mine->groupBy('company_id')
                 ->map(function (Collection $rows, int|string $companyId) use ($reference, $receipts, $lines, $referenceRates, $wanted, $workflow) {
@@ -110,7 +118,7 @@ class PaymentReportController extends Controller
                             'name' => $company?->name,
                             'country_code' => $company?->country_code,
                         ],
-                        'counts' => self::counts($rows->pluck('payment_status')),
+                        'counts' => self::counts($all),
                         // The rates now (passports keep the price they were given).
                         'company_rate' => $company?->rate !== null ? (float) $company->rate : null,
                         'reference_rate' => $own !== null ? (float) $own->rate : null,
@@ -131,7 +139,7 @@ class PaymentReportController extends Controller
                     'type_label' => $reference->kind?->label(),
                     'mobile' => $reference->mobile,
                 ],
-                'counts' => self::counts($mine->pluck('payment_status')),
+                'counts' => self::counts($mineRows),
                 'paid_amount' => round($companies->sum('paid_amount'), 2),
                 'pending_amount' => round($companies->sum('pending_amount'), 2),
                 'price_total' => round($companies->sum('price_total'), 2),
@@ -256,9 +264,18 @@ class PaymentReportController extends Controller
             ->selectRaw('sum(case when passport_entries.current_return_id is not null or passport_entries.price is not null then 1 else 0 end) as known')
             ->first();
 
+        $returnedPaid = (clone $base)->toBase()
+            ->whereNotNull('passport_entries.current_return_id')
+            ->joinSub(PassportPricing::shares(), 'sh', 'sh.passport_entry_id', '=', 'passport_entries.id')
+            ->selectRaw('count(*) as n, sum(coalesce(sh.paid, 0)) as credit')
+            ->first();
+
         return [
-            'total' => (int) $statuses->sum(),
+            'total' => (int) collect(self::STATUSES)->sum(fn (string $s) => (int) ($statuses[$s] ?? 0)),
             ...collect(self::STATUSES)->mapWithKeys(fn (string $s) => [$s => (int) ($statuses[$s] ?? 0)])->all(),
+            'returned' => (int) ($statuses[self::RETURNED] ?? 0),
+            'returned_paid' => (int) ($returnedPaid->n ?? 0),
+            'returned_credit' => round((float) ($returnedPaid->credit ?? 0), 2),
             ...$amounts,
             'price_total' => $priceTotal,
             'no_price' => (int) ($prices->no_price ?? 0),
@@ -337,14 +354,23 @@ class PaymentReportController extends Controller
     }
 
     /**
-     * @param  Collection<int, string>  $statuses
-     * @return array<string, int>
+     * Status counts; returned passports are counted apart (not in the total),
+     * with how many of them have money on a receipt and how much (the credit).
+     *
+     * @param  Collection<int, array<string, mixed>>  $rows  rows of passportRow()
+     * @return array<string, int|float>
      */
-    private static function counts(Collection $statuses): array
+    private static function counts(Collection $rows): array
     {
+        $returned = $rows->where('status', self::RETURNED);
+        $withMoney = $returned->filter(fn (array $p) => $p['paid_amount'] + $p['pending_amount'] > 0.004);
+
         return [
-            'total' => $statuses->count(),
-            ...collect(self::STATUSES)->mapWithKeys(fn (string $s) => [$s => $statuses->filter(fn ($v) => $v === $s)->count()])->all(),
+            'total' => $rows->count() - $returned->count(),
+            ...collect(self::STATUSES)->mapWithKeys(fn (string $s) => [$s => $rows->where('status', $s)->count()])->all(),
+            'returned' => $returned->count(),
+            'returned_paid' => $withMoney->count(),
+            'returned_credit' => round((float) $withMoney->sum(fn (array $p) => $p['paid_amount'] + $p['pending_amount']), 2),
         ];
     }
 
@@ -399,6 +425,7 @@ class PaymentReportController extends Controller
         $approved = ApprovalStatus::Approved->value;
 
         return '(case'
+            ." when passport_entries.current_return_id is not null then '".self::RETURNED."'"
             .' when '.$has(" and l.is_full_payment = 1 and r.status = '{$approved}'")." then 'paid'"
             .' when '.$has(' and l.is_full_payment = 1')." then 'pending'"
             .' when '.$has('')." then 'part_paid'"

@@ -7,8 +7,10 @@ use App\Models\MedicalCenter;
 use App\Models\User;
 
 /**
- * data_entry, admin and super_admin search active centres for the medical
- * form; only admin and super_admin manage the list.
+ * The passport team (data entry and the operations head) and admins search
+ * active centres for the medical form. The passport team adds one from the
+ * medical slip; only the operations head manages the list (rename,
+ * deactivate, delete an unused one).
  */
 class MedicalCenterPolicy
 {
@@ -22,12 +24,12 @@ class MedicalCenterPolicy
      */
     public function manage(User $user): bool
     {
-        return $user->hasRole(UserRole::Admin, UserRole::SuperAdmin);
+        return $user->hasRole(UserRole::OperationHead);
     }
 
     public function create(User $user): bool
     {
-        return $this->manage($user);
+        return $user->hasRole(UserRole::DataEntry, UserRole::OperationHead);
     }
 
     public function update(User $user, MedicalCenter $center): bool

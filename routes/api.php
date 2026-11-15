@@ -104,7 +104,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Countries are only ever added or deactivated, never deleted.
         Route::apiResource('countries', CountryController::class)->only(['index', 'store', 'update']);
-        Route::apiResource('medical-centers', MedicalCenterController::class)->except('show');
         Route::get('/settings', [SettingsController::class, 'show'])->name('settings.show');
         Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
     });
@@ -116,6 +115,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('admin')->name('admin.')->middleware('role:operation_head')->group(function () {
         Route::apiResource('companies', AdminCompanyController::class);
         Route::apiResource('references', AdminReferenceController::class)->except('show');
+        // Medical centres the same way (MedicalCenterPolicy "manage"): deleted only while
+        // no passport names one. Adding one is open to the passport team (data-entry route).
+        Route::apiResource('medical-centers', MedicalCenterController::class)->except(['show', 'store']);
     });
 
     // Staff accounts: admins manage the heads, accounts and data entry users; the accounts head
@@ -151,6 +153,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/medicals/{medical}', [MedicalRecordController::class, 'destroy'])->name('medicals.destroy');
         Route::get('/medical/queue', MedicalQueueController::class)->name('medical.queue');
         Route::get('/medical-centers', MedicalCenterLookupController::class)->name('medical-centers.index');
+        // "Add new medical center" from the medical slip: data entry and the operations head.
+        Route::post('/medical-centers', [MedicalCenterController::class, 'store'])->name('medical-centers.store');
 
         // Steps 3 to 6 (calling, visa, bmet, flight; config/workflow.php). Every
         // write goes through App\Services\WorkflowService.
