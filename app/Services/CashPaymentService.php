@@ -7,6 +7,7 @@ use App\Enums\CashPaymentType;
 use App\Enums\PayeeType;
 use App\Enums\PaymentMethod;
 use App\Models\CashPayment;
+use App\Models\MygramAgent;
 use App\Models\User;
 use App\Support\YearlyNumber;
 
@@ -93,13 +94,17 @@ class CashPaymentService
         $isBank = $data['payment_method'] === PaymentMethod::Bank->value;
         $isMobile = $data['payment_method'] === PaymentMethod::MobileBanking->value;
         $isOther = $data['payee_type'] === PayeeType::Other->value;
+        $isAgent = $data['payee_type'] === PayeeType::Agent->value;
+        // An agent payment keeps the agent's name as it was (cash book, approvals).
+        $agent = $isAgent ? MygramAgent::query()->findOrFail($data['mygram_agent_id']) : null;
 
         return [
             'date' => $data['date'],
             'payee_type' => $data['payee_type'],
             // A party/owner payee is the party record; another payee is typed.
-            'party_id' => $isOther ? null : $data['party_id'],
-            'payee_name' => $isOther ? $data['payee_name'] : null,
+            'party_id' => $isOther || $isAgent ? null : $data['party_id'],
+            'mygram_agent_id' => $agent?->id,
+            'payee_name' => $isOther ? $data['payee_name'] : $agent?->label(),
             'payment_type' => $data['payment_type'],
             // Category and bill number describe an expense (another payee) only.
             'expense_category' => $isOther ? $data['expense_category'] : null,

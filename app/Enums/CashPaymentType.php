@@ -12,6 +12,8 @@ enum CashPaymentType: string
     case Refund = 'refund';
     case OwnerLoan = 'owner_loan';
     case Expense = 'expense';
+    // A part payment to a MYGRAM agent (no ledger line, no passports).
+    case AgentPayment = 'agent_payment';
 
     public function label(): string
     {
@@ -19,6 +21,7 @@ enum CashPaymentType: string
             self::Refund => 'Refund',
             self::OwnerLoan => 'Owner loan',
             self::Expense => 'Expense',
+            self::AgentPayment => 'Agent payment',
         };
     }
 
@@ -30,7 +33,7 @@ enum CashPaymentType: string
         return match ($this) {
             self::Refund => PartyTransactionType::Refund,
             self::OwnerLoan => PartyTransactionType::OwnerLoan,
-            self::Expense => null,
+            self::Expense, self::AgentPayment => null,
         };
     }
 

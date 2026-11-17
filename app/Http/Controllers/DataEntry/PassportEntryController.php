@@ -93,6 +93,15 @@ class PassportEntryController extends Controller
             ->when($request->has('stage_status'), fn (Builder $query) => $query->where('passport_entries.stage_status', $request->validated('stage_status')))
             ->when($request->has('reference_id'), fn (Builder $query) => $query->where('reference_id', $request->integer('reference_id')))
             ->when($request->has('reference_type'), fn (Builder $query) => $query->whereHas('reference', fn (Builder $query) => $query->where('kind', $request->validated('reference_type'))))
+            // MYGRAM agent: an agent id (its current passports) or "none" (no approved agent).
+            ->when($request->has('mygram_agent_id'), fn (Builder $query) => $request->validated('mygram_agent_id') === 'none'
+                ? $query->whereDoesntHave('currentAgentAssignment')
+                : $query->whereHas('currentAgentAssignment', fn (Builder $q) => $q->where('mygram_agent_id', (int) $request->validated('mygram_agent_id'))))
+            ->when($request->has('agent_status'), fn (Builder $query) => match ($request->validated('agent_status')) {
+                'pending' => $query->whereHas('pendingAgentAssignment'),
+                'approved' => $query->whereHas('currentAgentAssignment'),
+                'none' => $query->whereDoesntHave('currentAgentAssignment')->whereDoesntHave('pendingAgentAssignment'),
+            })
             ->when($request->has('company_id'), fn (Builder $query) => $query->where('company_id', $request->integer('company_id')))
             ->when($request->has('company_country_code'), fn (Builder $query) => $query->whereHas('company', fn (Builder $query) => $query->where('country_code', $request->validated('company_country_code'))))
             ->when($request->has('received_from'), fn (Builder $query) => $query->whereDate('passport_received_date', '>=', $request->validated('received_from')))

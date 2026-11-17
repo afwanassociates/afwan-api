@@ -1,0 +1,226 @@
+<?php
+
+namespace App\Services;
+
+use App\Enums\AgentAssignmentStatus;
+use App\Enums\AgentCountDecision;
+use App\Models\MygramAgent;
+use App\Models\PassportAgentAssignment;
+use App\Models\PassportEntry;
+use App\Models\User;
+use App\Support\LocalDate;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+
+/**
+ * Every MYGRAM agent assignment write goes through here.
+ *
+ *   data entry assigns (or changes) the agent   → pending
+ *   the operations head approves                → approved (the current agent)
+ *                       or returns for correction → returned (kept in the history)
+ *
+ * Approving a change ends the old agent's assignment and asks the accounts head
+ * whether the passport still counts for the old agent (count_decision waiting).
+ * Nothing is ever deleted.
+ */
+class AgentAssignmentService
+{
+    /**
+     * Send an assignment (or a change of agent) for approval.
+     *
+     * @param  array{mygram_agent_id: int, assigned_date: string, remark?: string|null}  $data
+     *
+     * @throws ValidationException
+     */
+    public function assign(PassportEntry $passport, array $data, User $user, bool $firstOnly = false): PassportAgentAssignment
+    {
+        return DB::transaction(function () use ($passport, $data, $user, $firstOnly) {
+            $locked = PassportEntry::query()->lockForUpdate()->findOrFail($passport->id);
+
+            if ($locked->isReturned()) {
+                $this->fail('mygram_agent_id', 'This passport is returned to its owner.');
+            }
+
+            $pending = PassportAgentAssignment::query()
+                ->where('passport_entry_id', $locked->id)
+                ->where('status', AgentAssignmentStatus::Pending->value)
+                ->exists();
+            if ($pending) {
+                $this->fail('mygram_agent_id', 'An agent is already waiting for approval on this passport.');
+            }
+
+            $agent = MygramAgent::query()->find($data['mygram_agent_id']);
+            if (! $agent || ! $agent->is_active) {
+                $this->fail('mygram_agent_id', 'Choose an active MYGRAM agent.');
+            }
+
+            $date = $data['assigned_date'];
+            if ($date > LocalDate::today()->toDateString()) {
+                $this->fail('assigned_date', 'The assigned date cannot be in the future.');
+            }
+            if ($date < $locked->passport_received_date->toDateString()) {
+                $this->fail('assigned_date', 'The assigned date cannot be before the passport was received.');
+            }
+
+            $current = PassportAgentAssignment::query()
+                ->where('passport_entry_id', $locked->id)
+                ->current()
+                ->first();
+            $remark = $data['remark'] ?? null;
+
+            if ($current) {
+                if ($firstOnly) {
+                    $this->fail('mygram_agent_id', 'This passport already has an agent. Use Change agent on the passport.');
+                }
+                if ($current->mygram_agent_id === $agent->id) {
+                    $this->fail('mygram_agent_id', 'This passport is already with this agent.');
+                }
+                if ($remark === null || $remark === '') {
+                    $this->fail('remark', 'Enter the reason for changing the agent.');
+                }
+                if ($date < $current->assigned_date->toDateString()) {
+                    $this->fail('assigned_date', 'The new agent\'s date cannot be before the current agent\'s date ('.$current->assigned_date->format('d/m/Y').').');
+                }
+            }
+
+            return PassportAgentAssignment::query()->create([
+                'passport_entry_id' => $locked->id,
+                'mygram_agent_id' => $agent->id,
+                'assigned_date' => $date,
+                'remark' => $remark,
+                'status' => AgentAssignmentStatus::Pending,
+                'assigned_by' => $user->id,
+            ]);
+        });
+    }
+
+    /**
+     * Approve a pending assignment: it becomes the current agent. A change ends
+     * the old agent's assignment, which then waits for the accounts head.
+     *
+     * @throws ValidationException
+     */
+    public function approve(PassportAgentAssignment $assignment, User $user): PassportAgentAssignment
+    {
+        return DB::transaction(function () use ($assignment, $user) {
+            PassportEntry::query()->lockForUpdate()->findOrFail($assignment->passport_entry_id);
+            $locked = $this->lockedPending($assignment, $user);
+
+            $old = PassportAgentAssignment::query()
+                ->where('passport_entry_id', $locked->passport_entry_id)
+                ->current()
+                ->first();
+
+            $locked->forceFill([
+                'status' => AgentAssignmentStatus::Approved,
+                'approved_by' => $user->id,
+                'approved_at' => now(),
+            ])->save();
+
+            if ($old) {
+                $old->forceFill([
+                    'replaced_by_id' => $locked->id,
+                    'ended_date' => $locked->assigned_date,
+                    'count_decision' => AgentCountDecision::Waiting,
+                ])->save();
+            }
+
+            return $locked;
+        });
+    }
+
+    /**
+     * Return a pending assignment to data entry for correction (reason required).
+     *
+     * @throws ValidationException
+     */
+    public function sendBack(PassportAgentAssignment $assignment, User $user, string $reason): PassportAgentAssignment
+    {
+        return DB::transaction(function () use ($assignment, $user, $reason) {
+            $locked = $this->lockedPending($assignment, $user);
+
+            $locked->forceFill([
+                'status' => AgentAssignmentStatus::Returned,
+                'returned_by' => $user->id,
+                'returned_at' => now(),
+                'return_reason' => $reason,
+            ])->save();
+
+            return $locked;
+        });
+    }
+
+    /**
+     * The accounts head's answer for a replaced assignment: does the passport
+     * still count (is paid) for the old agent? Can be changed later.
+     *
+     * @throws ValidationException
+     */
+    public function decide(PassportAgentAssignment $assignment, bool $counts, ?string $note, User $user): PassportAgentAssignment
+    {
+        return DB::transaction(function () use ($assignment, $counts, $note, $user) {
+            $locked = PassportAgentAssignment::query()->lockForUpdate()->findOrFail($assignment->id);
+
+            if ($locked->count_decision === null) {
+                $this->fail('decision', 'Only an agent that was changed needs this decision.');
+            }
+
+            $locked->forceFill([
+                'count_decision' => $counts ? AgentCountDecision::Yes : AgentCountDecision::No,
+                'decision_note' => $note,
+                'decided_by' => $user->id,
+                'decided_at' => now(),
+            ])->save();
+
+            return $locked;
+        });
+    }
+
+    /**
+     * Run one action for many ids, skipping (with the reason) those that fail.
+     *
+     * @param  list<int>  $ids
+     * @param  callable(int): array<string, mixed>  $apply  returns the row of an updated id
+     * @return array{updated: list<array<string, mixed>>, skipped: list<array<string, mixed>>}
+     */
+    public function bulk(array $ids, callable $apply, callable $describe): array
+    {
+        $updated = [];
+        $skipped = [];
+
+        foreach (array_values(array_unique($ids)) as $id) {
+            try {
+                $updated[] = $apply($id);
+            } catch (ValidationException $e) {
+                $skipped[] = [...$describe($id), 'reason' => collect($e->errors())->flatten()->first() ?? $e->getMessage()];
+            }
+        }
+
+        return ['updated' => $updated, 'skipped' => $skipped];
+    }
+
+    /**
+     * @throws ValidationException
+     */
+    private function lockedPending(PassportAgentAssignment $assignment, User $user): PassportAgentAssignment
+    {
+        $locked = PassportAgentAssignment::query()->lockForUpdate()->findOrFail($assignment->id);
+
+        if ($locked->status !== AgentAssignmentStatus::Pending) {
+            $this->fail('assignment', 'This agent assignment is not waiting for approval any more.');
+        }
+        if ($locked->assigned_by === $user->id) {
+            $this->fail('assignment', 'You cannot approve or return an agent assignment you made yourself.');
+        }
+
+        return $locked;
+    }
+
+    /**
+     * @throws ValidationException
+     */
+    private function fail(string $field, string $message): never
+    {
+        throw ValidationException::withMessages([$field => $message]);
+    }
+}

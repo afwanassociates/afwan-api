@@ -40,6 +40,7 @@ class CashPaymentController extends Controller
             ->when($filters['from'] ?? null, fn (Builder $q, string $from) => $q->where('date', '>=', $from))
             ->when($filters['to'] ?? null, fn (Builder $q, string $to) => $q->where('date', '<=', $to))
             ->when($filters['party_id'] ?? null, fn (Builder $q, int $id) => $q->where('party_id', $id))
+            ->when($filters['mygram_agent_id'] ?? null, fn (Builder $q, int $id) => $q->where('mygram_agent_id', $id))
             ->when($filters['payee_type'] ?? null, fn (Builder $q, string $type) => $q->where('payee_type', $type))
             ->when($filters['payment_type'] ?? null, fn (Builder $q, string $type) => $q->where('payment_type', $type))
             ->when($filters['payment_method'] ?? null, fn (Builder $q, string $method) => $q->where('payment_method', $method))
@@ -68,7 +69,7 @@ class CashPaymentController extends Controller
             ->first();
 
         $payments = $query
-            ->with(['party', ...self::PEOPLE])
+            ->with(['party', 'agent', ...self::PEOPLE])
             ->orderByDesc('date')
             ->orderByDesc('id')
             ->paginate($request->integer('per_page', 15))
@@ -92,7 +93,7 @@ class CashPaymentController extends Controller
     {
         Gate::authorize('view', $cashPayment);
 
-        return new CashPaymentResource($cashPayment->load(['party', ...self::PEOPLE]));
+        return new CashPaymentResource($cashPayment->load(['party', 'agent', ...self::PEOPLE]));
     }
 
     public function store(StoreCashPaymentRequest $request): CashPaymentResource
@@ -101,7 +102,7 @@ class CashPaymentController extends Controller
 
         $payment = $this->payments->create($request->validated(), $request->user());
 
-        return new CashPaymentResource($payment->load(['party', ...self::PEOPLE]));
+        return new CashPaymentResource($payment->load(['party', 'agent', ...self::PEOPLE]));
     }
 
     public function update(StoreCashPaymentRequest $request, CashPayment $cashPayment): CashPaymentResource
@@ -110,7 +111,7 @@ class CashPaymentController extends Controller
 
         $payment = $this->payments->update($cashPayment, $request->validated(), $request->user());
 
-        return new CashPaymentResource($payment->load(['party', ...self::PEOPLE]));
+        return new CashPaymentResource($payment->load(['party', 'agent', ...self::PEOPLE]));
     }
 
     public function destroy(CashPayment $cashPayment): Response

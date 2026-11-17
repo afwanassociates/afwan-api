@@ -6,6 +6,8 @@ use App\Enums\MedicalResult;
 use App\Enums\UserRole;
 use App\Models\MedicalCenter;
 use App\Models\MedicalRecord;
+use App\Models\MygramAgent;
+use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
 use App\Models\User;
 use App\Services\MedicalService;
@@ -57,6 +59,21 @@ class MedicalDataSeeder extends Seeder
         $scenarios = ['expired', 'retested', 'expiring_soon', 'fit', 'unfit', 'pending'];
         $centers = MedicalCenter::query()->active()->orderBy('id')->pluck('id');
 
+        // The medical slip needs an approved MYGRAM agent: two sample agents.
+        $agents = collect([['Sample Agent One', 'RL-SAMPLE-1'], ['Sample Agent Two', 'RL-SAMPLE-2']])
+            ->map(function (array $row) use ($head) {
+                $agent = MygramAgent::query()->firstOrNew(['rl_number' => $row[1]], ['name' => $row[0]]);
+                $agent->is_active = true;
+                $agent->created_by ??= $head->id;
+                // Seeders may run without model events: give the code here.
+                if ($agent->code === null) {
+                    $agent->assignCode();
+                }
+                $agent->save();
+
+                return $agent;
+            });
+
         foreach ($passports as $index => $passport) {
             // A recent medical, but never before the passport was received.
             $recent = fn (int $daysAgo): string => $today->subDays($daysAgo)
@@ -93,6 +110,18 @@ class MedicalDataSeeder extends Seeder
 
             if ($hasSlip) {
                 $firstMedical = $records[0][1]['medical_date'] ?? $recent(3);
+
+                PassportAgentAssignment::query()->firstOrCreate(
+                    ['passport_entry_id' => $passport->id],
+                    [
+                        'mygram_agent_id' => $agents[$index % 2]->id,
+                        'assigned_date' => LocalDate::parse($passport->passport_received_date)->toDateString(),
+                        'status' => 'approved',
+                        'assigned_by' => $clerk->id,
+                        'approved_by' => $head->id,
+                        'approved_at' => now(),
+                    ],
+                );
 
                 $medicals->updateSlip($passport, [
                     'medical_slip_date' => LocalDate::parse($firstMedical)->subDays(3)->toDateString(),

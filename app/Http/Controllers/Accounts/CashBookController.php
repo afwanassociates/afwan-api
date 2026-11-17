@@ -85,7 +85,7 @@ class CashBookController extends Controller
     /**
      * Approved payments up to the day by what they were for (they add up to total_paid).
      *
-     * @return array{expenses: float, refunds: float, owner_loans: float}
+     * @return array{expenses: float, refunds: float, owner_loans: float, agent_payments: float}
      */
     private function paidBreakdown(string $date): array
     {
@@ -101,6 +101,8 @@ class CashBookController extends Controller
             'expenses' => $sum(CashPaymentType::Expense),
             'refunds' => $sum(CashPaymentType::Refund),
             'owner_loans' => $sum(CashPaymentType::OwnerLoan),
+            // Part payments to MYGRAM agents.
+            'agent_payments' => $sum(CashPaymentType::AgentPayment),
         ];
     }
 

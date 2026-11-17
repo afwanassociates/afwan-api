@@ -20,6 +20,13 @@ use App\Http\Controllers\Admin\MedicalCenterController;
 use App\Http\Controllers\Admin\ReferenceController as AdminReferenceController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\Agents\AgentApprovalController;
+use App\Http\Controllers\Agents\AgentAssignmentController;
+use App\Http\Controllers\Agents\AgentChangeController;
+use App\Http\Controllers\Agents\AgentCountsController;
+use App\Http\Controllers\Agents\AgentPaymentsController;
+use App\Http\Controllers\Agents\AgentReportController;
+use App\Http\Controllers\Agents\MygramAgentController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\DataEntry\CompanyController;
 use App\Http\Controllers\DataEntry\CountryLookupController;
@@ -118,6 +125,8 @@ Route::middleware('auth:sanctum')->group(function () {
         // Medical centres the same way (MedicalCenterPolicy "manage"): deleted only while
         // no passport names one. Adding one is open to the passport team (data-entry route).
         Route::apiResource('medical-centers', MedicalCenterController::class)->except(['show', 'store']);
+        // MYGRAM agents (MygramAgentPolicy "manage"): never deleted, deactivated instead.
+        Route::apiResource('mygram-agents', MygramAgentController::class)->only(['index', 'store', 'update']);
     });
 
     // Staff accounts: admins manage the heads, accounts and data entry users; the accounts head
@@ -155,6 +164,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/medical-centers', MedicalCenterLookupController::class)->name('medical-centers.index');
         // "Add new medical center" from the medical slip: data entry and the operations head.
         Route::post('/medical-centers', [MedicalCenterController::class, 'store'])->name('medical-centers.store');
+
+        // MYGRAM agent: data entry assigns or changes it, the operations head approves it
+        // (operation-head routes). Every write goes through App\Services\AgentAssignmentService.
+        Route::get('/passports/{passport}/agent-assignments', [AgentAssignmentController::class, 'index'])->name('passports.agent-assignments.index');
+        Route::post('/passports/{passport}/agent-assignments', [AgentAssignmentController::class, 'store'])->name('passports.agent-assignments.store');
+        Route::post('/agent-assignments/bulk', [AgentAssignmentController::class, 'bulk'])->name('agent-assignments.bulk');
+        // The Passport Entry List tabs: no agent, and per approved agent.
+        Route::get('/agent-counts', AgentCountsController::class)->name('agent-counts');
 
         // Steps 3 to 6 (calling, visa, bmet, flight; config/workflow.php). Every
         // write goes through App\Services\WorkflowService.
@@ -250,6 +267,13 @@ Route::middleware('auth:sanctum')->group(function () {
             'area' => 'operation-head',
             'message' => "Welcome, {$request->user()->name}.",
         ]))->name('dashboard');
+
+        // Agent Approvals: approve a MYGRAM agent assignment or return it for correction.
+        Route::get('/agent-approvals', [AgentApprovalController::class, 'index'])->name('agent-approvals.index');
+        Route::get('/agent-approvals/summary', [AgentApprovalController::class, 'summary'])->name('agent-approvals.summary');
+        Route::post('/agent-approvals/bulk-approve', [AgentApprovalController::class, 'bulkApprove'])->name('agent-approvals.bulk-approve');
+        Route::post('/agent-approvals/{assignment}/approve', [AgentApprovalController::class, 'approve'])->name('agent-approvals.approve');
+        Route::post('/agent-approvals/{assignment}/return', [AgentApprovalController::class, 'sendBack'])->name('agent-approvals.return');
     });
 
     // The money summary on the dashboard: the accounts head, admin and super admin
@@ -276,6 +300,11 @@ Route::middleware('auth:sanctum')->group(function () {
             'area' => 'accounts-head',
             'message' => "Welcome, {$request->user()->name}.",
         ]))->name('dashboard');
+
+        // Agent Changes: does a passport moved to another agent still count for the old one?
+        Route::get('/agent-changes', [AgentChangeController::class, 'index'])->name('agent-changes.index');
+        Route::get('/agent-changes/summary', [AgentChangeController::class, 'summary'])->name('agent-changes.summary');
+        Route::post('/agent-changes/{assignment}/decide', [AgentChangeController::class, 'decide'])->name('agent-changes.decide');
     });
 
     // Approval (Prepared → Approved): only approved entries count in the books. The accounts
@@ -329,5 +358,21 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/owner-loan-bills/{bill}', [OwnerLoanController::class, 'destroyBill'])->name('owner-loan-bills.destroy');
         // The opening cash in hand (set by the accounts head) and today's balance.
         Route::get('/cash-settings', [CashBookController::class, 'show'])->name('cash-settings.show');
+
+        // MYGRAM agent ledgers: what the company paid each agent (no rate, no due).
+        Route::get('/mygram-agents', [AgentPaymentsController::class, 'index'])->name('mygram-agents.index');
+        Route::get('/mygram-agents/{mygramAgent}', [AgentPaymentsController::class, 'show'])->name('mygram-agents.show');
     });
+
+    // The MYGRAM agent report (passport counts, no money): the operations head and the
+    // accounts head (MygramAgentPolicy "viewReport").
+    Route::prefix('agent-report')->name('agent-report.')->middleware('role:operation_head,accounts_head')->group(function () {
+        Route::get('/', [AgentReportController::class, 'index'])->name('index');
+        Route::get('/{agent}/passports', [AgentReportController::class, 'passports'])
+            ->where('agent', 'none|[0-9]+')->name('passports');
+    });
+
+    // The MYGRAM agent dropdown: the passport team and the accounts team.
+    Route::get('/mygram-agents/lookup', [MygramAgentController::class, 'lookup'])
+        ->middleware('role:data_entry,accounts')->name('mygram-agents.lookup');
 });

@@ -44,12 +44,14 @@ class StoreCashPaymentRequest extends FormRequest
         $payee = PayeeType::tryFrom((string) $this->input('payee_type'));
         $currentPartyId = $this->payment()?->party_id;
         $isOther = $payee === PayeeType::Other;
+        $isAgent = $payee === PayeeType::Agent;
+        $currentAgentId = $this->payment()?->mygram_agent_id;
         $allowedTypes = $payee ? array_map(fn (CashPaymentType $t) => $t->value, $payee->paymentTypes()) : CashPaymentType::values();
 
         return [
             'date' => ['required', 'date_format:Y-m-d'],
             'payee_type' => ['required', Rule::in(PayeeType::values())],
-            'party_id' => $isOther ? ['nullable'] : [
+            'party_id' => $isOther || $isAgent ? ['nullable'] : [
                 'required',
                 'integer',
                 Rule::exists('parties', 'id')->where(function ($query) use ($payee, $currentPartyId) {
@@ -57,6 +59,13 @@ class StoreCashPaymentRequest extends FormRequest
                         ->where(fn ($q) => $q->where('is_active', true)->when($currentPartyId, fn ($q, $id) => $q->orWhere('id', $id)));
                 }),
             ],
+            // An agent must be active (when editing, the payment's current agent stays valid).
+            'mygram_agent_id' => $isAgent ? [
+                'required',
+                'integer',
+                Rule::exists('mygram_agents', 'id')->where(fn ($q) => $q->where('is_active', true)
+                    ->when($currentAgentId, fn ($q, $id) => $q->orWhere('id', $id))),
+            ] : ['nullable'],
             'payee_name' => $isOther ? ['required', 'string', 'max:150'] : ['nullable'],
             'payment_type' => [
                 'required',
@@ -90,6 +99,8 @@ class StoreCashPaymentRequest extends FormRequest
             'date.required' => 'Choose the date.',
             'payee_type.required' => 'Choose who the money is paid to.',
             'party_id.required' => 'Choose who the money is paid to.',
+            'mygram_agent_id.required' => 'Choose the MYGRAM agent.',
+            'mygram_agent_id.exists' => 'Choose an active MYGRAM agent.',
             'party_id.exists' => 'Choose an active '.($payee === PayeeType::Owner ? 'owner' : 'party').'.',
             'payee_name.required' => 'Enter the name of who you paid.',
             'expense_category.required' => 'Choose what the money was spent on.',

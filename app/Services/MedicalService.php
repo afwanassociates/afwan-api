@@ -6,6 +6,7 @@ use App\Enums\MedicalResult;
 use App\Enums\UserRole;
 use App\Exceptions\WorkflowException;
 use App\Models\MedicalRecord;
+use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
 use App\Models\User;
 use App\Support\DateRules;
@@ -143,6 +144,12 @@ class MedicalService
                 ]);
             }
 
+            // The first slip date needs an approved MYGRAM agent. Passports that already
+            // had a slip before agents existed can still be edited.
+            if ($data['medical_slip_date'] !== null && $locked->medical_slip_date === null) {
+                $this->assertApprovedAgent($locked);
+            }
+
             $values = array_intersect_key($data, array_flip(['medical_slip_date', 'medical_center_id']));
 
             // Clearing the slip sends the passport back to the Passport Entry list as it was
@@ -160,6 +167,26 @@ class MedicalService
 
             return $this->workflow->recompute($passport);
         });
+    }
+
+    /**
+     * The medical slip needs the passport's MYGRAM agent approved by the operations head.
+     *
+     * @throws ValidationException
+     */
+    protected function assertApprovedAgent(PassportEntry $passport): void
+    {
+        $assignments = PassportAgentAssignment::query()->where('passport_entry_id', $passport->id);
+
+        if ((clone $assignments)->current()->exists()) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'medical_slip_date' => (clone $assignments)->where('status', 'pending')->exists()
+                ? 'MYGRAM agent not approved yet. The Operations Head must approve it before the medical slip.'
+                : 'Assign a MYGRAM agent first. The Operations Head must approve it before the medical slip.',
+        ]);
     }
 
     /**

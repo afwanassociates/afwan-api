@@ -11,6 +11,8 @@ enum PayeeType: string
     case Client = 'client';
     case Owner = 'owner';
     case Other = 'other';
+    // A MYGRAM agent (App\Models\MygramAgent): the company pays agents, never the other way.
+    case Agent = 'agent';
 
     public function label(): string
     {
@@ -18,6 +20,7 @@ enum PayeeType: string
             self::Client => 'Party / Client',
             self::Owner => 'Owner',
             self::Other => 'Other',
+            self::Agent => 'MYGRAM agent',
         };
     }
 
@@ -29,7 +32,7 @@ enum PayeeType: string
         return match ($this) {
             self::Client => PartyType::Client,
             self::Owner => PartyType::Owner,
-            self::Other => null,
+            self::Other, self::Agent => null,
         };
     }
 
@@ -46,6 +49,7 @@ enum PayeeType: string
             self::Client => [CashPaymentType::Refund],
             self::Owner => [CashPaymentType::OwnerLoan],
             self::Other => [CashPaymentType::Expense],
+            self::Agent => [CashPaymentType::AgentPayment],
         };
     }
 

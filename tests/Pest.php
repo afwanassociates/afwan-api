@@ -1,7 +1,9 @@
 <?php
 
 use App\Models\Company;
+use App\Models\MygramAgent;
 use App\Models\Party;
+use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -206,4 +208,20 @@ function paymentReportReceipt(Party $party, Company $company, int $amount, array
             'passport_ids' => array_map(fn (PassportEntry $p) => $p->id, $passports),
         ]],
     ];
+}
+
+/**
+ * Give the passport an approved MYGRAM agent (the medical slip needs one).
+ */
+function approveAgentFor(PassportEntry|int $passport): PassportAgentAssignment
+{
+    $id = $passport instanceof PassportEntry ? $passport->id : $passport;
+    $agent = MygramAgent::query()->firstOrNew(['rl_number' => 'RL-TEST-1'], ['name' => 'Test Agent']);
+    $agent->is_active = true;
+    $agent->save();
+
+    return PassportAgentAssignment::query()->firstOrCreate(
+        ['passport_entry_id' => $id, 'status' => 'approved'],
+        ['mygram_agent_id' => $agent->id, 'assigned_date' => '2026-01-01', 'approved_at' => now()],
+    );
 }

@@ -88,6 +88,9 @@ class ListPassportEntriesRequest extends FormRequest
             'reference_id' => ['sometimes', 'integer'],
             'reference_type' => ['sometimes', Rule::enum(PartyKind::class)],
             'company_id' => ['sometimes', 'integer'],
+            // An agent id, or "none" for passports without an approved MYGRAM agent.
+            'mygram_agent_id' => ['sometimes', 'regex:/^(none|[0-9]+)$/'],
+            'agent_status' => ['sometimes', Rule::in(['none', 'pending', 'approved'])],
             'company_country_code' => ['sometimes', 'string', 'size:2'],
             'received_from' => ['sometimes', 'date_format:Y-m-d'],
             // Without it, unfit passports are left out; "unfit" lists only them and

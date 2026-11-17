@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\AgentAssignmentStatus;
 use App\Enums\EntryMode;
 use App\Enums\MedicalResult;
 use App\Enums\MedicalStatus;
@@ -20,6 +21,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -230,6 +232,68 @@ class PassportEntry extends Model
     public function isReturned(): bool
     {
         return $this->current_return_id !== null;
+    }
+
+    /**
+     * Every MYGRAM agent assignment (history), oldest first.
+     *
+     * @return HasMany<PassportAgentAssignment, $this>
+     */
+    public function agentAssignments(): HasMany
+    {
+        return $this->hasMany(PassportAgentAssignment::class)->oldest('id');
+    }
+
+    /**
+     * The approved, not replaced assignment: the passport's current MYGRAM agent.
+     *
+     * @return HasOne<PassportAgentAssignment, $this>
+     */
+    public function currentAgentAssignment(): HasOne
+    {
+        return $this->hasOne(PassportAgentAssignment::class)
+            ->where('status', AgentAssignmentStatus::Approved->value)
+            ->whereNull('replaced_by_id');
+    }
+
+    /**
+     * The assignment waiting for the operations head (at most one).
+     *
+     * @return HasOne<PassportAgentAssignment, $this>
+     */
+    public function pendingAgentAssignment(): HasOne
+    {
+        return $this->hasOne(PassportAgentAssignment::class)
+            ->where('status', AgentAssignmentStatus::Pending->value);
+    }
+
+    /**
+     * The newest assignment of any status (shows a return for correction).
+     *
+     * @return HasOne<PassportAgentAssignment, $this>
+     */
+    public function latestAgentAssignment(): HasOne
+    {
+        return $this->hasOne(PassportAgentAssignment::class)->latestOfMany();
+    }
+
+    /**
+     * The passport's MYGRAM agent status: none, pending (waiting for approval),
+     * returned (the newest assignment was returned for correction) or approved.
+     * Load the three assignment relations first.
+     */
+    public function agentStatus(): string
+    {
+        if ($this->pendingAgentAssignment) {
+            return 'pending';
+        }
+
+        $latest = $this->latestAgentAssignment;
+        if ($latest && $latest->status === AgentAssignmentStatus::Returned) {
+            return 'returned';
+        }
+
+        return $this->currentAgentAssignment ? 'approved' : 'none';
     }
 
     /**

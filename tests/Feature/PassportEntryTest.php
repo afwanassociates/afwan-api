@@ -391,6 +391,6 @@ describe('list', function () {
         // count + page + passport countries + references + companies + company countries
         // + step records + the date rules (app_settings, read once when first needed; no
         // longer at boot, so the app boots without a database)
-        expect(DB::getQueryLog())->toHaveCount(8);
+        expect(DB::getQueryLog())->toHaveCount(11);
     })->with([2, 15]);
 });

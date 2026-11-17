@@ -35,6 +35,7 @@ class CashPaymentResource extends JsonResource
                 'mobile' => $this->party->mobile,
                 'address' => $this->party->address,
             ] : null),
+            'agent' => $this->whenLoaded('agent', fn () => $this->agent ? MygramAgentResource::summary($this->agent) : null),
             'payee_name' => $this->payeeName(),
             'payment_type' => $this->payment_type->value,
             'payment_type_label' => $this->payment_type->label(),

@@ -15,6 +15,9 @@ use Laravel\Sanctum\Sanctum;
  * Today in Dhaka is 2026-05-01 (00:30), while UTC is still on 2026-04-30.
  */
 beforeEach(function () {
+    // These tests are about the medical slip, not agents: every new passport gets an
+    // approved MYGRAM agent, which the slip needs.
+    PassportEntry::created(fn (PassportEntry $passport) => approveAgentFor($passport));
     Carbon::setTestNow(Carbon::parse('2026-05-01 00:30', 'Asia/Dhaka')->utc());
 });
 
@@ -334,7 +337,7 @@ describe('counts', function () {
 
         // count + page + country + reference + company + company country
         // + medical centre + current medical + its creator + step records.
-        expect($countQueries())->toBe($few)->toBe(10);
+        expect($countQueries())->toBe($few)->toBe(14);
     });
 });
 

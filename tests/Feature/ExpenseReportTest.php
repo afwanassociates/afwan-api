@@ -91,7 +91,7 @@ describe('expense report', function () {
 
         financeSummary()
             ->assertJsonPath('data.total_paid', 108500)
-            ->assertJsonPath('data.paid_breakdown', ['expenses' => 48500, 'refunds' => 10000, 'owner_loans' => 50000])
+            ->assertJsonPath('data.paid_breakdown', ['expenses' => 48500, 'refunds' => 10000, 'owner_loans' => 50000, 'agent_payments' => 0])
             ->assertJsonPath('data.total_expenses', 78500);
     });
 

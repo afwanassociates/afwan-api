@@ -93,6 +93,9 @@ beforeEach(function () {
     $return->returned_by = $dataEntry->id;
     $return->save();
 
+    // The passport's MYGRAM agent: the assignment goes, the agent (a lookup list) stays.
+    approveAgentFor($this->passport);
+
     // A cash receipt that pays for the passport: the receipt stays, the link goes.
     $receipt = CashReceipt::factory()->create(['party_id' => $this->passport->reference_id]);
     $lineId = DB::table('cash_receipt_lines')->insertGetId(['cash_receipt_id' => $receipt->id, 'company_id' => $this->passport->company_id, 'amount' => 100]);
@@ -155,6 +158,7 @@ it('prints the KEEP and CLEAR lists with their row counts', function () {
             ['KEEP', 'countries', Country::query()->count()],
             ['KEEP', 'app_settings', AppSetting::query()->count()],
             ['KEEP', 'medical_centers', MedicalCenter::query()->count()],
+            ['KEEP', 'mygram_agents', 1],
             // The passport's reference: parties are never cleared.
             ['KEEP', 'parties', 1],
             ['KEEP', 'cash_receipts', 1],
@@ -164,6 +168,7 @@ it('prints the KEEP and CLEAR lists with their row counts', function () {
             ['KEEP', 'cash_settings', 1],
             ['CLEAR', 'cash_receipt_passports', 1],
             ['CLEAR', 'cash_receipt_lines', 1],
+            ['CLEAR', 'passport_agent_assignments', 1],
             ['CLEAR', 'passport_step_records', 2],
             ['CLEAR', 'medical_records', 1],
             ['CLEAR', 'passport_entries', 1],

@@ -816,7 +816,7 @@ describe('passport list', function () {
 
         // count + page + country + reference + company + company country
         // + current medical + its creator + step records + their creators.
-        expect($countQueries())->toBe($few)->toBe(10);
+        expect($countQueries())->toBe($few)->toBe(13);
     });
 
     it('counts every stage in the summary', function () {

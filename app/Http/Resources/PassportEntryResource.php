@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use App\Http\Resources\Concerns\HasScanFields;
 use App\Models\MedicalRecord;
+use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
 use App\Support\Workflow;
 use Illuminate\Http\Request;
@@ -21,7 +22,14 @@ class PassportEntryResource extends JsonResource
      *
      * @var list<string>
      */
-    public const RELATIONS = ['country', 'reference', 'company.country', 'medicalCenter', 'creator', 'currentMedical.creator', 'stepRecords.creator', 'currentReturn.returner'];
+    public const RELATIONS = ['country', 'reference', 'company.country', 'medicalCenter', 'creator', 'currentMedical.creator', 'stepRecords.creator', 'currentReturn.returner', ...self::AGENT_RELATIONS];
+
+    /**
+     * The MYGRAM agent relations (current, pending and newest assignment).
+     *
+     * @var list<string>
+     */
+    public const AGENT_RELATIONS = ['currentAgentAssignment.agent', 'pendingAgentAssignment.agent', 'latestAgentAssignment'];
 
     /**
      * Transform the resource into an array.
@@ -84,6 +92,8 @@ class PassportEntryResource extends JsonResource
                 'id' => $this->medicalCenter->id,
                 'name' => $this->medicalCenter->name,
             ] : null,
+            // The MYGRAM agent: the approved one, and what is waiting or was returned.
+            ...$this->agentFields(),
             'medical_status' => $medicalStatus->value,
             'medical_status_label' => $medicalStatus->label(),
             'current_medical' => $this->currentMedical ? MedicalRecordResource::summary($this->currentMedical) : null,
@@ -111,7 +121,47 @@ class PassportEntryResource extends JsonResource
                 'record_medical' => $request->user()?->can('create', [MedicalRecord::class, $this->resource]) ?? false,
                 'return' => $request->user()?->can('returnPassport', $this->resource) ?? false,
                 'undo_return' => $request->user()?->can('undoReturn', $this->resource) ?? false,
+                'assign_agent' => $request->user()?->can('assign', [PassportAgentAssignment::class, $this->resource]) ?? false,
             ],
+        ];
+    }
+
+    /**
+     * mygram_agent (approved, null when none), agent_status (none, pending,
+     * returned, approved), the pending assignment and the newest return reason.
+     *
+     * @return array<string, mixed>
+     */
+    protected function agentFields(): array
+    {
+        if (! $this->relationLoaded('currentAgentAssignment')) {
+            return [];
+        }
+
+        $current = $this->currentAgentAssignment;
+        $pending = $this->pendingAgentAssignment;
+        $latest = $this->latestAgentAssignment;
+        $status = $this->resource->agentStatus();
+
+        return [
+            'mygram_agent' => $current ? [
+                ...MygramAgentResource::summary($current->agent),
+                'assigned_date' => $current->assigned_date->toDateString(),
+            ] : null,
+            'agent_status' => $status,
+            'agent_pending' => $pending ? [
+                'id' => $pending->id,
+                'agent' => MygramAgentResource::summary($pending->agent),
+                'assigned_date' => $pending->assigned_date->toDateString(),
+                'remark' => $pending->remark,
+            ] : null,
+            'agent_return' => $status === 'returned' ? [
+                'id' => $latest->id,
+                'mygram_agent_id' => $latest->mygram_agent_id,
+                'assigned_date' => $latest->assigned_date->toDateString(),
+                'remark' => $latest->remark,
+                'reason' => $latest->return_reason,
+            ] : null,
         ];
     }
 
