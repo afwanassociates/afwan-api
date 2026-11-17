@@ -1,12 +1,14 @@
-# Build the API on every push to master and put a ready-to-run copy (with vendor/) in the
-# "deploy" branch. Hostinger deploys that branch (hPanel → Advanced → Git), so it never has to
+# Build the API on every push and put a ready-to-run copy (with vendor/) in a deploy branch:
+#   master      → deploy               (production site)
+#   development → deploy-development   (development site)
+# Hostinger deploys that branch (hPanel → Advanced → Git), so it never has to
 # run Composer itself, which fails there: "The Process class relies on proc_open, which is not
 # available on your PHP installation".
 name: Build and deploy
 
 on:
   push:
-    branches: [master]
+    branches: [master, development]
   # Also lets you run it by hand from the Actions tab.
   workflow_dispatch:
 
@@ -15,12 +17,14 @@ permissions:
 
 # A newer push cancels a build still running.
 concurrency:
-  group: deploy
+  group: deploy-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      DEPLOY_BRANCH: ${{ github.ref_name == 'master' && 'deploy' || format('deploy-{0}', github.ref_name) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -51,15 +55,15 @@ jobs:
           rm .env
 
       # Force-add everything: vendor/ and bootstrap/cache are in .gitignore on master.
-      - name: Publish the deploy branch
+      - name: Publish the deploy branch (deploy or deploy-development)
         working-directory: ${{ runner.temp }}/deploy
         # The commit message goes through an environment variable, never straight into the script.
         env:
           SOURCE_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
-          git init -q -b deploy
+          git init -q -b "$DEPLOY_BRANCH"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add --all --force
           git commit -q -m "Deploy ${GITHUB_SHA::7}: $(printf '%s' "${SOURCE_MESSAGE:-manual run}" | head -n 1)"
-          git push --force --quiet "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" deploy
+          git push --force --quiet "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "$DEPLOY_BRANCH"
