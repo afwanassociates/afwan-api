@@ -13,7 +13,7 @@ use Laravel\Sanctum\Sanctum;
 
 beforeEach(function () {
     // These tests are about the medical slip, not agents: every new passport gets an
-    // approved MYGRAM agent, which the slip needs.
+    // approved recruitment agent, which the slip needs.
     PassportEntry::created(fn (PassportEntry $passport) => approveAgentFor($passport));
     Storage::fake(PassportScanService::DISK);
 });

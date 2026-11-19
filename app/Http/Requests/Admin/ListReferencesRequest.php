@@ -20,7 +20,7 @@ class ListReferencesRequest extends FormRequest
             'q' => ['sometimes', 'nullable', 'string', 'max:100'],
             'type' => ['sometimes', 'nullable', Rule::enum(PartyKind::class)],
             'is_active' => ['sometimes', 'boolean'],
-            'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:300'],
         ];
     }
 }

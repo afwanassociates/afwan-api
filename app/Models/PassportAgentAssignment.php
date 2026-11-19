@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * One assignment of a passport to a MYGRAM agent. Rows are never deleted: a
+ * One assignment of a passport to a recruitment agent. Rows are never deleted: a
  * returned one, a replaced one and the current one all stay in the history.
  * Every write goes through App\Services\AgentAssignmentService.
  *
@@ -76,11 +76,11 @@ class PassportAgentAssignment extends Model
     }
 
     /**
-     * @return BelongsTo<MygramAgent, $this>
+     * @return BelongsTo<RecruitmentAgent, $this>
      */
     public function agent(): BelongsTo
     {
-        return $this->belongsTo(MygramAgent::class, 'mygram_agent_id');
+        return $this->belongsTo(RecruitmentAgent::class, 'recruitment_agent_id');
     }
 
     /**

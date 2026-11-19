@@ -1,11 +1,12 @@
 <?php
 
 use App\Models\Company;
-use App\Models\MygramAgent;
 use App\Models\Party;
 use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
+use App\Models\RecruitmentAgent;
 use App\Models\User;
+use Database\Factories\PassportEntryFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Http\UploadedFile;
@@ -26,6 +27,9 @@ use Tests\TestCase;
 | need to change it using the "pest()" function to bind different classes or traits.
 |
 */
+
+// No step moves forward without an approved recruitment agent: test passports get the Own one.
+PassportEntryFactory::$approvedAgentByDefault = true;
 
 /*
 | Safety check: the tests wipe the database, so refuse to run unless they point
@@ -211,17 +215,17 @@ function paymentReportReceipt(Party $party, Company $company, int $amount, array
 }
 
 /**
- * Give the passport an approved MYGRAM agent (the medical slip needs one).
+ * Give the passport an approved recruitment agent (the medical slip needs one).
  */
 function approveAgentFor(PassportEntry|int $passport): PassportAgentAssignment
 {
     $id = $passport instanceof PassportEntry ? $passport->id : $passport;
-    $agent = MygramAgent::query()->firstOrNew(['rl_number' => 'RL-TEST-1'], ['name' => 'Test Agent']);
+    $agent = RecruitmentAgent::query()->firstOrNew(['rl_number' => 'RL-TEST-1'], ['name' => 'Test Agent']);
     $agent->is_active = true;
     $agent->save();
 
     return PassportAgentAssignment::query()->firstOrCreate(
         ['passport_entry_id' => $id, 'status' => 'approved'],
-        ['mygram_agent_id' => $agent->id, 'assigned_date' => '2026-01-01', 'approved_at' => now()],
+        ['recruitment_agent_id' => $agent->id, 'assigned_date' => '2026-01-01', 'approved_at' => now()],
     );
 }

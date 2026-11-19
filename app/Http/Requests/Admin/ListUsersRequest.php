@@ -19,7 +19,7 @@ class ListUsersRequest extends FormRequest
         return [
             'role' => ['sometimes', Rule::enum(UserRole::class)],
             'is_active' => ['sometimes', 'boolean'],
-            'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:300'],
         ];
     }
 }

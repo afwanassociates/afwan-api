@@ -6,7 +6,7 @@ use App\Support\Normalize;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
- * Assign (or change) a passport's MYGRAM agent. The service checks the rest:
+ * Assign (or change) a passport's recruitment agent. The service checks the rest:
  * an active agent, not in the future, a reason for a change.
  */
 class AssignAgentRequest extends FormRequest
@@ -24,7 +24,7 @@ class AssignAgentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'mygram_agent_id' => ['required', 'integer'],
+            'recruitment_agent_id' => ['required', 'integer'],
             'assigned_date' => ['required', 'date_format:Y-m-d'],
             'remark' => ['nullable', 'string', 'max:500'],
         ];
@@ -36,7 +36,7 @@ class AssignAgentRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'mygram_agent_id.required' => 'Choose the MYGRAM agent.',
+            'recruitment_agent_id.required' => 'Choose the recruitment agent.',
             'assigned_date.required' => 'Enter the date the passport went to the agent.',
             'assigned_date.date_format' => 'Enter a valid date.',
         ];

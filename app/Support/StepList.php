@@ -6,6 +6,7 @@ use App\Enums\StepStatus;
 use App\Models\PassportEntry;
 use App\Models\PassportStepRecord;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 
 /**
  * The work list of one record step (calling, visa, bmet, flight), by tab.
@@ -52,6 +53,7 @@ class StepList
             ->when($reference !== '', fn (Builder $query) => $query->whereHas('reference', fn (Builder $query) => $query->where('name', 'like', Like::contains($reference))))
             ->when($filters['company_id'] ?? null, fn (Builder $query, int|string $id) => $query->where('passport_entries.company_id', (int) $id))
             ->when($filters['reference_id'] ?? null, fn (Builder $query, int|string $id) => $query->where('passport_entries.reference_id', (int) $id))
+            ->when($filters['recruitment_agent_id'] ?? null, fn (Builder $query, int|string $agent) => $query->whereRecruitmentAgent($agent))
             ->when($receiveDateFrom !== '', fn (Builder $query) => $query->whereHas('stepRecords', fn (Builder $query) => $query
                 ->whereRaw("json_unquote(json_extract(details, '$.receive_date')) >= ?", [$receiveDateFrom])))
             ->when($receiveDateTo !== '', fn (Builder $query) => $query->whereHas('stepRecords', fn (Builder $query) => $query
@@ -60,6 +62,20 @@ class StepList
                 ->whereRaw("json_unquote(json_extract(details, '$.booking_date')) >= ?", [$bookingDateFrom])))
             ->when($bookingDateTo !== '', fn (Builder $query) => $query->whereHas('stepRecords', fn (Builder $query) => $query
                 ->whereRaw("json_unquote(json_extract(details, '$.booking_date')) <= ?", [$bookingDateTo])));
+    }
+
+    /**
+     * The agent-wise tabs of one step tab: its passports per current recruitment agent,
+     * with the same filters except the agent one.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return array{none: int, approved: int, agents: Collection<int, array<string, mixed>>}
+     */
+    public function agentCounts(string $step, string $tab, array $filters = []): array
+    {
+        unset($filters['recruitment_agent_id']);
+
+        return AgentTabs::count($this->tabs->membership($step, $tab)->tap(fn (Builder $query) => $this->filter($query, $filters)));
     }
 
     /**
@@ -85,7 +101,7 @@ class StepList
             ?? throw new \InvalidArgumentException("Unknown tab {$tab}.");
 
         $query = $this->tabs->membership($step, $tab)
-            ->with(['reference', 'company', 'currentMedical', 'stepRecords'])
+            ->with(['reference', 'company', 'currentMedical', 'stepRecords', 'currentAgentAssignment.agent'])
             ->tap(fn (Builder $query) => $this->filter($query, $filters));
 
         return match ($definition['order']) {

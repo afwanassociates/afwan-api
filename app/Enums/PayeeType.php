@@ -11,7 +11,7 @@ enum PayeeType: string
     case Client = 'client';
     case Owner = 'owner';
     case Other = 'other';
-    // A MYGRAM agent (App\Models\MygramAgent): the company pays agents, never the other way.
+    // A recruitment agent (App\Models\RecruitmentAgent): the company pays agents, never the other way.
     case Agent = 'agent';
 
     public function label(): string
@@ -20,7 +20,7 @@ enum PayeeType: string
             self::Client => 'Party / Client',
             self::Owner => 'Owner',
             self::Other => 'Other',
-            self::Agent => 'MYGRAM agent',
+            self::Agent => 'Recruitment Agent',
         };
     }
 

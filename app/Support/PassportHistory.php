@@ -49,8 +49,22 @@ class PassportHistory
             $events[] = $this->medical($record);
         }
 
+        // Results the operations head cancelled (back to Pending): kept in the history.
+        foreach ($passport->medicalRecords()->onlyTrashed()->with(['creator', 'deleter'])->get() as $record) {
+            $events[] = $this->cancelledMedical($record);
+        }
+
         foreach ($passport->stepRecords as $record) {
             $events[] = $this->step($record);
+        }
+
+        // Step records the operations head cancelled (Undo Calling / Visa): kept in the history.
+        foreach ($passport->stepRecords()->onlyTrashed()->whereNotNull('deleted_by')->with(['creator'])->get() as $record) {
+            $event = $this->step($record);
+            $event['key'] .= '-cancelled';
+            $event['title'] .= ' (cancelled)';
+            $event['tone'] = 'gray';
+            $events[] = $event;
         }
 
         foreach ($passport->returns as $return) {
@@ -103,6 +117,29 @@ class PassportHistory
             title: 'Medical '.$record->result->label(),
             tone: $fit ? 'green' : 'red',
             details: [['label' => 'Valid until', 'value' => $record->valid_until?->toDateString(), 'type' => 'date']],
+            by: $record->creator,
+            remarks: $record->remarks,
+            sequence: $record->id,
+        );
+    }
+
+    /**
+     * A medical result cancelled by the operations head.
+     *
+     * @return array<string, mixed>
+     */
+    protected function cancelledMedical(MedicalRecord $record): array
+    {
+        return $this->event(
+            key: "medical-cancelled-{$record->id}",
+            date: $record->medical_date->toDateString(),
+            step: 'medical',
+            title: 'Medical '.$record->result->label().' (cancelled)',
+            tone: 'gray',
+            details: [
+                ['label' => 'Cancelled on', 'value' => $record->deleted_at ? LocalDate::parse($record->deleted_at)->toDateString() : null, 'type' => 'date'],
+                ['label' => 'Cancelled by', 'value' => $record->deleter?->name, 'type' => 'text'],
+            ],
             by: $record->creator,
             remarks: $record->remarks,
             sequence: $record->id,

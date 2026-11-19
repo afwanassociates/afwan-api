@@ -3,15 +3,15 @@
 namespace App\Policies;
 
 use App\Enums\UserRole;
-use App\Models\MygramAgent;
+use App\Models\RecruitmentAgent;
 use App\Models\User;
 
 /**
- * Only the operations head adds, edits and (de)activates MYGRAM agents. The
+ * Only the operations head adds, edits and (de)activates recruitment agents. The
  * passport team picks an agent when assigning a passport; the accounts team picks
  * one on a cash payment and sees its payments.
  */
-class MygramAgentPolicy
+class RecruitmentAgentPolicy
 {
     /**
      * Search active agents for a dropdown.
@@ -34,7 +34,7 @@ class MygramAgentPolicy
         return $this->manage($user);
     }
 
-    public function update(User $user, MygramAgent $agent): bool
+    public function update(User $user, RecruitmentAgent $agent): bool
     {
         return $this->manage($user);
     }

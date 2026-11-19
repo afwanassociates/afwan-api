@@ -114,6 +114,26 @@ class PassportEntryPolicy
     }
 
     /**
+     * Cancel the current medical result, back to Medical → Pending (the operations head),
+     * until Calling starts.
+     */
+    public function cancelMedicalResult(User $user, PassportEntry $entry): bool
+    {
+        return $user->hasRole(...UserRole::passportManagers())
+            && ! $entry->isReturned()
+            && $entry->current_medical_id !== null
+            && ! $entry->hasStepRecords();
+    }
+
+    /**
+     * Undo Calling or Visa (the operations head).
+     */
+    public function undoStep(User $user, PassportEntry $entry): bool
+    {
+        return $user->hasRole(...UserRole::passportManagers()) && ! $entry->isReturned();
+    }
+
+    /**
      * Read the Returned Passports list (every staff role, read only).
      */
     public function viewReturned(User $user): bool

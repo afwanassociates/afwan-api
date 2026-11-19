@@ -3,16 +3,16 @@
 namespace App\Http\Requests\Agents;
 
 use App\Http\Requests\Accounts\StorePartyRequest;
-use App\Models\MygramAgent;
+use App\Models\RecruitmentAgent;
 use App\Support\Normalize;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * Add or edit a MYGRAM agent. The RL number is required and unique (stored
+ * Add or edit a recruitment agent. The RL number is required and unique (stored
  * upper-cased); the phone, address and notes are optional.
  */
-class StoreMygramAgentRequest extends FormRequest
+class StoreRecruitmentAgentRequest extends FormRequest
 {
     protected function prepareForValidation(): void
     {
@@ -33,10 +33,16 @@ class StoreMygramAgentRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:150'],
-            'rl_number' => ['required', 'string', 'max:50', Rule::unique('mygram_agents', 'rl_number')->ignore($this->agent())],
+            'rl_number' => ['required', 'string', 'max:50', Rule::unique('recruitment_agents', 'rl_number')->ignore($this->agent())],
             'phone' => ['nullable', 'string', 'max:20', 'regex:'.StorePartyRequest::MOBILE_PATTERN],
             'address' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:500'],
+            // Our own company as an agent: only when adding, and only one.
+            'is_own' => ['sometimes', 'boolean', function (string $attribute, mixed $value, \Closure $fail) {
+                if ($value && RecruitmentAgent::query()->where('is_own', true)->exists()) {
+                    $fail('The Own agent (our company) already exists.');
+                }
+            }],
         ];
     }
 
@@ -53,8 +59,8 @@ class StoreMygramAgentRequest extends FormRequest
         ];
     }
 
-    public function agent(): ?MygramAgent
+    public function agent(): ?RecruitmentAgent
     {
-        return $this->route('mygram_agent');
+        return $this->route('recruitment_agent');
     }
 }

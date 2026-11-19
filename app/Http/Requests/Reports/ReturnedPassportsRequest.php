@@ -22,7 +22,7 @@ class ReturnedPassportsRequest extends FormRequest
             'date_from' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'date_to' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'after_or_equal:date_from'],
             'export' => ['sometimes', 'nullable', Rule::in(['csv'])],
-            'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:300'],
         ];
     }
 }

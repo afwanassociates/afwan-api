@@ -25,7 +25,7 @@ class PassportEntryResource extends JsonResource
     public const RELATIONS = ['country', 'reference', 'company.country', 'medicalCenter', 'creator', 'currentMedical.creator', 'stepRecords.creator', 'currentReturn.returner', ...self::AGENT_RELATIONS];
 
     /**
-     * The MYGRAM agent relations (current, pending and newest assignment).
+     * The recruitment agent relations (current, pending and newest assignment).
      *
      * @var list<string>
      */
@@ -92,7 +92,7 @@ class PassportEntryResource extends JsonResource
                 'id' => $this->medicalCenter->id,
                 'name' => $this->medicalCenter->name,
             ] : null,
-            // The MYGRAM agent: the approved one, and what is waiting or was returned.
+            // The recruitment agent: the approved one, and what is waiting or was returned.
             ...$this->agentFields(),
             'medical_status' => $medicalStatus->value,
             'medical_status_label' => $medicalStatus->label(),
@@ -122,12 +122,13 @@ class PassportEntryResource extends JsonResource
                 'return' => $request->user()?->can('returnPassport', $this->resource) ?? false,
                 'undo_return' => $request->user()?->can('undoReturn', $this->resource) ?? false,
                 'assign_agent' => $request->user()?->can('assign', [PassportAgentAssignment::class, $this->resource]) ?? false,
+                'cancel_medical_result' => $request->user()?->can('cancelMedicalResult', $this->resource) ?? false,
             ],
         ];
     }
 
     /**
-     * mygram_agent (approved, null when none), agent_status (none, pending,
+     * recruitment_agent (approved, null when none), agent_status (none, pending,
      * returned, approved), the pending assignment and the newest return reason.
      *
      * @return array<string, mixed>
@@ -144,20 +145,20 @@ class PassportEntryResource extends JsonResource
         $status = $this->resource->agentStatus();
 
         return [
-            'mygram_agent' => $current ? [
-                ...MygramAgentResource::summary($current->agent),
+            'recruitment_agent' => $current ? [
+                ...RecruitmentAgentResource::summary($current->agent),
                 'assigned_date' => $current->assigned_date->toDateString(),
             ] : null,
             'agent_status' => $status,
             'agent_pending' => $pending ? [
                 'id' => $pending->id,
-                'agent' => MygramAgentResource::summary($pending->agent),
+                'agent' => RecruitmentAgentResource::summary($pending->agent),
                 'assigned_date' => $pending->assigned_date->toDateString(),
                 'remark' => $pending->remark,
             ] : null,
             'agent_return' => $status === 'returned' ? [
                 'id' => $latest->id,
-                'mygram_agent_id' => $latest->mygram_agent_id,
+                'recruitment_agent_id' => $latest->recruitment_agent_id,
                 'assigned_date' => $latest->assigned_date->toDateString(),
                 'remark' => $latest->remark,
                 'reason' => $latest->return_reason,

@@ -815,8 +815,9 @@ describe('passport list', function () {
         stagedPassports();
 
         // count + page + country + reference + company + company country
-        // + current medical + its creator + step records + their creators.
-        expect($countQueries())->toBe($few)->toBe(13);
+        // + current medical + its creator + step records + their creators
+        // + the current recruitment agent.
+        expect($countQueries())->toBe($few)->toBe(14);
     });
 
     it('counts every stage in the summary', function () {

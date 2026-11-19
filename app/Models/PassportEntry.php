@@ -235,7 +235,7 @@ class PassportEntry extends Model
     }
 
     /**
-     * Every MYGRAM agent assignment (history), oldest first.
+     * Every recruitment agent assignment (history), oldest first.
      *
      * @return HasMany<PassportAgentAssignment, $this>
      */
@@ -245,7 +245,7 @@ class PassportEntry extends Model
     }
 
     /**
-     * The approved, not replaced assignment: the passport's current MYGRAM agent.
+     * The approved, not replaced assignment: the passport's current recruitment agent.
      *
      * @return HasOne<PassportAgentAssignment, $this>
      */
@@ -278,7 +278,20 @@ class PassportEntry extends Model
     }
 
     /**
-     * The passport's MYGRAM agent status: none, pending (waiting for approval),
+     * Filter by the current recruitment agent: an agent id, or "none" (no approved agent).
+     *
+     * @param  Builder<PassportEntry>  $query
+     */
+    #[Scope]
+    protected function whereRecruitmentAgent(Builder $query, int|string $agent): void
+    {
+        $agent === 'none'
+            ? $query->whereDoesntHave('currentAgentAssignment')
+            : $query->whereHas('currentAgentAssignment', fn (Builder $q) => $q->where('recruitment_agent_id', (int) $agent));
+    }
+
+    /**
+     * The passport's recruitment agent status: none, pending (waiting for approval),
      * returned (the newest assignment was returned for correction) or approved.
      * Load the three assignment relations first.
      */

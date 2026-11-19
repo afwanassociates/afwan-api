@@ -40,7 +40,7 @@ class CashPaymentController extends Controller
             ->when($filters['from'] ?? null, fn (Builder $q, string $from) => $q->where('date', '>=', $from))
             ->when($filters['to'] ?? null, fn (Builder $q, string $to) => $q->where('date', '<=', $to))
             ->when($filters['party_id'] ?? null, fn (Builder $q, int $id) => $q->where('party_id', $id))
-            ->when($filters['mygram_agent_id'] ?? null, fn (Builder $q, int $id) => $q->where('mygram_agent_id', $id))
+            ->when($filters['recruitment_agent_id'] ?? null, fn (Builder $q, int $id) => $q->where('recruitment_agent_id', $id))
             ->when($filters['payee_type'] ?? null, fn (Builder $q, string $type) => $q->where('payee_type', $type))
             ->when($filters['payment_type'] ?? null, fn (Builder $q, string $type) => $q->where('payment_type', $type))
             ->when($filters['payment_method'] ?? null, fn (Builder $q, string $method) => $q->where('payment_method', $method))

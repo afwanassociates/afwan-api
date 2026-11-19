@@ -65,6 +65,8 @@ class StepListResource extends JsonResource
             'previous_record' => $previous ? $this->summary($previous) : null,
             'next_record' => $next ? $this->summary($next) : null,
             'previous_step_completed_on' => app(StepList::class)->previousCompletedOn($this->resource, $this->step),
+            // The recruitment agent (null: none approved yet).
+            'recruitment_agent' => $this->currentAgentAssignment?->agent ? RecruitmentAgentResource::summary($this->currentAgentAssignment->agent) : null,
         ];
 
         // The step's list_extras (BMET and flight: the visa dates, the BMET

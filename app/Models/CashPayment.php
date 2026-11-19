@@ -20,7 +20,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * purpose). Write through App\Services\CashPaymentService, which keeps the
  * ledger line in step and the cash in hand from going negative.
  */
-#[Fillable(['date', 'payee_type', 'party_id', 'mygram_agent_id', 'payee_name', 'payment_type', 'expense_category', 'purpose', 'bill_no', 'amount', 'payment_method', 'bank_name', 'bank_branch', 'bank_account_name', 'bank_account_number', 'mobile_provider', 'mobile_number', 'note'])]
+#[Fillable(['date', 'payee_type', 'party_id', 'recruitment_agent_id', 'payee_name', 'payment_type', 'expense_category', 'purpose', 'bill_no', 'amount', 'payment_method', 'bank_name', 'bank_branch', 'bank_account_name', 'bank_account_number', 'mobile_provider', 'mobile_number', 'note'])]
 class CashPayment extends Model
 {
     use HasApproval;
@@ -60,13 +60,13 @@ class CashPayment extends Model
     }
 
     /**
-     * The MYGRAM agent paid (payee_type agent).
+     * The recruitment agent paid (payee_type agent).
      *
-     * @return BelongsTo<MygramAgent, $this>
+     * @return BelongsTo<RecruitmentAgent, $this>
      */
     public function agent(): BelongsTo
     {
-        return $this->belongsTo(MygramAgent::class, 'mygram_agent_id');
+        return $this->belongsTo(RecruitmentAgent::class, 'recruitment_agent_id');
     }
 
     /**

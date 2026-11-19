@@ -8,7 +8,7 @@ use App\Models\PassportEntry;
 use App\Models\User;
 
 /**
- * Data entry assigns (and changes) a passport's MYGRAM agent; the operations head
+ * Data entry assigns (and changes) a passport's recruitment agent; the operations head
  * approves it or returns it for correction (never one they made); the accounts
  * head decides whether a changed passport still counts for the old agent.
  */

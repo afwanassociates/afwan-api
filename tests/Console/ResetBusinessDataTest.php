@@ -80,7 +80,7 @@ beforeEach(function () {
     $center = MedicalCenter::factory()->create();
 
     // Business data: a passport with a medical and step records, its company and reference.
-    $this->passport = PassportEntry::factory()->createdBy($dataEntry)
+    $this->passport = PassportEntry::factory()->withoutAgent()->createdBy($dataEntry)
         ->create(['medical_center_id' => $center->id]);
     MedicalRecord::factory()->for($this->passport, 'passportEntry')->createdBy($dataEntry)->create();
     PassportStepRecord::factory()->for($this->passport, 'passportEntry')->createdBy($dataEntry)
@@ -93,7 +93,7 @@ beforeEach(function () {
     $return->returned_by = $dataEntry->id;
     $return->save();
 
-    // The passport's MYGRAM agent: the assignment goes, the agent (a lookup list) stays.
+    // The passport's recruitment agent: the assignment goes, the agent (a lookup list) stays.
     approveAgentFor($this->passport);
 
     // A cash receipt that pays for the passport: the receipt stays, the link goes.
@@ -158,7 +158,7 @@ it('prints the KEEP and CLEAR lists with their row counts', function () {
             ['KEEP', 'countries', Country::query()->count()],
             ['KEEP', 'app_settings', AppSetting::query()->count()],
             ['KEEP', 'medical_centers', MedicalCenter::query()->count()],
-            ['KEEP', 'mygram_agents', 1],
+            ['KEEP', 'recruitment_agents', 1],
             // The passport's reference: parties are never cleared.
             ['KEEP', 'parties', 1],
             ['KEEP', 'cash_receipts', 1],

@@ -16,7 +16,7 @@ use Laravel\Sanctum\Sanctum;
 /** Some data in every group, and one scan file. */
 function seedEveryGroup(): void
 {
-    $passport = PassportEntry::factory()->create();
+    $passport = PassportEntry::factory()->withoutAgent()->create();
     MedicalRecord::factory()->create(['passport_entry_id' => $passport->id]);
     PassportStepRecord::factory()->create(['passport_entry_id' => $passport->id]);
     $party = Party::factory()->create();

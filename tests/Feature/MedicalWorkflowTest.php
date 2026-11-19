@@ -202,8 +202,8 @@ describe('passport list', function () {
         }
 
         // count + page + country + reference + company + company country
-        // + current medical + its creator.
-        expect($countQueries())->toBe($few)->toBe(12);
+        // + current medical + its creator + the current recruitment agent.
+        expect($countQueries())->toBe($few)->toBe(13);
     });
 
     it('brings an unfit passport back to the default list after the operations head records a fit re-test', function () {
@@ -445,7 +445,8 @@ describe('all passports', function () {
             passportWithMedical($state);
         }
 
-        expect($countQueries())->toBe($few)->toBe(12);
+        // + the current recruitment agent.
+        expect($countQueries())->toBe($few)->toBe(13);
     });
 
     it('rejects an unknown medical status', function (string $value) {

@@ -50,8 +50,8 @@ class ResetBusinessData extends Command
         'countries',
         'app_settings',
         'medical_centers',
-        // MYGRAM agents: a list like the medical centres (their payments are accounts).
-        'mygram_agents',
+        // Recruitment agents: a list like the medical centres (their payments are accounts).
+        'recruitment_agents',
         // Accounts: financial records are never wiped by a passport reset.
         'parties',
         'cash_receipts',

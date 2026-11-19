@@ -88,9 +88,11 @@ class ListPassportEntriesRequest extends FormRequest
             'reference_id' => ['sometimes', 'integer'],
             'reference_type' => ['sometimes', Rule::enum(PartyKind::class)],
             'company_id' => ['sometimes', 'integer'],
-            // An agent id, or "none" for passports without an approved MYGRAM agent.
-            'mygram_agent_id' => ['sometimes', 'regex:/^(none|[0-9]+)$/'],
+            // An agent id, or "none" for passports without an approved recruitment agent.
+            'recruitment_agent_id' => ['sometimes', 'regex:/^(none|[0-9]+)$/'],
             'agent_status' => ['sometimes', Rule::in(['none', 'pending', 'approved'])],
+            // Add the agent-wise tab counts (agent_counts) to the response.
+            'with_agent_counts' => ['sometimes', 'boolean'],
             'company_country_code' => ['sometimes', 'string', 'size:2'],
             'received_from' => ['sometimes', 'date_format:Y-m-d'],
             // Without it, unfit passports are left out; "unfit" lists only them and
@@ -116,7 +118,7 @@ class ListPassportEntriesRequest extends FormRequest
             // The overview and the Medical page ignore sorting (fixed order).
             'sort' => $overview || $this->isMedicalMode() ? ['exclude'] : ['sometimes', Rule::in(self::SORTABLE)],
             'direction' => $overview || $this->isMedicalMode() ? ['exclude'] : ['sometimes', Rule::in(['asc', 'desc'])],
-            'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:300'],
             'view' => ['sometimes', 'nullable', Rule::in([self::OVERVIEW])],
             // The overview only: the whole list (same searches) as a CSV download.
             'export' => $overview ? ['sometimes', 'nullable', Rule::in(['csv'])] : ['exclude'],

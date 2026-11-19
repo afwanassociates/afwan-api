@@ -38,6 +38,10 @@ class StepListController extends Controller
 
         // Each tab's total with the same search, for the tab badges (the same
         // tab definition as the rows and /workflow/summary).
-        return $rows->additional(['tab_counts' => $list->tabCounts($step, $request->validated())]);
+        return $rows->additional([
+            'tab_counts' => $list->tabCounts($step, $request->validated()),
+            // The agent-wise tabs of this step tab (Own first, then each partner agent).
+            'agent_counts' => $list->agentCounts($step, $tab, $request->validated()),
+        ]);
     }
 }

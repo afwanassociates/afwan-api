@@ -35,7 +35,7 @@ class DataReset
     public const GROUPS = [
         'passports' => [
             'label' => 'Passports & workflow',
-            'description' => 'Passport entries, medical records, every workflow step, passport returns, which passports cash receipts paid for (the receipts stay), the passport price lines on the party ledgers, the MYGRAM agent assignments and the uploaded passport scans.',
+            'description' => 'Passport entries, medical records, every workflow step, passport returns, which passports cash receipts paid for (the receipts stay), the passport price lines on the party ledgers, the recruitment agent assignments and the uploaded passport scans.',
             'tables' => ['cash_receipt_passports', 'cash_receipt_lines', 'passport_agent_assignments', 'passport_step_records', 'medical_records', 'passport_returns', 'passport_entries'],
             'scans' => true,
         ],
@@ -52,8 +52,8 @@ class DataReset
         ],
         'accounts' => [
             'label' => 'Accounts',
-            'description' => 'Parties (the passports\' references, agencies and persons) and owners, cash receipts, payments and transfers, owner loans and their bill copies, ledgers, approvals, the cash opening balance and the MYGRAM agents (with their payments).',
-            'tables' => ['party_transactions', 'owner_loan_bills', 'cash_receipts', 'cash_payments', 'cash_transfers', 'party_company_rates', 'parties', 'mygram_agents'],
+            'description' => 'Parties (the passports\' references, agencies and persons) and owners, cash receipts, payments and transfers, owner loans and their bill copies, ledgers, approvals, the cash opening balance and the recruitment agents (with their payments).',
+            'tables' => ['party_transactions', 'owner_loan_bills', 'cash_receipts', 'cash_payments', 'cash_transfers', 'party_company_rates', 'parties', 'recruitment_agents'],
         ],
     ];
 

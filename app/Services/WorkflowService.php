@@ -11,6 +11,7 @@ use App\Models\MedicalRecord;
 use App\Models\PassportEntry;
 use App\Models\PassportStepRecord;
 use App\Models\User;
+use App\Support\AgentGate;
 use App\Support\LocalDate;
 use App\Support\Workflow;
 use Illuminate\Support\Collection;
@@ -114,6 +115,7 @@ class WorkflowService
             $locked = $this->lock($passport);
             $latest = $this->latestRecords($locked->id);
 
+            $this->ensureAgent($locked);
             $this->ensureCanRecord($locked, $stepKey, $latest);
 
             $record = new PassportStepRecord($data);
@@ -210,6 +212,61 @@ class WorkflowService
             $record->deleted_by = $actor->id;
             $record->save();
             $record->delete();
+
+            return $this->recompute($passport);
+        });
+    }
+
+    /**
+     * Undo the latest action of Calling or Visa (the operations head), refused once a later
+     * step has records:
+     *
+     *   calling (permit saved)          → cancelled: back to Calling Pending
+     *   visa issued / rejected          → back to Visa submitted (the result is cleared)
+     *   visa submitted                  → cancelled: back to waiting for the submission
+     *
+     * A cancelled record is soft-deleted with who did it and stays in the passport history.
+     *
+     * @throws WorkflowException
+     */
+    public function undoStep(PassportEntry $passport, string $step, User $actor): PassportEntry
+    {
+        return DB::transaction(function () use ($passport, $step, $actor) {
+            $locked = $this->lock($passport);
+            $record = $this->latestRecords($locked->id)->get($step);
+
+            if ($record === null) {
+                throw WorkflowException::notCompleted($this->workflow->label($step));
+            }
+
+            $hasLater = PassportStepRecord::query()
+                ->where('passport_entry_id', $locked->id)
+                ->whereIn('step_key', $this->workflow->recordStepsAfter($step))
+                ->exists();
+            if ($hasLater) {
+                throw WorkflowException::laterStepExists();
+            }
+
+            if ($step === 'visa' && in_array($record->status, [StepStatus::Completed, StepStatus::Rejected], true)) {
+                $details = $record->details ?? [];
+                $submitted = $details['start_date'] ?? $record->step_date->toDateString();
+                unset($details['start_date'], $details['issue_date']);
+
+                $record->forceFill([
+                    'status' => StepStatus::InProcess,
+                    'step_date' => $submitted,
+                    'valid_until' => null,
+                    'reference_no' => null,
+                    'details' => $details === [] ? null : $details,
+                    'updated_by' => $actor->id,
+                ])->save();
+            } else {
+                $record->deleted_by = $actor->id;
+                $record->save();
+                $record->delete();
+            }
+
+            $this->ensureInOrder($locked);
 
             return $this->recompute($passport);
         });
@@ -325,6 +382,7 @@ class WorkflowService
     {
         return DB::transaction(function () use ($passport, $step, $data, $actor) {
             $locked = $this->lock($passport);
+            $this->ensureAgent($locked);
             $latest = $this->latestRecords($locked->id);
             $open = $latest->get($step);
             $isFirst = $step === ($this->workflow->recordStepKeys()[0] ?? null);
@@ -386,6 +444,7 @@ class WorkflowService
     {
         return DB::transaction(function () use ($passport, $step, $date, $actor) {
             $locked = $this->lock($passport);
+            $this->ensureAgent($locked);
             $latest = $this->latestRecords($locked->id);
             $open = $latest->get($step);
             $key = $this->bookingKey($step);
@@ -456,6 +515,7 @@ class WorkflowService
     {
         return DB::transaction(function () use ($passport, $step, $actor) {
             $locked = $this->lock($passport);
+            $this->ensureAgent($locked);
             $latest = $this->latestRecords($locked->id);
             $open = $latest->get($step);
 
@@ -562,6 +622,7 @@ class WorkflowService
     {
         return DB::transaction(function () use ($passport, $step, $action, $date, $actor) {
             $locked = $this->lock($passport);
+            $this->ensureAgent($locked);
             $latest = $this->latestRecords($locked->id);
             $open = $latest->get($step);
             $label = $this->workflow->label($step);
@@ -756,6 +817,16 @@ class WorkflowService
             ->filter(fn (PassportStepRecord $record) => $this->workflow->isActiveRecord($record))
             ->unique('step_key')
             ->keyBy('step_key');
+    }
+
+    /**
+     * Moving a passport forward needs its recruitment agent approved.
+     *
+     * @throws WorkflowException
+     */
+    protected function ensureAgent(PassportEntry $passport): void
+    {
+        AgentGate::assertApproved($passport);
     }
 
     /**

@@ -6,9 +6,9 @@ use App\Enums\MedicalResult;
 use App\Enums\UserRole;
 use App\Models\MedicalCenter;
 use App\Models\MedicalRecord;
-use App\Models\MygramAgent;
 use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
+use App\Models\RecruitmentAgent;
 use App\Models\User;
 use App\Services\MedicalService;
 use App\Support\DateRules;
@@ -59,10 +59,10 @@ class MedicalDataSeeder extends Seeder
         $scenarios = ['expired', 'retested', 'expiring_soon', 'fit', 'unfit', 'pending'];
         $centers = MedicalCenter::query()->active()->orderBy('id')->pluck('id');
 
-        // The medical slip needs an approved MYGRAM agent: two sample agents.
+        // The medical slip needs an approved recruitment agent: two sample agents.
         $agents = collect([['Sample Agent One', 'RL-SAMPLE-1'], ['Sample Agent Two', 'RL-SAMPLE-2']])
             ->map(function (array $row) use ($head) {
-                $agent = MygramAgent::query()->firstOrNew(['rl_number' => $row[1]], ['name' => $row[0]]);
+                $agent = RecruitmentAgent::query()->firstOrNew(['rl_number' => $row[1]], ['name' => $row[0]]);
                 $agent->is_active = true;
                 $agent->created_by ??= $head->id;
                 // Seeders may run without model events: give the code here.
@@ -114,7 +114,7 @@ class MedicalDataSeeder extends Seeder
                 PassportAgentAssignment::query()->firstOrCreate(
                     ['passport_entry_id' => $passport->id],
                     [
-                        'mygram_agent_id' => $agents[$index % 2]->id,
+                        'recruitment_agent_id' => $agents[$index % 2]->id,
                         'assigned_date' => LocalDate::parse($passport->passport_received_date)->toDateString(),
                         'status' => 'approved',
                         'assigned_by' => $clerk->id,

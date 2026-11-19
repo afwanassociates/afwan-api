@@ -29,7 +29,7 @@ class ListCompaniesRequest extends FormRequest
             'q' => ['sometimes', 'nullable', 'string', 'max:100'],
             'country_code' => ['sometimes', 'nullable', 'string', 'size:2'],
             'is_active' => ['sometimes', 'boolean'],
-            'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:300'],
         ];
     }
 }

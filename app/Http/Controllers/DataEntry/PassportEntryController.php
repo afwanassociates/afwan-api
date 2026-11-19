@@ -10,10 +10,14 @@ use App\Http\Requests\DataEntry\UpdatePassportEntryRequest;
 use App\Http\Resources\PassportEntryResource;
 use App\Http\Resources\PassportListResource;
 use App\Http\Resources\PassportOverviewResource;
+use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
+use App\Services\AgentAssignmentService;
 use App\Services\PassportScanService;
 use App\Services\WorkflowService;
+use App\Support\AgentTabs;
 use App\Support\Like;
+use App\Support\LocalDate;
 use App\Support\Normalize;
 use App\Support\PassportOverviewCsv;
 use Illuminate\Database\Eloquent\Builder;
@@ -22,6 +26,7 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PassportEntryController extends Controller
@@ -93,10 +98,6 @@ class PassportEntryController extends Controller
             ->when($request->has('stage_status'), fn (Builder $query) => $query->where('passport_entries.stage_status', $request->validated('stage_status')))
             ->when($request->has('reference_id'), fn (Builder $query) => $query->where('reference_id', $request->integer('reference_id')))
             ->when($request->has('reference_type'), fn (Builder $query) => $query->whereHas('reference', fn (Builder $query) => $query->where('kind', $request->validated('reference_type'))))
-            // MYGRAM agent: an agent id (its current passports) or "none" (no approved agent).
-            ->when($request->has('mygram_agent_id'), fn (Builder $query) => $request->validated('mygram_agent_id') === 'none'
-                ? $query->whereDoesntHave('currentAgentAssignment')
-                : $query->whereHas('currentAgentAssignment', fn (Builder $q) => $q->where('mygram_agent_id', (int) $request->validated('mygram_agent_id'))))
             ->when($request->has('agent_status'), fn (Builder $query) => match ($request->validated('agent_status')) {
                 'pending' => $query->whereHas('pendingAgentAssignment'),
                 'approved' => $query->whereHas('currentAgentAssignment'),
@@ -116,6 +117,13 @@ class PassportEntryController extends Controller
             $entries->whereNull('passport_entries.entry_mode');
         }
 
+        // The agent-wise tabs (with_agent_counts=1, the Medical page): the same list per
+        // current recruitment agent, before the agent filter.
+        $agentCounts = $request->boolean('with_agent_counts') ? AgentTabs::count(clone $entries) : null;
+
+        // Recruitment agent: an agent id (its current passports) or "none" (no approved agent).
+        $entries->when($request->has('recruitment_agent_id'), fn (Builder $query) => $query->whereRecruitmentAgent($request->validated('recruitment_agent_id')));
+
         $entries = $entries
             ->orderBy($sortColumn, $direction)
             ->orderBy('passport_entries.id', $direction);
@@ -129,25 +137,40 @@ class PassportEntryController extends Controller
             ->paginate($request->integer('per_page', 15))
             ->withQueryString();
 
-        return $overview
+        $rows = $overview
             ? PassportOverviewResource::collection($entries)
             : PassportListResource::collection($entries);
+
+        return $agentCounts === null ? $rows : $rows->additional(['agent_counts' => $agentCounts]);
     }
 
     /**
      * Record a received passport.
      */
-    public function store(StorePassportEntryRequest $request, WorkflowService $workflow, PassportScanService $scans): PassportEntryResource
+    public function store(StorePassportEntryRequest $request, WorkflowService $workflow, PassportScanService $scans, AgentAssignmentService $agents): PassportEntryResource
     {
         Gate::authorize('create', PassportEntry::class);
 
-        // The entry and its scan copy are saved together.
-        $entry = DB::transaction(function () use ($request, $workflow, $scans) {
-            $entry = new PassportEntry($request->safe()->except('scan'));
+        $agentId = $request->validated('recruitment_agent_id');
+
+        // The entry, its scan copy and the chosen recruitment agent (waiting for the
+        // operations head) are saved together.
+        $entry = DB::transaction(function () use ($request, $workflow, $scans, $agents, $agentId) {
+            $entry = new PassportEntry($request->safe()->except(['scan', 'recruitment_agent_id']));
             $entry->created_by = $request->user()->id;
             $entry->updated_by = $request->user()->id;
             $entry->save();
             $workflow->recompute($entry);
+
+            if ($agentId !== null) {
+                if (! $request->user()->can('assign', [PassportAgentAssignment::class, $entry])) {
+                    throw ValidationException::withMessages(['recruitment_agent_id' => 'Only data entry assigns the recruitment agent.']);
+                }
+                $agents->assign($entry, [
+                    'recruitment_agent_id' => (int) $agentId,
+                    'assigned_date' => LocalDate::today()->toDateString(),
+                ], $request->user(), firstOnly: true);
+            }
 
             return $scans->store($entry, $request->file('scan'));
         });
@@ -173,7 +196,7 @@ class PassportEntryController extends Controller
         Gate::authorize('update', $passport);
 
         DB::transaction(function () use ($request, $passport, $workflow, $scans) {
-            $passport->fill($request->safe()->except('scan'));
+            $passport->fill($request->safe()->except(['scan', 'recruitment_agent_id']));
             $passport->updated_by = $request->user()->id;
             $passport->save();
 

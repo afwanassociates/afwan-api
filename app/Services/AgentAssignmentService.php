@@ -4,16 +4,16 @@ namespace App\Services;
 
 use App\Enums\AgentAssignmentStatus;
 use App\Enums\AgentCountDecision;
-use App\Models\MygramAgent;
 use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
+use App\Models\RecruitmentAgent;
 use App\Models\User;
 use App\Support\LocalDate;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Every MYGRAM agent assignment write goes through here.
+ * Every recruitment agent assignment write goes through here.
  *
  *   data entry assigns (or changes) the agent   → pending
  *   the operations head approves                → approved (the current agent)
@@ -28,7 +28,7 @@ class AgentAssignmentService
     /**
      * Send an assignment (or a change of agent) for approval.
      *
-     * @param  array{mygram_agent_id: int, assigned_date: string, remark?: string|null}  $data
+     * @param  array{recruitment_agent_id: int, assigned_date: string, remark?: string|null}  $data
      *
      * @throws ValidationException
      */
@@ -38,7 +38,7 @@ class AgentAssignmentService
             $locked = PassportEntry::query()->lockForUpdate()->findOrFail($passport->id);
 
             if ($locked->isReturned()) {
-                $this->fail('mygram_agent_id', 'This passport is returned to its owner.');
+                $this->fail('recruitment_agent_id', 'This passport is returned to its owner.');
             }
 
             $pending = PassportAgentAssignment::query()
@@ -46,12 +46,12 @@ class AgentAssignmentService
                 ->where('status', AgentAssignmentStatus::Pending->value)
                 ->exists();
             if ($pending) {
-                $this->fail('mygram_agent_id', 'An agent is already waiting for approval on this passport.');
+                $this->fail('recruitment_agent_id', 'An agent is already waiting for approval on this passport.');
             }
 
-            $agent = MygramAgent::query()->find($data['mygram_agent_id']);
+            $agent = RecruitmentAgent::query()->find($data['recruitment_agent_id']);
             if (! $agent || ! $agent->is_active) {
-                $this->fail('mygram_agent_id', 'Choose an active MYGRAM agent.');
+                $this->fail('recruitment_agent_id', 'Choose an active recruitment agent.');
             }
 
             $date = $data['assigned_date'];
@@ -70,10 +70,10 @@ class AgentAssignmentService
 
             if ($current) {
                 if ($firstOnly) {
-                    $this->fail('mygram_agent_id', 'This passport already has an agent. Use Change agent on the passport.');
+                    $this->fail('recruitment_agent_id', 'This passport already has an agent. Use Change agent on the passport.');
                 }
-                if ($current->mygram_agent_id === $agent->id) {
-                    $this->fail('mygram_agent_id', 'This passport is already with this agent.');
+                if ($current->recruitment_agent_id === $agent->id) {
+                    $this->fail('recruitment_agent_id', 'This passport is already with this agent.');
                 }
                 if ($remark === null || $remark === '') {
                     $this->fail('remark', 'Enter the reason for changing the agent.');
@@ -85,7 +85,7 @@ class AgentAssignmentService
 
             return PassportAgentAssignment::query()->create([
                 'passport_entry_id' => $locked->id,
-                'mygram_agent_id' => $agent->id,
+                'recruitment_agent_id' => $agent->id,
                 'assigned_date' => $date,
                 'remark' => $remark,
                 'status' => AgentAssignmentStatus::Pending,

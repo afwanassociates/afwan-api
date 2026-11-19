@@ -18,7 +18,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Agent Approvals (the operations head): approve a MYGRAM agent assignment or
+ * Agent Approvals (the operations head): approve a recruitment agent assignment or
  * return it to data entry for correction.
  */
 class AgentApprovalController extends Controller

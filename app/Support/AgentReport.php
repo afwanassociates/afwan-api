@@ -4,13 +4,13 @@ namespace App\Support;
 
 use App\Enums\AgentAssignmentStatus;
 use App\Enums\AgentCountDecision;
-use App\Models\MygramAgent;
 use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
+use App\Models\RecruitmentAgent;
 use Illuminate\Support\Collection;
 
 /**
- * The MYGRAM agent report: per agent, the passports it has now, the ones that
+ * The recruitment agent report: per agent, the passports it has now, the ones that
  * count for it (are paid) and where its passports are in the workflow.
  *
  * A passport counts for an agent when the assignment is the current one, or a
@@ -65,7 +65,7 @@ class AgentReport
     {
         return $this->assignments($agentId)
             ->filter(fn (PassportAgentAssignment $a) => self::counts($a))
-            ->countBy('mygram_agent_id')
+            ->countBy('recruitment_agent_id')
             ->all();
     }
 
@@ -76,10 +76,10 @@ class AgentReport
      */
     public function rows(): array
     {
-        $assignments = $this->assignments()->groupBy('mygram_agent_id');
+        $assignments = $this->assignments()->groupBy('recruitment_agent_id');
 
-        $agents = MygramAgent::query()->orderByDesc('is_active')->orderBy('code')->get()
-            ->map(function (MygramAgent $agent) use ($assignments) {
+        $agents = RecruitmentAgent::query()->orderByDesc('is_own')->orderByDesc('is_active')->orderBy('code')->get()
+            ->map(function (RecruitmentAgent $agent) use ($assignments) {
                 /** @var Collection<int, PassportAgentAssignment> $rows */
                 $rows = $assignments->get($agent->id, collect());
                 $current = $rows->filter(fn (PassportAgentAssignment $a) => $a->isCurrent());
@@ -120,7 +120,7 @@ class AgentReport
      *
      * @return list<array<string, mixed>>
      */
-    public function passports(?MygramAgent $agent): array
+    public function passports(?RecruitmentAgent $agent): array
     {
         if ($agent === null) {
             return PassportEntry::query()
@@ -197,7 +197,7 @@ class AgentReport
     {
         return PassportAgentAssignment::query()
             ->where('status', '<>', AgentAssignmentStatus::Returned->value)
-            ->when($agentId, fn ($q, int $id) => $q->where('mygram_agent_id', $id))
+            ->when($agentId, fn ($q, int $id) => $q->where('recruitment_agent_id', $id))
             ->whereHas('passportEntry')
             ->with('passportEntry:id,current_stage,stage_status,current_return_id')
             ->get();

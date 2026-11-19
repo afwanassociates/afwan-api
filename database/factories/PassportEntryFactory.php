@@ -4,10 +4,14 @@ namespace Database\Factories;
 
 use App\Models\Company;
 use App\Models\Party;
+use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
+use App\Models\RecruitmentAgent;
 use App\Models\User;
 use App\Services\WorkflowService;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
 /**
@@ -50,6 +54,76 @@ class PassportEntryFactory extends Factory
         return $this->afterCreating(function (PassportEntry $entry) {
             app(WorkflowService::class)->recompute($entry);
         });
+    }
+
+    /**
+     * The approved Own agent first (see $approvedAgentByDefault), on this factory
+     * instance: the configure() callback is bound to the factory before its states.
+     *
+     * @param  Collection<int, Model>  $instances
+     */
+    protected function callAfterCreating(Collection $instances, ?Model $parent = null)
+    {
+        if ($this->withAgent ?? static::$approvedAgentByDefault) {
+            $instances->each(fn (PassportEntry $entry) => static::giveApprovedOwnAgent($entry));
+        }
+
+        parent::callAfterCreating($instances, $parent);
+    }
+
+    /**
+     * The tests turn this on (tests/Pest.php): every passport gets an approved
+     * Own recruitment agent, since no step moves forward without one.
+     */
+    public static bool $approvedAgentByDefault = false;
+
+    /**
+     * Null: follow $approvedAgentByDefault.
+     */
+    protected ?bool $withAgent = null;
+
+    /**
+     * Indicate that the passport has no recruitment agent.
+     */
+    public function withoutAgent(): static
+    {
+        $factory = clone $this;
+        $factory->withAgent = false;
+
+        return $factory;
+    }
+
+    /**
+     * Keep withoutAgent() through the other states.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function newInstance(array $arguments = []): static
+    {
+        $factory = parent::newInstance($arguments);
+        $factory->withAgent = $this->withAgent;
+
+        return $factory;
+    }
+
+    public static function giveApprovedOwnAgent(PassportEntry $entry): void
+    {
+        $agent = RecruitmentAgent::query()->where('is_own', true)->first();
+        if (! $agent) {
+            $agent = new RecruitmentAgent(['name' => 'Own', 'rl_number' => 'RL-OWN-TEST']);
+            $agent->is_own = true;
+            $agent->is_active = true;
+            $agent->assignCode();
+            $agent->save();
+        }
+
+        PassportAgentAssignment::query()->create([
+            'passport_entry_id' => $entry->id,
+            'recruitment_agent_id' => $agent->id,
+            'assigned_date' => $entry->passport_received_date ?? '2026-01-01',
+            'status' => 'approved',
+            'approved_at' => now(),
+        ]);
     }
 
     /**

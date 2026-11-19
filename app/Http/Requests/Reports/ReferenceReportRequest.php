@@ -29,7 +29,7 @@ class ReferenceReportRequest extends FormRequest
             'company_id' => ['sometimes', 'nullable', 'integer', 'exists:companies,id'],
             'sort' => ['sometimes', 'nullable', Rule::in([...$sortable, ...array_map(fn (string $column) => "-{$column}", $sortable)])],
             'export' => ['sometimes', 'nullable', Rule::in(['csv'])],
-            'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:300'],
         ];
     }
 }

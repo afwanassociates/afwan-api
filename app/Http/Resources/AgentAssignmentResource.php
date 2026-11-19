@@ -8,7 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * One MYGRAM agent assignment: a history row, an approval row (with the
+ * One recruitment agent assignment: a history row, an approval row (with the
  * passport) or an Agent Changes row (with the passport and the new agent).
  *
  * @mixin PassportAgentAssignment
@@ -25,7 +25,7 @@ class AgentAssignmentResource extends JsonResource
         return [
             'id' => $this->id,
             'passport_entry_id' => $this->passport_entry_id,
-            'agent' => $this->whenLoaded('agent', fn () => MygramAgentResource::summary($this->agent)),
+            'agent' => $this->whenLoaded('agent', fn () => RecruitmentAgentResource::summary($this->agent)),
             'assigned_date' => $this->assigned_date->toDateString(),
             'ended_date' => $this->ended_date?->toDateString(),
             'remark' => $this->remark,
@@ -57,14 +57,14 @@ class AgentAssignmentResource extends JsonResource
             'current_agent' => $this->when(
                 $this->relationLoaded('passportEntry') && $this->passportEntry?->relationLoaded('currentAgentAssignment'),
                 fn () => ($current = $this->passportEntry->currentAgentAssignment) && $current->id !== $this->id && $current->relationLoaded('agent')
-                    ? MygramAgentResource::summary($current->agent) : null,
+                    ? RecruitmentAgentResource::summary($current->agent) : null,
             ),
             // Agent Changes list: the agent that replaced this one.
             'replaced_by' => $this->whenLoaded('replacedBy', fn () => $this->replacedBy ? [
                 'id' => $this->replacedBy->id,
                 'assigned_date' => $this->replacedBy->assigned_date->toDateString(),
                 'remark' => $this->replacedBy->remark,
-                'agent' => $this->replacedBy->relationLoaded('agent') ? MygramAgentResource::summary($this->replacedBy->agent) : null,
+                'agent' => $this->replacedBy->relationLoaded('agent') ? RecruitmentAgentResource::summary($this->replacedBy->agent) : null,
             ] : null),
             'can' => [
                 'approve' => $request->user()?->can('approve', $this->resource) ?? false,

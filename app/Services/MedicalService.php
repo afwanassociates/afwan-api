@@ -9,6 +9,7 @@ use App\Models\MedicalRecord;
 use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
 use App\Models\User;
+use App\Support\AgentGate;
 use App\Support\DateRules;
 use App\Support\LocalDate;
 use DateTimeInterface;
@@ -38,6 +39,7 @@ class MedicalService
     {
         return DB::transaction(function () use ($passport, $medicalDate, $actor) {
             $locked = $this->lock($passport);
+            AgentGate::assertApproved($locked);
 
             if ($locked->medical_slip_date === null) {
                 throw ValidationException::withMessages([
@@ -80,6 +82,7 @@ class MedicalService
             }
 
             $locked = $this->lock($passport);
+            AgentGate::assertApproved($locked);
 
             // A result follows the medical slip (MYGRAM) and the medical date.
             if ($locked->medical_slip_date === null) {
@@ -144,7 +147,7 @@ class MedicalService
                 ]);
             }
 
-            // The first slip date needs an approved MYGRAM agent. Passports that already
+            // The first slip date needs an approved recruitment agent. Passports that already
             // had a slip before agents existed can still be edited.
             if ($data['medical_slip_date'] !== null && $locked->medical_slip_date === null) {
                 $this->assertApprovedAgent($locked);
@@ -170,7 +173,7 @@ class MedicalService
     }
 
     /**
-     * The medical slip needs the passport's MYGRAM agent approved by the operations head.
+     * The medical slip needs the passport's recruitment agent approved by the operations head.
      *
      * @throws ValidationException
      */
@@ -184,8 +187,8 @@ class MedicalService
 
         throw ValidationException::withMessages([
             'medical_slip_date' => (clone $assignments)->where('status', 'pending')->exists()
-                ? 'MYGRAM agent not approved yet. The Operations Head must approve it before the medical slip.'
-                : 'Assign a MYGRAM agent first. The Operations Head must approve it before the medical slip.',
+                ? 'Recruitment agent not approved yet. The Operations Head must approve it before the medical slip.'
+                : 'Assign a recruitment agent first. The Operations Head must approve it before the medical slip.',
         ]);
     }
 
@@ -248,6 +251,46 @@ class MedicalService
             $record->delete();
 
             $this->workflow->ensureInOrder($passport);
+
+            return $this->workflow->recompute($passport);
+        });
+    }
+
+    /**
+     * Cancel the passport's current medical result (the operations head): the record is
+     * soft-deleted with who cancelled it (kept in the history, never removed) and the
+     * Online mark is cleared, so the passport goes back to Medical → Pending (or to the
+     * result before it, after a re-test). Refused once Calling has started.
+     *
+     * @throws ValidationException|WorkflowException
+     */
+    public function cancelResult(PassportEntry $passport, User $actor): PassportEntry
+    {
+        return DB::transaction(function () use ($passport, $actor) {
+            $locked = $this->lock($passport);
+
+            if ($locked->hasStepRecords()) {
+                throw ValidationException::withMessages([
+                    'medical' => 'Calling has started for this passport, so its medical result can no longer be cancelled.',
+                ]);
+            }
+
+            $record = $locked->current_medical_id
+                ? MedicalRecord::query()->find($locked->current_medical_id)
+                : null;
+            if ($record === null) {
+                throw ValidationException::withMessages([
+                    'medical' => 'This passport has no medical result to cancel.',
+                ]);
+            }
+
+            $record->deleted_by = $actor->id;
+            $record->save();
+            $record->delete();
+
+            // The Online mark only follows a fit result: it goes with it.
+            PassportEntry::withTrashed()->whereKey($locked->id)->toBase()->update(['entry_mode' => null]);
+            $passport->setAttribute('entry_mode', null)->syncOriginalAttribute('entry_mode');
 
             return $this->workflow->recompute($passport);
         });

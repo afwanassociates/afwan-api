@@ -376,7 +376,7 @@ describe('list', function () {
             ->assertUnprocessable()
             ->assertJsonValidationErrors($field);
     })->with([
-        'per_page over 100' => [['per_page' => 101], 'per_page'],
+        'per_page over 300' => [['per_page' => 301], 'per_page'],
         'unknown sort column' => [['sort' => 'passport_number'], 'sort'],
         'unknown reference type' => [['reference_type' => 'friend'], 'reference_type'],
         'received_to before received_from' => [['received_from' => '2026-03-01', 'received_to' => '2026-01-01'], 'received_to'],
@@ -390,7 +390,7 @@ describe('list', function () {
 
         // count + page + passport countries + references + companies + company countries
         // + step records + the date rules (app_settings, read once when first needed; no
-        // longer at boot, so the app boots without a database)
-        expect(DB::getQueryLog())->toHaveCount(11);
+        // longer at boot, so the app boots without a database) + the current recruitment agent
+        expect(DB::getQueryLog())->toHaveCount(12);
     })->with([2, 15]);
 });

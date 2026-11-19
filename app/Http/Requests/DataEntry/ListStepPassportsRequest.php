@@ -33,7 +33,9 @@ class ListStepPassportsRequest extends FormRequest
             'receive_date_to' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'booking_date_from' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'booking_date_to' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
-            'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            // The agent-wise tabs: an agent id, or "none" (no approved recruitment agent).
+            'recruitment_agent_id' => ['sometimes', 'nullable', 'regex:/^(none|[0-9]+)$/'],
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:300'],
             // The whole tab (same filters, every page) as a CSV download.
             'export' => ['sometimes', 'nullable', Rule::in(['csv'])],
             'sort' => ['exclude'],

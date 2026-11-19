@@ -26,7 +26,7 @@ use App\Http\Controllers\Agents\AgentChangeController;
 use App\Http\Controllers\Agents\AgentCountsController;
 use App\Http\Controllers\Agents\AgentPaymentsController;
 use App\Http\Controllers\Agents\AgentReportController;
-use App\Http\Controllers\Agents\MygramAgentController;
+use App\Http\Controllers\Agents\RecruitmentAgentController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\DataEntry\CompanyController;
 use App\Http\Controllers\DataEntry\CountryLookupController;
@@ -47,6 +47,7 @@ use App\Http\Controllers\DataEntry\StepBulkController;
 use App\Http\Controllers\DataEntry\StepListController;
 use App\Http\Controllers\DataEntry\StepMilestoneController;
 use App\Http\Controllers\DataEntry\StepRecordController;
+use App\Http\Controllers\DataEntry\StepUndoController;
 use App\Http\Controllers\DataEntry\WorkflowConfigController;
 use App\Http\Controllers\DataEntry\WorkflowSummaryController;
 use App\Http\Controllers\Reports\CompanyReportController;
@@ -125,8 +126,8 @@ Route::middleware('auth:sanctum')->group(function () {
         // Medical centres the same way (MedicalCenterPolicy "manage"): deleted only while
         // no passport names one. Adding one is open to the passport team (data-entry route).
         Route::apiResource('medical-centers', MedicalCenterController::class)->except(['show', 'store']);
-        // MYGRAM agents (MygramAgentPolicy "manage"): never deleted, deactivated instead.
-        Route::apiResource('mygram-agents', MygramAgentController::class)->only(['index', 'store', 'update']);
+        // Recruitment agents (RecruitmentAgentPolicy "manage"): never deleted, deactivated instead.
+        Route::apiResource('recruitment-agents', RecruitmentAgentController::class)->only(['index', 'store', 'update']);
     });
 
     // Staff accounts: admins manage the heads, accounts and data entry users; the accounts head
@@ -157,6 +158,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/passports/{passport}/medical-date', MedicalDateController::class)->name('passports.medical-date');
         Route::patch('/passports/{passport}/entry-mode', EntryModeController::class)->name('passports.entry-mode');
         Route::post('/passports/{passport}/medical-result', [MedicalRecordController::class, 'result'])->name('passports.medical-result');
+        // Cancel the current result (the operations head, until Calling starts): back to Pending.
+        Route::post('/passports/{passport}/medical-result/cancel', [MedicalRecordController::class, 'cancel'])->name('passports.medical-result.cancel');
         Route::get('/passports/{passport}/medicals', [MedicalRecordController::class, 'index'])->name('passports.medicals.index');
         Route::patch('/medicals/{medical}', [MedicalRecordController::class, 'update'])->name('medicals.update');
         Route::delete('/medicals/{medical}', [MedicalRecordController::class, 'destroy'])->name('medicals.destroy');
@@ -165,7 +168,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // "Add new medical center" from the medical slip: data entry and the operations head.
         Route::post('/medical-centers', [MedicalCenterController::class, 'store'])->name('medical-centers.store');
 
-        // MYGRAM agent: data entry assigns or changes it, the operations head approves it
+        // Recruitment agent: data entry assigns or changes it, the operations head approves it
         // (operation-head routes). Every write goes through App\Services\AgentAssignmentService.
         Route::get('/passports/{passport}/agent-assignments', [AgentAssignmentController::class, 'index'])->name('passports.agent-assignments.index');
         Route::post('/passports/{passport}/agent-assignments', [AgentAssignmentController::class, 'store'])->name('passports.agent-assignments.store');
@@ -180,6 +183,9 @@ Route::middleware('auth:sanctum')->group(function () {
         // Return the passport to its owner (any step) and undo that: the operations head.
         Route::post('/passports/{passport}/return', [PassportReturnController::class, 'store'])->name('passports.return.store');
         Route::delete('/passports/{passport}/return', [PassportReturnController::class, 'destroy'])->name('passports.return.destroy');
+        // Undo Calling or Visa (the operations head; BMET and Flight have their own undos).
+        Route::post('/passports/{passport}/undo-step/{step}', StepUndoController::class)
+            ->whereIn('step', ['calling', 'visa'])->name('passports.undo-step');
         Route::post('/passports/{passport}/steps/{stepKey}', [StepRecordController::class, 'store'])
             ->whereIn('stepKey', app(Workflow::class)->recordStepKeys())
             ->name('passports.steps.store');
@@ -268,7 +274,7 @@ Route::middleware('auth:sanctum')->group(function () {
             'message' => "Welcome, {$request->user()->name}.",
         ]))->name('dashboard');
 
-        // Agent Approvals: approve a MYGRAM agent assignment or return it for correction.
+        // Agent Approvals: approve a recruitment agent assignment or return it for correction.
         Route::get('/agent-approvals', [AgentApprovalController::class, 'index'])->name('agent-approvals.index');
         Route::get('/agent-approvals/summary', [AgentApprovalController::class, 'summary'])->name('agent-approvals.summary');
         Route::post('/agent-approvals/bulk-approve', [AgentApprovalController::class, 'bulkApprove'])->name('agent-approvals.bulk-approve');
@@ -359,20 +365,20 @@ Route::middleware('auth:sanctum')->group(function () {
         // The opening cash in hand (set by the accounts head) and today's balance.
         Route::get('/cash-settings', [CashBookController::class, 'show'])->name('cash-settings.show');
 
-        // MYGRAM agent ledgers: what the company paid each agent (no rate, no due).
-        Route::get('/mygram-agents', [AgentPaymentsController::class, 'index'])->name('mygram-agents.index');
-        Route::get('/mygram-agents/{mygramAgent}', [AgentPaymentsController::class, 'show'])->name('mygram-agents.show');
+        // Recruitment agent ledgers: what the company paid each agent (no rate, no due).
+        Route::get('/recruitment-agents', [AgentPaymentsController::class, 'index'])->name('recruitment-agents.index');
+        Route::get('/recruitment-agents/{recruitmentAgent}', [AgentPaymentsController::class, 'show'])->name('recruitment-agents.show');
     });
 
-    // The MYGRAM agent report (passport counts, no money): the operations head and the
-    // accounts head (MygramAgentPolicy "viewReport").
+    // The recruitment agent report (passport counts, no money): the operations head and the
+    // accounts head (RecruitmentAgentPolicy "viewReport").
     Route::prefix('agent-report')->name('agent-report.')->middleware('role:operation_head,accounts_head')->group(function () {
         Route::get('/', [AgentReportController::class, 'index'])->name('index');
         Route::get('/{agent}/passports', [AgentReportController::class, 'passports'])
             ->where('agent', 'none|[0-9]+')->name('passports');
     });
 
-    // The MYGRAM agent dropdown: the passport team and the accounts team.
-    Route::get('/mygram-agents/lookup', [MygramAgentController::class, 'lookup'])
-        ->middleware('role:data_entry,accounts')->name('mygram-agents.lookup');
+    // The recruitment agent dropdown: the passport team and the accounts team.
+    Route::get('/recruitment-agents/lookup', [RecruitmentAgentController::class, 'lookup'])
+        ->middleware('role:data_entry,accounts')->name('recruitment-agents.lookup');
 });

@@ -101,7 +101,7 @@ class CashBookController extends Controller
             'expenses' => $sum(CashPaymentType::Expense),
             'refunds' => $sum(CashPaymentType::Refund),
             'owner_loans' => $sum(CashPaymentType::OwnerLoan),
-            // Part payments to MYGRAM agents.
+            // Part payments to recruitment agents.
             'agent_payments' => $sum(CashPaymentType::AgentPayment),
         ];
     }

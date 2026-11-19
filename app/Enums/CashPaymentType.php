@@ -12,7 +12,7 @@ enum CashPaymentType: string
     case Refund = 'refund';
     case OwnerLoan = 'owner_loan';
     case Expense = 'expense';
-    // A part payment to a MYGRAM agent (no ledger line, no passports).
+    // A part payment to a recruitment agent (no ledger line, no passports).
     case AgentPayment = 'agent_payment';
 
     public function label(): string

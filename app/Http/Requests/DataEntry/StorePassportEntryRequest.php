@@ -56,6 +56,9 @@ class StorePassportEntryRequest extends FormRequest
             'passport_expiry_date' => ['required', 'date_format:Y-m-d', $this->minimumValidity()],
             // The passport scan copy (multipart): JPG, PNG or PDF up to 5 MB.
             'scan' => PassportScanFile::rules(required: true),
+            // Adding only: the recruitment agent, sent to the operations head for approval
+            // (edits change the agent from the passport page).
+            'recruitment_agent_id' => $this->entry() ? ['exclude'] : ['sometimes', 'nullable', 'integer'],
         ];
     }
 

@@ -106,6 +106,16 @@ class WorkflowException extends Exception
         return new self('passport_returned', 'This passport was returned to its owner. Undo the return before changing its steps.');
     }
 
+    public static function agentMissing(): self
+    {
+        return new self('agent_missing', 'Assign a recruitment agent first. The Operations Head must approve it before the passport moves to the next step.');
+    }
+
+    public static function agentNotApproved(): self
+    {
+        return new self('agent_not_approved', 'Recruitment agent not approved yet. The Operations Head must approve it before the passport moves to the next step.');
+    }
+
     public static function alreadyReturned(): self
     {
         return new self('already_returned', 'This passport is already returned.');

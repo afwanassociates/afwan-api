@@ -22,7 +22,7 @@ class ListCashPaymentsRequest extends FormRequest
             'from' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'to' => ['sometimes', 'nullable', 'date_format:Y-m-d', ...($this->filled('from') ? ['after_or_equal:from'] : [])],
             'party_id' => ['sometimes', 'nullable', 'integer'],
-            'mygram_agent_id' => ['sometimes', 'nullable', 'integer'],
+            'recruitment_agent_id' => ['sometimes', 'nullable', 'integer'],
             'payee_type' => ['sometimes', 'nullable', Rule::in(PayeeType::values())],
             'payment_type' => ['sometimes', 'nullable', Rule::in(CashPaymentType::values())],
             'payment_method' => ['sometimes', 'nullable', Rule::in(PaymentMethod::values())],

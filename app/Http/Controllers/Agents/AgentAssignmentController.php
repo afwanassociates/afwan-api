@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Data entry assigns or changes a passport's MYGRAM agent (sent to the
+ * Data entry assigns or changes a passport's recruitment agent (sent to the
  * operations head for approval); the passport team reads the history.
  */
 class AgentAssignmentController extends Controller

@@ -3,7 +3,7 @@
 namespace App\Enums;
 
 /**
- * A passport's assignment to a MYGRAM agent: data entry assigns (pending), the
+ * A passport's assignment to a recruitment agent: data entry assigns (pending), the
  * operations head approves it or returns it for correction. A returned one stays
  * in the history; data entry sends a corrected assignment as a new one.
  */

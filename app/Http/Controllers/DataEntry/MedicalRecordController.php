@@ -70,6 +70,28 @@ class MedicalRecordController extends Controller
     }
 
     /**
+     * Cancel the passport's current result (the operations head): back to Medical → Pending.
+     * The record stays in the history as cancelled.
+     */
+    public function cancel(Request $request, PassportEntry $passport): JsonResponse
+    {
+        Gate::authorize('cancelMedicalResult', $passport);
+
+        $passport = $this->medicals->cancelResult($passport, $request->user());
+        $passport->load(['currentMedical', 'stepRecords.creator']);
+        $status = $passport->medicalStatus();
+
+        return response()->json(['passport' => [
+            'id' => $passport->id,
+            'medical_status' => $status->value,
+            'medical_status_label' => $status->label(),
+            'current_medical_id' => $passport->current_medical_id,
+            'current_stage' => $passport->current_stage,
+            'stage_status' => $passport->stage_status,
+        ]]);
+    }
+
+    /**
      * Soft delete a medical record, recording who deleted it.
      */
     public function destroy(Request $request, MedicalRecord $medical): Response
