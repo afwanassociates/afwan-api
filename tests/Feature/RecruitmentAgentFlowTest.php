@@ -266,3 +266,34 @@ describe('the agent report', function () {
             ->toBe(['not_started', 'medical_pending', 'fit', 'unfit', 'calling', 'visa', 'bmet', 'flight', 'completed', 'returned']);
     });
 });
+
+describe('a fit passport from before agents (production upgrade)', function () {
+    it('can be marked Online, but Calling waits for an approved agent; then it carries on', function () {
+        $passport = PassportEntry::factory()->withoutAgent()->withMedicalSlip('2026-03-20')
+            ->create(['passport_received_date' => '2026-03-01', 'passport_expiry_date' => '2035-01-01', 'medical_date' => '2026-04-01']);
+        MedicalRecord::factory()->for($passport)->on('2026-04-01')->create();
+        app(WorkflowService::class)->recompute($passport);
+
+        $clerk = User::factory()->dataEntry()->create();
+        Sanctum::actingAs($clerk);
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/entry-mode", ['entry_mode' => 'online'])->assertOk();
+        $calling = ['receive_date' => '2026-04-20', 'issue_date' => '2026-04-18', 'valid_until' => '2026-10-18'];
+        $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling/update", $calling)
+            ->assertUnprocessable()->assertJsonPath('code', 'agent_missing');
+
+        // Data entry assigns the agent (any stage), the operations head approves.
+        $assignment = $this->postJson("/api/data-entry/passports/{$passport->id}/agent-assignments", [
+            'recruitment_agent_id' => raPartner()->id, 'assigned_date' => '2026-03-10',
+        ])->assertCreated()->json('data.id');
+        $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling/update", $calling)
+            ->assertUnprocessable()->assertJsonPath('code', 'agent_not_approved');
+
+        Sanctum::actingAs(User::factory()->operationHead()->create());
+        $this->postJson("/api/operation-head/agent-approvals/{$assignment}/approve")->assertOk();
+        // The slip is already issued, so the approval can't be undone (Change agent instead).
+        $this->getJson("/api/data-entry/passports/{$passport->id}")->assertJsonPath('data.can.undo_agent_approval', false);
+
+        Sanctum::actingAs($clerk);
+        $this->postJson("/api/data-entry/passports/{$passport->id}/steps/calling/update", $calling)->assertSuccessful();
+    });
+});
