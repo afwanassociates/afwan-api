@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Enums\MedicalResult;
 use App\Http\Resources\ReturnedPassportResource;
 use App\Models\MedicalRecord;
+use App\Models\PassportActivity;
 use App\Models\PassportEntry;
 use App\Models\PassportReturn;
 use App\Models\PassportStepRecord;
@@ -13,8 +14,9 @@ use App\Models\User;
 /**
  * A passport's history from entry to flight, oldest first: the entry, the
  * medical slip, every medical result, every step record (soft-deleted records
- * left out) and every return to the owner (undone ones too, with their undo).
- * Built from the stored records; nothing extra is kept.
+ * left out), every return to the owner (undone ones too, with their undo) and
+ * every recorded action (App\Models\PassportActivity: who marked Online, edited
+ * a step, undid it, approved the agent, …).
  */
 class PassportHistory
 {
@@ -30,11 +32,17 @@ class PassportHistory
      */
     public function events(PassportEntry $passport): array
     {
-        $passport->loadMissing(['creator', 'medicalCenter', 'medicalRecords.creator', 'stepRecords.creator', 'returns.returner', 'returns.undoer']);
+        $passport->loadMissing(['creator', 'medicalCenter', 'medicalRecords.creator', 'stepRecords.creator', 'returns.returner', 'returns.undoer', 'activities.user']);
 
         $events = [$this->entered($passport)];
 
-        if ($passport->medical_slip_date) {
+        // Who did what (the Online mark, slip, edits, undos, agent, …).
+        foreach ($passport->activities as $activity) {
+            $events[] = $this->activity($activity);
+        }
+
+        // Older passports have no slip activity: the slip from the passport itself.
+        if ($passport->medical_slip_date && ! $passport->activities->contains(fn (PassportActivity $a) => in_array($a->action, ['slip', 'slip_edit'], true))) {
             $events[] = $this->event(
                 key: 'medical-slip',
                 date: $passport->medical_slip_date->toDateString(),
@@ -184,6 +192,32 @@ class PassportHistory
             by: $record->creator,
             remarks: $record->remarks,
             sequence: $record->id,
+        );
+    }
+
+    /**
+     * One recorded action (who did what, when). Sorted after the records of the same day and
+     * step, in the order they happened.
+     *
+     * @return array<string, mixed>
+     */
+    protected function activity(PassportActivity $activity): array
+    {
+        $at = $activity->created_at->setTimezone(LocalDate::timezone());
+
+        return $this->event(
+            key: "activity-{$activity->id}",
+            date: $at->toDateString(),
+            step: $activity->step_key,
+            title: $activity->title,
+            tone: str_contains($activity->action, 'undo') || str_contains($activity->action, 'clear') || str_contains($activity->action, 'delete') || $activity->action === 'agent_return' ? 'amber' : 'blue',
+            details: [
+                ...($activity->details ?? []),
+                ['label' => 'Done at', 'value' => $at->format('d-m-Y h:i A'), 'type' => 'text'],
+            ],
+            by: $activity->user,
+            remarks: $activity->remarks,
+            sequence: 1_000_000 + $activity->id,
         );
     }
 

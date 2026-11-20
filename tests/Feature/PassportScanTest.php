@@ -283,7 +283,7 @@ describe('responses', function () {
             'store' => $created,
             'show' => $this->getJson("/api/data-entry/passports/{$id}"),
             'update' => $this->patchJson("/api/data-entry/passports/{$id}", ['passport_name' => 'Edited']),
-            'medical slip' => $this->patchJson("/api/data-entry/passports/{$id}/medical-slip", ['medical_slip_date' => '2026-01-01']),
+            'medical slip' => $this->patchJson("/api/data-entry/passports/{$id}/medical-slip", slipPayload(['medical_slip_date' => '2026-01-01'], $id)),
             'medical date' => $this->patchJson("/api/data-entry/passports/{$id}/medical-date", ['medical_date' => now()->subDay()->toDateString()]),
             'scan upload' => $this->postJson("/api/data-entry/passports/{$id}/scan", ['scan' => fakeScan('png')]),
         ];
@@ -334,12 +334,12 @@ describe('medical slip number', function () {
         $passport = PassportEntry::factory()->create();
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        $response = $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", [
+        $response = $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload([
             'medical_slip_date' => '2026-04-15',
             'medical_slip_no' => 'MG-2026-0042',
-        ])->assertOk();
+        ], $passport->id))->assertOk();
 
-        expect($response->json('data.medical_slip'))->toBe(['date' => '2026-04-15', 'medical_center' => null])
+        expect($response->json('data.medical_slip.date'))->toBe('2026-04-15')
             ->and($response->getContent())->not->toContain('MG-2026-0042')
             ->and(Schema::hasColumn('passport_entries', 'medical_slip_no'))->toBeFalse();
     });

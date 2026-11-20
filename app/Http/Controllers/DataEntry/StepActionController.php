@@ -126,6 +126,7 @@ class StepActionController extends Controller
         ];
 
         $record = $this->service->updateStep($record, $data, $request->user());
+        $this->service->logRecord($record, 'result', $request->user());
 
         return $this->respond($record, $passport->refresh());
     }

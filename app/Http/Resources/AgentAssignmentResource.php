@@ -35,6 +35,8 @@ class AgentAssignmentResource extends JsonResource
             'assigned_by' => $person('assigner'),
             'approved_by' => $person('approver'),
             'approved_at' => $this->approved_at,
+            'approval_undone_by' => $person('approvalUndoer'),
+            'approval_undone_at' => $this->approval_undone_at,
             'returned_by' => $person('returner'),
             'returned_at' => $this->returned_at,
             'return_reason' => $this->return_reason,

@@ -78,12 +78,12 @@ describe('medical pending only after the slip date', function () {
             ->and(slipQueueIds())->toBe([]);
 
         // Saving the slip date moves it into Medical Pending.
-        $this->patchJson("/api/data-entry/passports/{$id}/medical-slip", [
+        $this->patchJson("/api/data-entry/passports/{$id}/medical-slip", slipPayload([
             'medical_slip_date' => '2026-04-15',
             // No longer recorded: ignored.
             'medical_slip_no' => 'MG-2026-0042',
             'medical_center_id' => meem()->id,
-        ])
+        ], $id))
             ->assertOk()
             ->assertJsonPath('data.medical_status', 'pending')
             ->assertJsonPath('data.current_stage', 'medical')
@@ -136,20 +136,20 @@ describe('medical pending only after the slip date', function () {
         $passport = PassportEntry::factory()->withMedicalSlip('2026-04-15')->create();
         Sanctum::actingAs(User::factory()->operationHead()->create());
 
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => null])
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => null], $passport->id))
             ->assertOk()
             ->assertJsonPath('data.medical_status', 'not_started')
             ->assertJsonPath('data.current_stage', 'passport');
 
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-16'])->assertOk();
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-16'], $passport->id))->assertOk();
         recordMedical($passport->id, '2026-04-20', 'unfit')->assertCreated();
 
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => null])
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => null], $passport->id))
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['medical_slip_date' => 'The medical slip date cannot be cleared once a medical result is recorded.']);
 
         // Changing the date (not clearing it) is still fine.
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-17'])
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-17'], $passport->id))
             ->assertOk()
             ->assertJsonPath('data.medical_slip.date', '2026-04-17')
             ->assertJsonPath('data.medical_status', 'unfit');
@@ -162,12 +162,12 @@ describe('medical pending only after the slip date', function () {
         $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-date", ['medical_date' => '2026-04-20'])->assertOk();
 
         // The data entry team edits the slip but cannot take it back.
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => null])->assertForbidden();
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-16', 'medical_center_id' => $center->id])->assertOk();
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => null], $passport->id))->assertForbidden();
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-16', 'medical_center_id' => $center->id], $passport->id))->assertOk();
         expect($passport->fresh()->medical_slip_date->format('Y-m-d'))->toBe('2026-04-16');
 
         Sanctum::actingAs(User::factory()->operationHead()->create());
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => null, 'medical_center_id' => $center->id])
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => null, 'medical_center_id' => $center->id], $passport->id))
             ->assertOk()
             ->assertJsonPath('data.medical_status', 'not_started')
             ->assertJsonPath('data.current_stage', 'passport');
@@ -184,11 +184,11 @@ describe('medical pending only after the slip date', function () {
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
         Carbon::setTestNow(Carbon::parse('2026-05-01 10:00', 'Asia/Dhaka')->utc());
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", [
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload([
             'medical_slip_date' => '2026-04-15',
             'passport_name' => 'New Name',
             'updated_by' => 999,
-        ])->assertOk();
+        ], $passport->id))->assertOk();
 
         $after = DB::table('passport_entries')->where('id', $passport->id)->first();
 
@@ -222,7 +222,7 @@ describe('medical pending only after the slip date', function () {
         $center->save();
         Sanctum::actingAs(User::factory()->dataEntry()->create());
 
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-15', 'medical_center_id' => $center->id])
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-15', 'medical_center_id' => $center->id], $passport->id))
             ->assertOk()
             ->assertJsonPath('data.medical_slip.medical_center.name', 'Meem Medical Center');
     });
@@ -230,18 +230,18 @@ describe('medical pending only after the slip date', function () {
     it('lets only data entry save the slip, not admins or anyone else', function () {
         $passport = PassportEntry::factory()->create();
 
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertUnauthorized();
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-15'], $passport->id))->assertUnauthorized();
 
         Sanctum::actingAs(User::factory()->accounts()->create());
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertForbidden();
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-15'], $passport->id))->assertForbidden();
 
         // Admins are out of passport entry; only data entry sets the slip.
         foreach (['admin', 'superAdmin'] as $role) {
             Sanctum::actingAs(User::factory()->{$role}()->create());
-            $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertForbidden();
+            $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-15'], $passport->id))->assertForbidden();
         }
         Sanctum::actingAs(User::factory()->dataEntry()->create());
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertOk();
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-15'], $passport->id))->assertOk();
     });
 
     it('takes only the result: the slip and centre stay on the passport', function () {
@@ -261,14 +261,14 @@ describe('medical pending only after the slip date', function () {
     it('lets data entry and the operations head save the slip, and nobody else', function () {
         $passport = PassportEntry::factory()->create();
 
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertUnauthorized();
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-15'], $passport->id))->assertUnauthorized();
 
         Sanctum::actingAs(User::factory()->accounts()->create());
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertForbidden();
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-15'], $passport->id))->assertForbidden();
 
         foreach (['dataEntry', 'operationHead'] as $role) {
             Sanctum::actingAs(User::factory()->{$role}()->create());
-            $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertOk();
+            $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-15'], $passport->id))->assertOk();
         }
     });
 });
@@ -351,5 +351,64 @@ describe('BMET record on a slipped passport', function () {
         $this->getJson("/api/data-entry/passports/{$passport->id}")
             ->assertJsonPath('data.current_stage', 'visa')
             ->assertJsonPath('data.workflow.steps.1.state', 'passed');
+    });
+});
+
+describe('the medical date with the slip', function () {
+    it('saves the medical date together with the slip, and changes it on edit', function () {
+        $passport = PassportEntry::factory()->create(['passport_received_date' => '2026-04-01']);
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload([
+            'medical_slip_date' => '2026-04-20',
+            'medical_center_id' => meem()->id,
+            'medical_date' => '2026-04-25',
+        ], $passport->id))->assertOk()
+            ->assertJsonPath('data.medical_status', 'pending')
+            ->assertJsonPath('data.medical_date', '2026-04-25');
+
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload([
+            'medical_slip_date' => '2026-04-20',
+            'medical_date' => '2026-04-28',
+        ], $passport->id))->assertOk()->assertJsonPath('data.medical_date', '2026-04-28');
+        expect($passport->fresh()->medical_date->toDateString())->toBe('2026-04-28');
+    });
+
+    it('needs the medical date and the medical center with a slip date', function () {
+        $passport = PassportEntry::factory()->create(['passport_received_date' => '2026-04-01']);
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-20'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors([
+                'medical_date' => 'Enter the medical date.',
+                'medical_center_id' => 'Choose the medical center.',
+            ]);
+        expect($passport->fresh()->medical_slip_date)->toBeNull();
+    });
+
+    it('refuses a medical date in the future (Dhaka today)', function () {
+        $passport = PassportEntry::factory()->create(['passport_received_date' => '2026-04-01']);
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload([
+            'medical_slip_date' => '2026-04-20',
+            'medical_date' => '2026-05-02',
+        ], $passport->id))->assertUnprocessable()->assertJsonValidationErrors('medical_date')->assertJsonMissingValidationErrors('medical_center_id');
+        expect($passport->fresh()->medical_slip_date)->toBeNull();
+    });
+
+    it('locks the medical date for data entry once a result is recorded', function () {
+        $passport = PassportEntry::factory()->withMedicalSlip('2026-04-01')->create(['passport_received_date' => '2026-03-01', 'medical_date' => '2026-04-05']);
+        MedicalRecord::factory()->for($passport)->on('2026-04-05')->create();
+        Sanctum::actingAs(User::factory()->dataEntry()->create());
+
+        // The same date (unchanged) is fine.
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload([
+            'medical_slip_date' => '2026-04-01', 'medical_date' => '2026-04-05',
+        ], $passport->id))->assertOk();
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload([
+            'medical_slip_date' => '2026-04-01', 'medical_date' => '2026-04-06',
+        ], $passport->id))->assertUnprocessable()->assertJsonValidationErrors('medical_date');
     });
 });

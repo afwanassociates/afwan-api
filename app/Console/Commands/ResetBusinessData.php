@@ -72,6 +72,8 @@ class ResetBusinessData extends Command
         'cash_receipt_passports',
         'cash_receipt_lines',
         'passport_agent_assignments',
+        // Who did what on a passport (the history's actions).
+        'passport_activities',
         'passport_step_records',
         'medical_records',
         'passport_returns',

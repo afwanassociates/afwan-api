@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Company;
+use App\Models\MedicalCenter;
 use App\Models\Party;
 use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
@@ -138,6 +139,27 @@ function recordMedical(int $passportId, string $medicalDate, string $result): Te
         : [];
 
     return test()->postJson("/api/data-entry/passports/{$passportId}/medical-result", ['result' => $result, ...$dates]);
+}
+
+/**
+ * A medical slip payload with the required medical date and centre filled in when the
+ * test doesn't send them: the passport's own medical date (or the slip date) and an
+ * active centre.
+ *
+ * @param  array<string, mixed>  $data
+ * @return array<string, mixed>
+ */
+function slipPayload(array $data, int $passportId): array
+{
+    if (($data['medical_slip_date'] ?? null) === null) {
+        return $data;
+    }
+
+    $current = PassportEntry::query()->whereKey($passportId)->value('medical_date');
+    $data['medical_date'] ??= $current ? substr((string) $current, 0, 10) : $data['medical_slip_date'];
+    $data['medical_center_id'] ??= MedicalCenter::query()->where('is_active', true)->value('id') ?? MedicalCenter::factory()->create()->id;
+
+    return $data;
 }
 
 /**

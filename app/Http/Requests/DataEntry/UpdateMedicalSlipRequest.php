@@ -3,6 +3,7 @@
 namespace App\Http\Requests\DataEntry;
 
 use App\Models\PassportEntry;
+use App\Support\LocalDate;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -12,6 +13,9 @@ use Illuminate\Validation\Rules\Exists;
  * The passport's medical slip (the client's "MYGRAM"). medical_slip_date must
  * be sent; null clears it (only allowed before a result is recorded, checked
  * in App\Services\MedicalService). No ordering rule against the medical date.
+ *
+ * medical_date and medical_center_id are required with a slip date: the date
+ * (today or earlier) the passport goes / went for its medical, and its centre.
  */
 class UpdateMedicalSlipRequest extends FormRequest
 {
@@ -24,7 +28,10 @@ class UpdateMedicalSlipRequest extends FormRequest
     {
         return [
             'medical_slip_date' => ['present', 'nullable', 'date_format:Y-m-d'],
-            'medical_center_id' => ['sometimes', 'nullable', 'integer', $this->selectableCenter()],
+            // Saving a slip needs its medical date and centre (clearing the slip, null, does not).
+            'medical_center_id' => ['required_with:medical_slip_date', 'nullable', 'integer', $this->selectableCenter()],
+            // "Today" is the Dhaka calendar date, not UTC's.
+            'medical_date' => ['required_with:medical_slip_date', 'nullable', 'date_format:Y-m-d', 'before_or_equal:'.LocalDate::today()->toDateString()],
         ];
     }
 
@@ -37,6 +44,9 @@ class UpdateMedicalSlipRequest extends FormRequest
     {
         return [
             'medical_slip_date.present' => 'The medical slip date is required.',
+            'medical_date.required_with' => 'Enter the medical date.',
+            'medical_center_id.required_with' => 'Choose the medical center.',
+            'medical_date.before_or_equal' => 'The medical date cannot be in the future.',
             'medical_center_id.exists' => 'The selected medical centre does not exist or is inactive.',
         ];
     }

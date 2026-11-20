@@ -145,7 +145,7 @@ describe('old records', function () {
         $this->getJson("/api/reports/companies/{$entry->company_id}/passports")->assertOk()->assertJsonPath('data.0.reference', null);
 
         // Partial saves keep working without it.
-        $this->patchJson("/api/data-entry/passports/{$entry->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertOk();
+        $this->patchJson("/api/data-entry/passports/{$entry->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-15'], $entry->id))->assertOk();
         $this->patchJson("/api/data-entry/passports/{$entry->id}", ['passport_name' => 'Renamed'])->assertOk();
 
         // The full edit form sends every field: now it needs a reference.
@@ -175,7 +175,7 @@ describe('old records', function () {
         $this->getJson('/api/data-entry/passports?view=overview')->assertOk()->assertJsonPath('data.0.passport_expiry_date', null);
 
         // Partial endpoints keep working without the missing fields.
-        $this->patchJson("/api/data-entry/passports/{$entry->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertOk();
+        $this->patchJson("/api/data-entry/passports/{$entry->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-15'], $entry->id))->assertOk();
 
         Sanctum::actingAs($user);
         $this->patchJson("/api/data-entry/passports/{$entry->id}", ['passport_name' => 'Old Entry Renamed'])

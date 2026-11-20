@@ -26,7 +26,7 @@ class MedicalSlipController extends Controller
             Gate::authorize('undo', PassportStepRecord::class);
         }
 
-        $medicals->updateSlip($passport, $request->validated());
+        $medicals->updateSlip($passport, $request->validated(), $request->user());
 
         return new PassportEntryResource($passport->load(PassportEntryResource::RELATIONS));
     }

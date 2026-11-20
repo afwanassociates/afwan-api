@@ -1,9 +1,9 @@
 <?php
 
 use App\Models\CashPayment;
-use App\Models\RecruitmentAgent;
 use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
+use App\Models\RecruitmentAgent;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
@@ -94,7 +94,7 @@ describe('assign and approve', function () {
         $agent = agent();
 
         Sanctum::actingAs($this->clerk);
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-20'])
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-20'], $passport->id))
             ->assertJsonValidationErrors(['medical_slip_date' => 'Assign a recruitment agent first. The Operations Head must approve it before the medical slip.']);
 
         assignAgent($passport, $agent, ['remark' => 'Sent today'])
@@ -107,7 +107,7 @@ describe('assign and approve', function () {
             ->assertJsonPath('data.recruitment_agent', null)
             ->assertJsonPath('data.agent_pending.agent.id', $agent->id);
 
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-20'])
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-20'], $passport->id))
             ->assertJsonValidationErrors(['medical_slip_date' => 'Recruitment agent not approved yet. The Operations Head must approve it before the medical slip.']);
 
         // One waiting at a time.
@@ -126,14 +126,14 @@ describe('assign and approve', function () {
         $this->getJson("/api/data-entry/passports/{$passport->id}")
             ->assertJsonPath('data.agent_status', 'approved')
             ->assertJsonPath('data.recruitment_agent.rl_number', 'RL-1001');
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-20'])->assertOk();
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-20'], $passport->id))->assertOk();
     });
 
     it('still lets a passport that had its slip before agents existed be edited', function () {
         $passport = PassportEntry::factory()->withoutAgent()->withMedicalSlip('2026-04-15')->create(['passport_received_date' => '2026-03-01']);
         Sanctum::actingAs($this->clerk);
 
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-16'])->assertOk();
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-16'], $passport->id))->assertOk();
     });
 
     it('returns an assignment for correction, keeps it in the history, and takes a corrected one', function () {
@@ -304,7 +304,7 @@ describe('passport entry list tabs', function () {
             'assigned_date' => '2026-04-01', 'status' => 'approved',
         ]);
         Sanctum::actingAs($this->clerk);
-        $this->patchJson("/api/data-entry/passports/{$slipped->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertOk();
+        $this->patchJson("/api/data-entry/passports/{$slipped->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-15'], $slipped->id))->assertOk();
 
         $this->getJson('/api/data-entry/agent-counts?stage=passport')
             ->assertOk()
@@ -337,7 +337,7 @@ describe('agent report', function () {
         }
 
         Sanctum::actingAs($this->head);
-        $this->patchJson("/api/data-entry/passports/{$fitLater->id}/medical-slip", ['medical_slip_date' => '2026-04-15'])->assertOk();
+        $this->patchJson("/api/data-entry/passports/{$fitLater->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-15'], $fitLater->id))->assertOk();
         recordMedical($fitLater->id, '2026-04-20', 'unfit')->assertCreated();
         $this->postJson("/api/data-entry/passports/{$returned->id}/return", [
             'return_date' => '2026-04-30', 'receiver_name' => 'Owner', 'receiver_phone' => '01711000000',
@@ -359,13 +359,17 @@ describe('agent report', function () {
         $this->getJson('/api/agent-report')->assertJsonPath('data.agents.0.counted', 2);
     });
 
-    it('shows passports without an agent, and is closed to data entry and accounts users', function () {
+    it('shows passports without an agent; open to data entry, closed to accounts users and admins', function () {
         agentPassport();
         Sanctum::actingAs($this->head);
         $this->getJson('/api/agent-report')->assertJsonPath('data.no_agent.current', 1);
         $this->getJson('/api/agent-report/none/passports')->assertJsonCount(1, 'data');
 
-        foreach ([$this->clerk, User::factory()->accounts()->create(), User::factory()->admin()->create()] as $user) {
+        Sanctum::actingAs($this->clerk);
+        $this->getJson('/api/agent-report')->assertOk();
+        $this->getJson('/api/agent-report/none/passports')->assertOk();
+
+        foreach ([User::factory()->accounts()->create(), User::factory()->admin()->create()] as $user) {
             Sanctum::actingAs($user);
             $this->getJson('/api/agent-report')->assertForbidden();
         }

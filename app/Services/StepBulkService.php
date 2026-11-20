@@ -154,7 +154,10 @@ class StepBulkService
             'start_date' => $record->detail('start_date') ?? $record->step_date->toDateString(),
         ];
 
-        return $this->service->updateStep($record, $values, $user);
+        $record = $this->service->updateStep($record, $values, $user);
+        $this->service->logRecord($record, 'result', $user);
+
+        return $record;
     }
 
     /**

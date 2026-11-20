@@ -27,7 +27,7 @@ class EntryModeController extends Controller
         if ($mode === null) {
             Gate::authorize('undo', PassportStepRecord::class);
         }
-        $workflow->updateEntryMode($passport, $mode === null ? null : EntryMode::from($mode));
+        $workflow->updateEntryMode($passport, $mode === null ? null : EntryMode::from($mode), $request->user());
 
         return new PassportEntryResource($passport->load(PassportEntryResource::RELATIONS));
     }

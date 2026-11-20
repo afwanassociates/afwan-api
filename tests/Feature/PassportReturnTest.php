@@ -185,7 +185,7 @@ describe('returning a passport', function () {
         $this->postJson("/api/data-entry/passports/{$visa->id}/steps/flight/booking", ['booking_date' => '2026-05-20'])
             ->assertUnprocessable()->assertJsonPath('code', 'passport_returned');
 
-        $this->patchJson("/api/data-entry/passports/{$entered->id}/medical-slip", ['medical_slip_date' => '2026-04-20'])
+        $this->patchJson("/api/data-entry/passports/{$entered->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-20'], $entered->id))
             ->assertUnprocessable()->assertJsonPath('code', 'passport_returned');
 
         expect($visa->fresh()->stage_status)->toBe('in_process')

@@ -9,6 +9,7 @@ use App\Models\Country;
 use App\Models\MedicalCenter;
 use App\Models\MedicalRecord;
 use App\Models\Party;
+use App\Models\PassportActivity;
 use App\Models\PassportEntry;
 use App\Models\PassportReturn;
 use App\Models\PassportStepRecord;
@@ -95,6 +96,8 @@ beforeEach(function () {
 
     // The passport's recruitment agent: the assignment goes, the agent (a lookup list) stays.
     approveAgentFor($this->passport);
+    // Who did what on the passport (history actions) goes with it.
+    PassportActivity::record($this->passport, 'medical', 'entry_mode', 'Marked Online', [], $dataEntry);
 
     // A cash receipt that pays for the passport: the receipt stays, the link goes.
     $receipt = CashReceipt::factory()->create(['party_id' => $this->passport->reference_id]);
@@ -169,6 +172,7 @@ it('prints the KEEP and CLEAR lists with their row counts', function () {
             ['CLEAR', 'cash_receipt_passports', 1],
             ['CLEAR', 'cash_receipt_lines', 1],
             ['CLEAR', 'passport_agent_assignments', 1],
+            ['CLEAR', 'passport_activities', 1],
             ['CLEAR', 'passport_step_records', 2],
             ['CLEAR', 'medical_records', 1],
             ['CLEAR', 'passport_entries', 1],

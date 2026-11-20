@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\AgentAssignmentStatus;
 use App\Enums\AgentCountDecision;
+use App\Models\PassportActivity;
 use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
 use App\Models\RecruitmentAgent;
@@ -21,6 +22,8 @@ use Illuminate\Validation\ValidationException;
  *
  * Approving a change ends the old agent's assignment and asks the accounts head
  * whether the passport still counts for the old agent (count_decision waiting).
+ *   the operations head undoes an approval      → pending again (approve or return it)
+ *
  * Nothing is ever deleted.
  */
 class AgentAssignmentService
@@ -83,7 +86,7 @@ class AgentAssignmentService
                 }
             }
 
-            return PassportAgentAssignment::query()->create([
+            $assignment = PassportAgentAssignment::query()->create([
                 'passport_entry_id' => $locked->id,
                 'recruitment_agent_id' => $agent->id,
                 'assigned_date' => $date,
@@ -91,6 +94,9 @@ class AgentAssignmentService
                 'status' => AgentAssignmentStatus::Pending,
                 'assigned_by' => $user->id,
             ]);
+            $this->log($assignment, $current ? 'agent_change' : 'agent_assign', $current ? 'Agent change sent for approval' : 'Agent assigned (waiting for approval)', $user, $remark);
+
+            return $assignment;
         });
     }
 
@@ -124,8 +130,75 @@ class AgentAssignmentService
                     'count_decision' => AgentCountDecision::Waiting,
                 ])->save();
             }
+            $this->log($locked, 'agent_approve', 'Agent approved', $user);
 
             return $locked;
+        });
+    }
+
+    /**
+     * Why the passport's current agent approval can't be undone now, or null when it can.
+     * The first agent only until the medical slip is issued (every step after that needs an
+     * approved agent); an agent change until the accounts head has decided about the old agent.
+     */
+    public function undoApprovalBlocker(PassportEntry $passport, ?PassportAgentAssignment $current): ?string
+    {
+        if ($current === null || ! $current->isCurrent()) {
+            return 'This passport has no approved agent.';
+        }
+        if ($passport->isReturned()) {
+            return 'This passport is returned to its owner.';
+        }
+
+        $old = PassportAgentAssignment::query()->where('replaced_by_id', $current->id)->first();
+        if ($old === null) {
+            return $passport->medical_slip_date !== null
+                ? 'The medical slip is already issued with this agent. Change the agent instead.'
+                : null;
+        }
+
+        return $old->count_decision !== AgentCountDecision::Waiting
+            ? 'The accounts head has already decided about the previous agent. Change the agent instead.'
+            : null;
+    }
+
+    /**
+     * Undo the approval of the passport's current agent: it goes back to "waiting for
+     * approval" (the operations head approves it again or returns it for correction). An
+     * agent change gives the passport back to the previous agent until then.
+     *
+     * @throws ValidationException
+     */
+    public function undoApproval(PassportEntry $passport, User $user): PassportAgentAssignment
+    {
+        return DB::transaction(function () use ($passport, $user) {
+            $locked = PassportEntry::query()->lockForUpdate()->findOrFail($passport->id);
+            $current = PassportAgentAssignment::query()
+                ->where('passport_entry_id', $locked->id)
+                ->current()
+                ->lockForUpdate()
+                ->first();
+
+            if ($reason = $this->undoApprovalBlocker($locked, $current)) {
+                $this->fail('assignment', $reason);
+            }
+
+            PassportAgentAssignment::query()->where('replaced_by_id', $current->id)->update([
+                'replaced_by_id' => null,
+                'ended_date' => null,
+                'count_decision' => null,
+            ]);
+
+            $current->forceFill([
+                'status' => AgentAssignmentStatus::Pending,
+                'approved_by' => null,
+                'approved_at' => null,
+                'approval_undone_by' => $user->id,
+                'approval_undone_at' => now(),
+            ])->save();
+            $this->log($current, 'agent_approve_undo', 'Agent approval undone (waiting for approval)', $user);
+
+            return $current;
         });
     }
 
@@ -145,6 +218,7 @@ class AgentAssignmentService
                 'returned_at' => now(),
                 'return_reason' => $reason,
             ])->save();
+            $this->log($locked, 'agent_return', 'Agent returned for correction', $user, $reason);
 
             return $locked;
         });
@@ -197,6 +271,20 @@ class AgentAssignmentService
         }
 
         return ['updated' => $updated, 'skipped' => $skipped];
+    }
+
+    /**
+     * The assignment's action in the passport history.
+     */
+    private function log(PassportAgentAssignment $assignment, string $action, string $title, User $user, ?string $remarks = null): void
+    {
+        $agent = $assignment->agent()->first();
+
+        PassportActivity::record($assignment->passport_entry_id, 'passport', $action, $title, [
+            ['label' => 'Agent', 'value' => $agent?->name],
+            ['label' => 'RL number', 'value' => $agent?->rl_number],
+            ['label' => 'Assigned date', 'value' => $assignment->assigned_date?->toDateString(), 'type' => 'date'],
+        ], $user, $remarks);
     }
 
     /**

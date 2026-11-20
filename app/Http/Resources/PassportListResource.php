@@ -27,6 +27,14 @@ class PassportListResource extends PassportEntryResource
     }
 
     /**
+     * Lists never undo an agent approval (it is on the passport page), and skip its query.
+     */
+    protected function canUndoAgentApproval(Request $request): bool
+    {
+        return false;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     protected function scanFields(): array

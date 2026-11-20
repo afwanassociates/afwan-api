@@ -21,7 +21,24 @@ use Illuminate\Support\Collection;
 class AgentReport
 {
     /** Where a passport is, in report order. */
-    public const BUCKETS = ['not_started', 'medical_pending', 'fit', 'unfit', 'calling_onwards', 'returned'];
+    public const BUCKETS = ['not_started', 'medical_pending', 'fit', 'unfit', 'calling', 'visa', 'bmet', 'flight', 'completed', 'returned'];
+
+    /** Names of the buckets (as on the report page). */
+    public const BUCKET_LABELS = [
+        'not_started' => 'No slip yet',
+        'medical_pending' => 'Medical pending',
+        'fit' => 'Fit',
+        'unfit' => 'Unfit',
+        'calling' => 'Calling',
+        'visa' => 'Visa',
+        'bmet' => 'BMET',
+        'flight' => 'Flight pending',
+        'completed' => 'Flight done',
+        'returned' => 'Returned',
+    ];
+
+    /** Record steps with their own bucket (the passport's current stage). */
+    private const STEP_BUCKETS = ['calling', 'visa', 'bmet', 'flight', 'completed'];
 
     /**
      * The bucket of a passport (from its stage, kept by WorkflowService::recompute).
@@ -37,7 +54,10 @@ class AgentReport
             $passport->current_stage === 'medical' && $passport->stage_status === 'pending' => 'medical_pending',
             $passport->current_stage === 'medical' && $passport->stage_status === 'fit' => 'fit',
             $passport->current_stage === 'medical' && $passport->stage_status === 'unfit' => 'unfit',
-            default => 'calling_onwards',
+            // Fit but expired (still at Medical): with the fit ones.
+            $passport->current_stage === 'medical' => 'fit',
+            in_array($passport->current_stage, self::STEP_BUCKETS, true) => $passport->current_stage,
+            default => 'calling',
         };
     }
 

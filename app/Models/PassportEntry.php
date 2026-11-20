@@ -227,6 +227,16 @@ class PassportEntry extends Model
     }
 
     /**
+     * Who did what on this passport (the history's actions), oldest first.
+     *
+     * @return HasMany<PassportActivity, $this>
+     */
+    public function activities(): HasMany
+    {
+        return $this->hasMany(PassportActivity::class)->oldest('id');
+    }
+
+    /**
      * Whether the passport is returned to its owner (out of every working list).
      */
     public function isReturned(): bool

@@ -278,8 +278,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/agent-approvals', [AgentApprovalController::class, 'index'])->name('agent-approvals.index');
         Route::get('/agent-approvals/summary', [AgentApprovalController::class, 'summary'])->name('agent-approvals.summary');
         Route::post('/agent-approvals/bulk-approve', [AgentApprovalController::class, 'bulkApprove'])->name('agent-approvals.bulk-approve');
+        // Reference-wise: the references waiting, and approve all of one reference.
+        Route::get('/agent-approvals/references', [AgentApprovalController::class, 'references'])->name('agent-approvals.references');
+        Route::post('/agent-approvals/approve-reference', [AgentApprovalController::class, 'approveReference'])->name('agent-approvals.approve-reference');
         Route::post('/agent-approvals/{assignment}/approve', [AgentApprovalController::class, 'approve'])->name('agent-approvals.approve');
         Route::post('/agent-approvals/{assignment}/return', [AgentApprovalController::class, 'sendBack'])->name('agent-approvals.return');
+        // Passport page: undo the approval of the passport's agent (back to waiting for approval).
+        Route::post('/passports/{passport}/agent-approval/undo', [AgentApprovalController::class, 'undo'])->name('passports.agent-approval.undo');
     });
 
     // The money summary on the dashboard: the accounts head, admin and super admin
@@ -370,9 +375,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/recruitment-agents/{recruitmentAgent}', [AgentPaymentsController::class, 'show'])->name('recruitment-agents.show');
     });
 
-    // The recruitment agent report (passport counts, no money): the operations head and the
-    // accounts head (RecruitmentAgentPolicy "viewReport").
-    Route::prefix('agent-report')->name('agent-report.')->middleware('role:operation_head,accounts_head')->group(function () {
+    // The recruitment agent report (passport counts, no money): the operations head, the
+    // accounts head and data entry (RecruitmentAgentPolicy "viewReport").
+    Route::prefix('agent-report')->name('agent-report.')->middleware('role:operation_head,accounts_head,data_entry')->group(function () {
         Route::get('/', [AgentReportController::class, 'index'])->name('index');
         Route::get('/{agent}/passports', [AgentReportController::class, 'passports'])
             ->where('agent', 'none|[0-9]+')->name('passports');

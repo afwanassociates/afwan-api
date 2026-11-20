@@ -62,6 +62,7 @@ class StepRecordController extends Controller
         Gate::authorize('update', $stepRecord);
 
         $record = $this->service->updateStep($stepRecord, $request->recordData(), $request->user());
+        $this->service->logRecord($record, 'edit', $request->user());
 
         return $this->respond($record, $record->passportEntry()->withTrashed()->firstOrFail());
     }

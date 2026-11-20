@@ -31,6 +31,7 @@ class PassportAgentAssignment extends Model
             'status' => AgentAssignmentStatus::class,
             'count_decision' => AgentCountDecision::class,
             'approved_at' => 'datetime',
+            'approval_undone_at' => 'datetime',
             'returned_at' => 'datetime',
             'decided_at' => 'datetime',
         ];
@@ -105,6 +106,14 @@ class PassportAgentAssignment extends Model
     public function approver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function approvalUndoer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approval_undone_by');
     }
 
     /**

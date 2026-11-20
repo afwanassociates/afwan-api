@@ -6,6 +6,7 @@ use App\Http\Resources\Concerns\HasScanFields;
 use App\Models\MedicalRecord;
 use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
+use App\Services\AgentAssignmentService;
 use App\Support\Workflow;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -123,8 +124,21 @@ class PassportEntryResource extends JsonResource
                 'undo_return' => $request->user()?->can('undoReturn', $this->resource) ?? false,
                 'assign_agent' => $request->user()?->can('assign', [PassportAgentAssignment::class, $this->resource]) ?? false,
                 'cancel_medical_result' => $request->user()?->can('cancelMedicalResult', $this->resource) ?? false,
+                'undo_agent_approval' => $this->canUndoAgentApproval($request),
             ],
         ];
+    }
+
+    /**
+     * The operations head can undo the current agent's approval (passport page only).
+     */
+    protected function canUndoAgentApproval(Request $request): bool
+    {
+        if (! $this->relationLoaded('currentAgentAssignment') || ! ($request->user()?->can('undoApproval', [PassportAgentAssignment::class, $this->resource]) ?? false)) {
+            return false;
+        }
+
+        return app(AgentAssignmentService::class)->undoApprovalBlocker($this->resource, $this->currentAgentAssignment) === null;
     }
 
     /**

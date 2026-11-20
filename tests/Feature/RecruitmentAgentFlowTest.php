@@ -250,3 +250,19 @@ describe('choosing the agent when adding a passport', function () {
             ->assigned_date->toDateString()->toBe('2026-05-01');
     });
 });
+
+describe('the agent report', function () {
+    it('counts the passports of each agent per step, entry to flight', function () {
+        $agent = raPartner();
+        raWithAgent(raBmetPassport(cleared: false), $agent); // at BMET
+        raWithAgent(raBmetPassport(), $agent); // BMET cleared: at Flight
+        raWithAgent(PassportEntry::factory()->create(), $agent); // no slip yet
+
+        Sanctum::actingAs(User::factory()->operationHead()->create());
+        $row = collect($this->getJson('/api/agent-report')->assertOk()->json('data.agents'))->firstWhere('id', $agent->id);
+
+        expect($row['buckets'])->toMatchArray(['not_started' => 1, 'bmet' => 1, 'flight' => 1, 'calling' => 0, 'visa' => 0, 'completed' => 0])
+            ->and($this->getJson('/api/agent-report')->json('data.buckets'))
+            ->toBe(['not_started', 'medical_pending', 'fit', 'unfit', 'calling', 'visa', 'bmet', 'flight', 'completed', 'returned']);
+    });
+});

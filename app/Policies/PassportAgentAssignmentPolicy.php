@@ -33,6 +33,14 @@ class PassportAgentAssignmentPolicy
     }
 
     /**
+     * Undo the approval of the passport's agent (back to waiting for approval).
+     */
+    public function undoApproval(User $user, PassportEntry $passport): bool
+    {
+        return $user->hasRole(UserRole::OperationHead) && ! $passport->isReturned();
+    }
+
+    /**
      * The Agent Changes list and its Yes / No.
      */
     public function decide(User $user): bool

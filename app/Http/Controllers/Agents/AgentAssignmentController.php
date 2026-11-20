@@ -29,7 +29,7 @@ class AgentAssignmentController extends Controller
     {
         Gate::authorize('view', $passport);
 
-        $rows = $passport->agentAssignments()->with(['agent', 'assigner', 'approver', 'returner', 'decider'])->get()
+        $rows = $passport->agentAssignments()->with(['agent', 'assigner', 'approver', 'approvalUndoer', 'returner', 'decider'])->get()
             // "counted" needs the passport: it is the same one for every row.
             ->each(fn (PassportAgentAssignment $row) => $row->setRelation('passportEntry', $passport));
 

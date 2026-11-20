@@ -8,6 +8,7 @@ use App\Enums\MedicalStatus;
 use App\Enums\StepStatus;
 use App\Exceptions\WorkflowException;
 use App\Models\MedicalRecord;
+use App\Models\PassportActivity;
 use App\Models\PassportEntry;
 use App\Models\PassportStepRecord;
 use App\Models\User;
@@ -163,9 +164,9 @@ class WorkflowService
      *
      * @throws ValidationException
      */
-    public function updateEntryMode(PassportEntry $passport, ?EntryMode $mode): PassportEntry
+    public function updateEntryMode(PassportEntry $passport, ?EntryMode $mode, ?User $actor = null): PassportEntry
     {
-        return DB::transaction(function () use ($passport, $mode) {
+        return DB::transaction(function () use ($passport, $mode, $actor) {
             $locked = $this->lock($passport);
             $first = $this->workflow->recordStepKeys()[0] ?? null;
 
@@ -184,6 +185,10 @@ class WorkflowService
             // Query builder update: the mark is not an edit of the passport details.
             PassportEntry::withTrashed()->whereKey($locked->id)->toBase()->update(['entry_mode' => $mode?->value]);
             $passport->setAttribute('entry_mode', $mode)->syncOriginalAttribute('entry_mode');
+
+            if ($actor !== null) {
+                $this->log($locked, 'medical', $mode ? 'entry_mode' : 'entry_mode_undo', $mode ? 'Marked '.$mode->label() : 'Online mark undone', $actor);
+            }
 
             return $this->recompute($passport);
         });
@@ -212,6 +217,7 @@ class WorkflowService
             $record->deleted_by = $actor->id;
             $record->save();
             $record->delete();
+            $this->log($passport, $record->step_key, 'delete', $this->workflow->label($record->step_key).' record deleted', $actor, $record);
 
             return $this->recompute($passport);
         });
@@ -260,10 +266,12 @@ class WorkflowService
                     'details' => $details === [] ? null : $details,
                     'updated_by' => $actor->id,
                 ])->save();
+                $this->log($locked, $step, 'undo', 'Undo visa result (back to Visa submitted)', $actor);
             } else {
                 $record->deleted_by = $actor->id;
                 $record->save();
                 $record->delete();
+                $this->log($locked, $step, 'undo', 'Undo '.$this->workflow->label($step).' ('.$record->status->label($step).' cancelled)', $actor);
             }
 
             $this->ensureInOrder($locked);
@@ -413,6 +421,7 @@ class WorkflowService
                 }
 
                 $record = $this->updateStep($open, $data, $actor);
+                $this->log($locked, $step, 'update', $this->workflow->label($step).': '.$record->status->label($step), $actor, $record);
             } else {
                 if ($isFirst) {
                     $this->ensureReadyForFirstStep($locked);
@@ -457,6 +466,7 @@ class WorkflowService
 
             if ($open !== null) {
                 $record = $this->updateStep($open, ['step_date' => $date, 'details' => [...($open->details ?? []), $key => $date]], $actor);
+                $this->log($locked, $step, 'booking', $this->workflow->label($step).' booking date changed', $actor, $record);
             } else {
                 $record = new PassportStepRecord(['status' => StepStatus::InProcess, 'step_date' => $date, 'details' => [$key => $date]]);
                 $record->passport_entry_id = $locked->id;
@@ -498,6 +508,7 @@ class WorkflowService
             $open->deleted_by = $actor->id;
             $open->save();
             $open->delete();
+            $this->log($locked, $step, 'booking_clear', $this->workflow->label($step).' booking date cleared', $actor, $open);
 
             return $this->recompute($passport);
         });
@@ -545,6 +556,7 @@ class WorkflowService
                 'step_date' => $today,
                 'details' => [...($open->details ?? []), $confirmedKey => $today],
             ], $actor);
+            $this->log($locked, $step, 'confirm', $this->workflow->label($step).' confirmed', $actor, $record);
 
             $this->recompute($passport);
 
@@ -578,6 +590,7 @@ class WorkflowService
                 'step_date' => $details[$this->bookingKey($step)],
                 'details' => $details,
             ], $actor);
+            $this->log($locked, $step, 'confirm_undo', 'Undo '.$this->workflow->label($step).' confirmation', $actor, $record);
 
             $this->recompute($passport);
 
@@ -654,6 +667,7 @@ class WorkflowService
                     'step_date' => $date,
                     'details' => [...($open->details ?? []), 'start_date' => $open->detail('start_date') ?? $open->step_date->toDateString()],
                 ], $actor);
+                $this->log($locked, $step, $action, (string) $this->workflow->step($step)['complete_action']['label'], $actor, $record);
             } elseif ($open === null) {
                 $record = new PassportStepRecord([
                     'status' => StepStatus::InProcess,
@@ -671,6 +685,7 @@ class WorkflowService
                     'step_date' => min($open->step_date->toDateString(), $date),
                     'details' => [...($open->details ?? []), $milestone['field'] => $date],
                 ], $actor);
+                $this->log($locked, $step, $action, (string) $milestone['label'], $actor, $record);
             }
 
             $this->recompute($passport);
@@ -713,6 +728,7 @@ class WorkflowService
                 unset($details['start_date']);
 
                 $record = $this->updateStep($open, ['status' => StepStatus::InProcess, 'step_date' => $startDate, 'details' => $details], $actor);
+                $this->log($locked, $step, 'undo_'.$action, 'Undo '.$this->workflow->step($step)['complete_action']['label'], $actor);
             } else {
                 if ($open?->status === StepStatus::Completed) {
                     throw WorkflowException::milestoneLocked($milestone['label'], $label);
@@ -734,12 +750,55 @@ class WorkflowService
                 } else {
                     $record = $this->updateStep($open, ['details' => $details], $actor);
                 }
+                $this->log($locked, $step, 'undo_'.$action, 'Undo '.$milestone['label'], $actor);
             }
 
             $this->recompute($passport);
 
             return $record;
         });
+    }
+
+    /**
+     * Record a change of a step record in the passport history: "edit" (corrected) or
+     * "result" (its result saved).
+     */
+    public function logRecord(PassportStepRecord $record, string $action, User $actor): void
+    {
+        $label = $this->workflow->label($record->step_key);
+        $title = $action === 'edit' ? "{$label} edited" : "{$label}: ".$record->status->label($record->step_key);
+
+        $this->log($record->passport_entry_id, $record->step_key, $action, $title, $actor, $record);
+    }
+
+    /**
+     * Record an action of a step in the passport history.
+     */
+    protected function log(PassportEntry|int $passport, string $step, string $action, string $title, User $actor, ?PassportStepRecord $record = null): void
+    {
+        PassportActivity::record($passport, $step, $action, $title, $record ? $this->recordDetails($record) : [], $actor);
+    }
+
+    /**
+     * A step record's main dates and number, for the history.
+     *
+     * @return list<array{label: string, value: mixed, type: string}>
+     */
+    protected function recordDetails(PassportStepRecord $record): array
+    {
+        $details = [];
+        foreach ($this->workflow->step($record->step_key)['fields'] ?? [] as $field) {
+            $value = match (true) {
+                $field['in_details'] ?? false => $record->detail($field['name']),
+                $field['name'] === 'step_date' => $record->step_date?->toDateString(),
+                $field['name'] === 'valid_until' => $record->valid_until?->toDateString(),
+                $field['name'] === 'reference_no' => $record->reference_no,
+                default => null,
+            };
+            $details[] = ['label' => $field['label'], 'value' => $value, 'type' => $field['type'] ?? 'text'];
+        }
+
+        return $details;
     }
 
     /**

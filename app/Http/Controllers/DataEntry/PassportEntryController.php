@@ -10,6 +10,7 @@ use App\Http\Requests\DataEntry\UpdatePassportEntryRequest;
 use App\Http\Resources\PassportEntryResource;
 use App\Http\Resources\PassportListResource;
 use App\Http\Resources\PassportOverviewResource;
+use App\Models\PassportActivity;
 use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
 use App\Services\AgentAssignmentService;
@@ -20,6 +21,7 @@ use App\Support\Like;
 use App\Support\LocalDate;
 use App\Support\Normalize;
 use App\Support\PassportOverviewCsv;
+use App\Support\Workflow;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -199,6 +201,13 @@ class PassportEntryController extends Controller
             $passport->fill($request->safe()->except(['scan', 'recruitment_agent_id']));
             $passport->updated_by = $request->user()->id;
             $passport->save();
+
+            $changed = array_keys(array_diff_key($passport->getChanges(), array_flip(['updated_at', 'updated_by'])));
+            if ($changed !== []) {
+                PassportActivity::record($passport, Workflow::PASSPORT, 'edit', 'Passport details edited', [
+                    ['label' => 'Changed', 'value' => implode(', ', array_map(fn (string $key) => str($key)->replace('_id', '')->replace('_', ' ')->ucfirst()->toString(), $changed))],
+                ], $request->user());
+            }
 
             // A pending passport's status date is its received date.
             if ($passport->wasChanged('passport_received_date')) {

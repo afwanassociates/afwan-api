@@ -44,7 +44,7 @@ class RecruitmentAgentPolicy
      */
     public function viewReport(User $user): bool
     {
-        return $user->hasRole(UserRole::OperationHead, UserRole::AccountsHead);
+        return $user->hasRole(UserRole::OperationHead, UserRole::AccountsHead, UserRole::DataEntry);
     }
 
     /**

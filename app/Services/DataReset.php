@@ -36,7 +36,7 @@ class DataReset
         'passports' => [
             'label' => 'Passports & workflow',
             'description' => 'Passport entries, medical records, every workflow step, passport returns, which passports cash receipts paid for (the receipts stay), the passport price lines on the party ledgers, the recruitment agent assignments and the uploaded passport scans.',
-            'tables' => ['cash_receipt_passports', 'cash_receipt_lines', 'passport_agent_assignments', 'passport_step_records', 'medical_records', 'passport_returns', 'passport_entries'],
+            'tables' => ['cash_receipt_passports', 'cash_receipt_lines', 'passport_agent_assignments', 'passport_activities', 'passport_step_records', 'medical_records', 'passport_returns', 'passport_entries'],
             'scans' => true,
         ],
         'companies' => [

@@ -67,13 +67,13 @@ describe('passport entered mode', function () {
 
         expect(enteredIds())->toBe([$passport->id]);
 
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => '2026-04-30'])->assertOk();
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => '2026-04-30'], $passport->id))->assertOk();
 
         expect(enteredIds())->toBe([]);
 
         // Clearing the slip (no result yet; the operations head's undo) brings it back.
         Sanctum::actingAs(User::factory()->operationHead()->create());
-        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", ['medical_slip_date' => null])->assertOk();
+        $this->patchJson("/api/data-entry/passports/{$passport->id}/medical-slip", slipPayload(['medical_slip_date' => null], $passport->id))->assertOk();
 
         expect(enteredIds())->toBe([$passport->id]);
     });

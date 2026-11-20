@@ -5,7 +5,9 @@ namespace App\Services;
 use App\Enums\MedicalResult;
 use App\Enums\UserRole;
 use App\Exceptions\WorkflowException;
+use App\Models\MedicalCenter;
 use App\Models\MedicalRecord;
+use App\Models\PassportActivity;
 use App\Models\PassportAgentAssignment;
 use App\Models\PassportEntry;
 use App\Models\User;
@@ -57,6 +59,9 @@ class MedicalService
             // Query builder update: only the medical date changes, not updated_at or updated_by.
             PassportEntry::withTrashed()->whereKey($locked->id)->toBase()->update(['medical_date' => $medicalDate]);
             $passport->setAttribute('medical_date', $medicalDate)->syncOriginalAttribute('medical_date');
+            PassportActivity::record($locked, 'medical', 'medical_date', $locked->medical_date ? 'Medical date changed' : 'Medical date added', [
+                ['label' => 'Medical date', 'value' => $medicalDate, 'type' => 'date'],
+            ], $actor);
 
             return $passport;
         });
@@ -129,15 +134,17 @@ class MedicalService
      * not_started to pending. The date can be cleared only while no medical
      * result is recorded; clearing it also clears the medical date and centre
      * (the passport is back on the Passport Entry list). Nothing else on the
-     * passport changes.
+     * passport changes. The medical date can be saved with it (medical_date):
+     * locked once a result is recorded (the passport managers excepted, for a
+     * re-test), never cleared once a result exists.
      *
-     * @param  array{medical_slip_date: string|null, medical_center_id?: int|null}  $data
+     * @param  array{medical_slip_date: string|null, medical_center_id?: int|null, medical_date?: string|null}  $data
      *
      * @throws ValidationException when clearing the date after a result
      */
-    public function updateSlip(PassportEntry $passport, array $data): PassportEntry
+    public function updateSlip(PassportEntry $passport, array $data, ?User $actor = null): PassportEntry
     {
-        return DB::transaction(function () use ($passport, $data) {
+        return DB::transaction(function () use ($passport, $data, $actor) {
             $locked = $this->lock($passport);
 
             if ($data['medical_slip_date'] === null
@@ -153,7 +160,19 @@ class MedicalService
                 $this->assertApprovedAgent($locked);
             }
 
-            $values = array_intersect_key($data, array_flip(['medical_slip_date', 'medical_center_id']));
+            $values = array_intersect_key($data, array_flip(['medical_slip_date', 'medical_center_id', 'medical_date']));
+
+            // The medical date (saved with the slip): only when it changes.
+            if (array_key_exists('medical_date', $values)) {
+                if ($values['medical_date'] === $locked->medical_date?->toDateString()) {
+                    unset($values['medical_date']);
+                } elseif (MedicalRecord::query()->where('passport_entry_id', $locked->id)->exists()
+                    && ($values['medical_date'] === null || ! $actor?->hasRole(...UserRole::passportManagers()))) {
+                    throw ValidationException::withMessages([
+                        'medical_date' => 'The medical date cannot be changed once a medical result is recorded.',
+                    ]);
+                }
+            }
 
             // Clearing the slip sends the passport back to the Passport Entry list as it was
             // before the slip: no medical date or centre is left behind.
@@ -168,8 +187,34 @@ class MedicalService
                 $passport->setAttribute($column, $value)->syncOriginalAttribute($column);
             }
 
+            $this->logSlip($locked, $data, $actor);
+
             return $this->workflow->recompute($passport);
         });
+    }
+
+    /**
+     * The slip in the passport history: added, edited or cleared (back to Passport Entry).
+     * $locked holds the values before the change.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    protected function logSlip(PassportEntry $locked, array $data, ?User $actor): void
+    {
+        if ($data['medical_slip_date'] === null) {
+            PassportActivity::record($locked, 'medical', 'slip_clear', 'Medical slip cleared (back to Passport Entry)', [], $actor);
+
+            return;
+        }
+
+        $centerId = array_key_exists('medical_center_id', $data) ? $data['medical_center_id'] : $locked->medical_center_id;
+        $medicalDate = array_key_exists('medical_date', $data) ? $data['medical_date'] : $locked->medical_date?->toDateString();
+
+        PassportActivity::record($locked, 'medical', $locked->medical_slip_date ? 'slip_edit' : 'slip', $locked->medical_slip_date ? 'Medical slip edited' : 'Medical slip added', [
+            ['label' => 'Medical slip date', 'value' => $data['medical_slip_date'], 'type' => 'date'],
+            ['label' => 'Medical date', 'value' => $medicalDate, 'type' => 'date'],
+            ['label' => 'Medical center', 'value' => $centerId ? MedicalCenter::withTrashed()->find($centerId)?->name : null],
+        ], $actor);
     }
 
     /**
@@ -224,6 +269,11 @@ class MedicalService
 
             $record->updated_by = $actor->id;
             $record->save();
+            PassportActivity::record($passport, 'medical', 'medical_edit', 'Medical '.$record->result->label().' edited', [
+                ['label' => 'Medical date', 'value' => $record->medical_date?->toDateString(), 'type' => 'date'],
+                ['label' => 'Issue date', 'value' => $record->issue_date?->toDateString(), 'type' => 'date'],
+                ['label' => 'Valid until', 'value' => $record->valid_until?->toDateString(), 'type' => 'date'],
+            ], $actor);
 
             $this->workflow->ensureInOrder($passport);
             $this->workflow->recompute($passport);
@@ -249,6 +299,7 @@ class MedicalService
             $record->deleted_by = $actor->id;
             $record->save();
             $record->delete();
+            PassportActivity::record($passport, 'medical', 'medical_delete', 'Medical '.$record->result->label().' deleted', [], $actor);
 
             $this->workflow->ensureInOrder($passport);
 
