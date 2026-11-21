@@ -32,6 +32,12 @@ class StorePassportEntryRequest extends FormRequest
                 $this->merge([$field => Normalize::$normalizer($this->input($field))]);
             }
         }
+        // The personal data page: uppercase like the passport, and empty means none.
+        foreach (['father_name', 'mother_name', 'permanent_address'] as $field) {
+            if (is_string($this->input($field))) {
+                $this->merge([$field => Normalize::passportName($this->input($field)) ?: null]);
+            }
+        }
     }
 
     /**
@@ -54,6 +60,10 @@ class StorePassportEntryRequest extends FormRequest
             'passport_received_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
             // Valid for at least the "Minimum passport validity" date rule after it is received.
             'passport_expiry_date' => ['required', 'date_format:Y-m-d', $this->minimumValidity()],
+            // The personal data page (optional: old entries have none).
+            'father_name' => ['nullable', 'string', 'max:150'],
+            'mother_name' => ['nullable', 'string', 'max:150'],
+            'permanent_address' => ['nullable', 'string', 'max:255'],
             // The passport scan copy (multipart): JPG, PNG or PDF up to 5 MB.
             'scan' => PassportScanFile::rules(required: true),
             // Adding only: the recruitment agent, sent to the operations head for approval

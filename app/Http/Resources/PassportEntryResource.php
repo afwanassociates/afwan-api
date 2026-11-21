@@ -56,6 +56,10 @@ class PassportEntryResource extends JsonResource
             'date_of_birth' => $this->date_of_birth?->toDateString(),
             'passport_received_date' => $this->passport_received_date->toDateString(),
             'passport_expiry_date' => $this->passport_expiry_date?->toDateString(),
+            // The personal data page (null on old entries).
+            'father_name' => $this->father_name,
+            'mother_name' => $this->mother_name,
+            'permanent_address' => $this->permanent_address,
             // Null only on old entries saved without a reference.
             'reference' => $this->reference ? [
                 'id' => $this->reference->id,

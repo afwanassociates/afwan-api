@@ -40,7 +40,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 #[Hidden(['scan_path', 'price', 'price_source'])]
 #[Fillable([
     'passport_name', 'passport_number', 'country_code', 'date_of_birth', 'reference_id', 'company_id',
-    'passport_received_date', 'passport_expiry_date',
+    'passport_received_date', 'passport_expiry_date', 'father_name', 'mother_name', 'permanent_address',
 ])]
 class PassportEntry extends Model
 {
