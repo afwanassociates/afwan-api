@@ -1,0 +1,215 @@
+<?php
+
+namespace App\Http\Requests\DataEntry;
+
+use App\Enums\MedicalStatus;
+use App\Enums\PartyType;
+use App\Models\Company;
+use App\Models\PassportEntry;
+use App\Rules\ActiveCountry;
+use App\Rules\PassportScanFile;
+use App\Support\DateRules;
+use App\Support\LocalDate;
+use App\Support\Normalize;
+use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Database\Query\Builder;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Carbon;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Exists;
+use Illuminate\Validation\Rules\Unique;
+
+class StorePassportEntryRequest extends FormRequest
+{
+    /**
+     * Normalize before validating, so the format and uniqueness checks see
+     * the value that will be stored.
+     */
+    protected function prepareForValidation(): void
+    {
+        foreach (['passport_number' => 'passportNumber', 'passport_name' => 'passportName', 'country_code' => 'countryCode'] as $field => $normalizer) {
+            if (is_string($this->input($field))) {
+                $this->merge([$field => Normalize::$normalizer($this->input($field))]);
+            }
+        }
+        // The personal data page: uppercase like the passport, and empty means none.
+        foreach (['father_name', 'mother_name', 'permanent_address'] as $field) {
+            if (is_string($this->input($field))) {
+                $this->merge([$field => Normalize::passportName($this->input($field)) ?: null]);
+            }
+        }
+    }
+
+    /**
+     * Get the validation rules that apply to the request.
+     *
+     * @return array<string, array<int, ValidationRule|string>>
+     */
+    public function rules(): array
+    {
+        return [
+            'passport_name' => ['required', 'string', 'max:150'],
+            'passport_number' => ['required', 'string', 'regex:/^[A-Z0-9]{6,20}$/', $this->uniquePassportNumber()],
+            'country_code' => ['required', 'string', 'size:2', new ActiveCountry($this->entry()?->country_code)],
+            // In the past, and at least the "Minimum age" date rule (years) ago.
+            'date_of_birth' => ['required', 'date_format:Y-m-d', 'before:today', ...$this->minimumAge()],
+            // Required (must exist and be active). Old entries saved without one
+            // still load; the full edit form asks for it on the next save.
+            'reference_id' => ['required', 'integer', $this->selectableReference($this->entry()?->reference_id)],
+            'company_id' => ['required', 'integer', $this->selectable('companies', $this->entry()?->company_id)],
+            'passport_received_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
+            // Valid for at least the "Minimum passport validity" date rule after it is received.
+            'passport_expiry_date' => ['required', 'date_format:Y-m-d', $this->minimumValidity()],
+            // The personal data page (optional: old entries have none).
+            'father_name' => ['nullable', 'string', 'max:150'],
+            'mother_name' => ['nullable', 'string', 'max:150'],
+            'permanent_address' => ['nullable', 'string', 'max:255'],
+            // The passport scan copy (multipart): JPG, PNG or PDF up to 5 MB.
+            'scan' => PassportScanFile::rules(required: true),
+            // Adding only: the recruitment agent, sent to the operations head for approval
+            // (edits change the agent from the passport page).
+            'recruitment_agent_id' => $this->entry() ? ['exclude'] : ['sometimes', 'nullable', 'integer'],
+        ];
+    }
+
+    /**
+     * Get custom messages for validator errors.
+     *
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'passport_number.unique' => $this->duplicatePassportNumberMessage(),
+            'passport_number.regex' => 'The passport number must be 6 to 20 letters and digits.',
+            'reference_id.required' => 'Please choose a reference.',
+            'scan.required' => 'Please upload the passport scan copy.',
+            'scan.mimes' => 'The scan must be a JPG, PNG or PDF file.',
+            'scan.max' => 'The scan may not be larger than 5 MB.',
+            'reference_id.exists' => 'The selected reference does not exist or is inactive.',
+            'company_id.exists' => 'The selected company does not exist or is inactive.',
+            'passport_received_date.before_or_equal' => 'The passport received date cannot be in the future.',
+            'date_of_birth.before' => 'The date of birth must be in the past.',
+            'passport_expiry_date.after' => 'The passport expiry date must be after the passport received date.',
+            'date_of_birth.before_or_equal' => 'The person must be at least '.$this->dateRules()->get(DateRules::MINIMUM_AGE_YEARS, $this->companyCountry()).' years old.',
+            'passport_expiry_date.after_or_equal' => 'The passport must be valid for at least '.$this->dateRules()->get(DateRules::PASSPORT_MIN_VALIDITY_MONTHS, $this->companyCountry()).' months after the received date.',
+        ];
+    }
+
+    /**
+     * Say where the existing entry is, so staff can find it, without revealing
+     * anything else about it.
+     */
+    protected function duplicatePassportNumberMessage(): string
+    {
+        $number = $this->input('passport_number');
+        $existing = is_string($number) && $number !== ''
+            ? PassportEntry::withTrashed()
+                ->with('currentMedical')
+                ->where('passport_number', $number)
+                ->when($this->entry(), fn ($query, PassportEntry $entry) => $query->whereKeyNot($entry->id))
+                ->first(['id', 'current_medical_id', 'deleted_at'])
+            : null;
+
+        $location = match (true) {
+            $existing === null => null,
+            $existing->trashed() => 'it is in the deleted records',
+            $existing->medicalStatus() === MedicalStatus::Unfit => 'it is in the Unfit list',
+            default => 'it is in the Passport Entry List',
+        };
+
+        return $location === null
+            ? 'This passport number is already entered.'
+            : "This passport number is already entered ({$location}).";
+    }
+
+    protected function dateRules(): DateRules
+    {
+        return app(DateRules::class);
+    }
+
+    /** @var array{0: string|null}|null */
+    private ?array $companyCountry = null;
+
+    /**
+     * The country of the company being sent (or, when editing without sending one, the
+     * entry's): its own date rules apply.
+     */
+    protected function companyCountry(): ?string
+    {
+        if ($this->companyCountry === null) {
+            $id = $this->input('company_id', $this->entry()?->company_id);
+            $this->companyCountry = [is_numeric($id) ? Company::query()->whereKey((int) $id)->value('country_code') : null];
+        }
+
+        return $this->companyCountry[0];
+    }
+
+    /**
+     * Born on or before today minus the minimum age (none when the rule is 0).
+     *
+     * @return list<string>
+     */
+    protected function minimumAge(): array
+    {
+        $years = $this->dateRules()->get(DateRules::MINIMUM_AGE_YEARS, $this->companyCountry());
+
+        return $years > 0 ? ['before_or_equal:'.LocalDate::today()->subYearsNoOverflow($years)->toDateString()] : [];
+    }
+
+    /**
+     * On or after the received date + the minimum validity in months (no overflow:
+     * 31 Aug + 18 months = 28/29 Feb). Uses the received date being sent, or (when
+     * editing without sending it) the entry's current one.
+     */
+    protected function minimumValidity(): string
+    {
+        $received = $this->input('passport_received_date', $this->entry()?->passport_received_date?->toDateString());
+
+        if (! is_string($received) || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $received) || ! strtotime($received)) {
+            return 'after:passport_received_date';
+        }
+
+        return 'after_or_equal:'.Carbon::parse($received)->addMonthsNoOverflow($this->dateRules()->get(DateRules::PASSPORT_MIN_VALIDITY_MONTHS, $this->companyCountry()))->toDateString();
+    }
+
+    /**
+     * Unique among all entries, soft-deleted ones included.
+     */
+    protected function uniquePassportNumber(): Unique
+    {
+        return Rule::unique('passport_entries', 'passport_number')->ignore($this->entry());
+    }
+
+    /**
+     * The row must exist and be active (not deactivated, not deleted). When
+     * editing, the entry's current value is still accepted.
+     */
+    protected function selectable(string $table, ?int $current): Exists
+    {
+        return Rule::exists($table, 'id')->where(fn (Builder $query) => $query
+            ->where(fn (Builder $query) => $query->where('is_active', true)->whereNull('deleted_at'))
+            ->when($current, fn (Builder $query) => $query->orWhere('id', $current)));
+    }
+
+    /**
+     * An active client party (agency or person), or the one the entry already
+     * has. Parties are never deleted.
+     */
+    protected function selectableReference(?int $current): Exists
+    {
+        return Rule::exists('parties', 'id')->where(fn (Builder $query) => $query
+            ->where('type', PartyType::Client->value)
+            ->where(fn (Builder $query) => $query
+                ->where('is_active', true)
+                ->when($current, fn (Builder $query) => $query->orWhere('id', $current))));
+    }
+
+    /**
+     * The entry being edited, or null when creating.
+     */
+    public function entry(): ?PassportEntry
+    {
+        return $this->route('passport');
+    }
+}
